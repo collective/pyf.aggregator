@@ -2,31 +2,34 @@ import json
 import logging
 import requests
 from lxml import html
-
-logger = logging.getLogger(__name__)
+from pyf.aggregator.logger import logger
 
 PLUGINS = []
 
 
 class Aggregator(object):
-    def __init__(self, pypi_base_url="https://pypi.org/", name_filter=None):
+    def __init__(self, pypi_base_url="https://pypi.org/", name_filter=None, limit=None):
         self.pypi_base_url = pypi_base_url
         self.name_filter = name_filter
+        self.limit = limit
 
     def __iter__(self):
         """ create all json for every package release """
-        for package_id in self.package_ids[:100]:
+        for num, package_id in enumerate(self.package_ids):
+            if self.limit is not None and num > self.limit:
+                break
             package_json = self.get_package(package_id)
             if not package_json or "releases" not in package_json:
                 continue
+            logging.info("PACKAGE: {0:5d}: {1}".format(num, package_id))
 
-            for release_id in package_json["releases"]:
+            for release_id in sorted(package_json["releases"]):
+                logging.info("- {0}".format(release_id))
                 package_json = self.get_package(package_id, release_id)
-                identifier, data = self._get_pypi(package_id, package_json,
-                                                  release_id)
+                identifier, data = self._get_pypi(package_id, package_json, release_id)
                 for plugin in PLUGINS:
                     plugin(identifier, data)
-                yield data
+                yield identifier, data
 
     @property
     def package_ids(self):
@@ -41,6 +44,8 @@ class Aggregator(object):
         if not result:
             raise ValueError("Empty result for {}".format(pypi_index_url))
 
+        logger.info("Got package list.")
+
         tree = html.fromstring(result)
         all_links = tree.xpath("//a")
 
@@ -49,7 +54,7 @@ class Aggregator(object):
             if self.name_filter and self.name_filter not in package_id:
                 continue
 
-            yield (package_id)
+            yield package_id
 
     def get_package(self, package_id, release_id=str()):
         """ get json for a package release """
@@ -60,7 +65,7 @@ class Aggregator(object):
 
         request_obj = requests.get(package_url)
         if not request_obj.status_code == 200:
-            print('Error on Package url "{}"'.format(package_url))
+            logger.warning('Error on Package url "{}"'.format(package_url))
 
         try:
             package_json = request_obj.json()

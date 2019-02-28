@@ -1,29 +1,25 @@
-import os
 from elasticsearch import Elasticsearch
 from elasticsearch_dsl import Mapping
-from config import PACKAGE_FIELD_MAPPING
-
-client = Elasticsearch([{"host": "localhost", "port": "9200"}])
+from pyf.aggregator.config import PACKAGE_FIELD_MAPPING
 
 
-def set_mapping(mapping_name, field_mapping):
-    mapping = Mapping(mapping_name)
-    for field_id, field_type in field_mapping.iteritems():
-        mapping.field(field_id, field_type)
-    mapping.save(index="packages", using=client)
+class Indexer(object):
+    def __init__(self):
+        self.client = Elasticsearch([{"host": "localhost", "port": "9200"}])
+        self.set_mapping("package", PACKAGE_FIELD_MAPPING)
 
+    def set_mapping(self, mapping_name, field_mapping):
+        mapping = Mapping(mapping_name)
+        for field_id in field_mapping:
+            mapping.field(field_id, field_mapping[field_id])
+        mapping.save(index="packages", using=self.client)
 
-def set_package_index():
-    for filename in os.listdir("data"):
-        with open("data/" + filename) as file_obj:
+    def __call__(self, aggregator):
+        for identifier, data in aggregator:
             index_keywords = {
                 "index": "packages",
                 "doc_type": "package",
-                "id": filename[:-5],
-                "body": file_obj.read(),
+                "id": identifier,
+                "body": data,
             }
-            client.index(**index_keywords)
-
-
-set_mapping('package', PACKAGE_FIELD_MAPPING)
-set_package_index()
+            self.client.index(**index_keywords)
