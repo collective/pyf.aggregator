@@ -20,6 +20,7 @@ PACKAGE_FIELD_MAPPING = {
     "maintainer": Text(),
     "maintainer_email": Text(),
     "name": Text(),
+    "name_sortable": Keyword(),
     "package_url": Text(),
     "platform": Text(),
     "project_url": Text(),
@@ -28,7 +29,7 @@ PACKAGE_FIELD_MAPPING = {
     "requires_dist": Text(),
     "requires_python": Text(),
     "summary": Text(),
-    "version": Text(),
+    "version": Keyword(),
     "urls": Nested(
         properties={
             "comment_text": Text(),

@@ -88,4 +88,5 @@ class Aggregator(object):
         for url in data["urls"]:
             del url["downloads"]
             del url["md5_digest"]
+        data['name_sortable'] = data['name']
         return identifier, json.dumps(data, indent=2)
