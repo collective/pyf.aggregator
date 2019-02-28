@@ -1,10 +1,7 @@
-from lxml import html
-
 import json
 import logging
-import os
 import requests
-
+from lxml import html
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +15,6 @@ class Aggregator(object):
 
     def __iter__(self):
         """ create all json for every package release """
-
         for package_id in self.package_ids[:100]:
             package_json = self.get_package(package_id)
             if not package_json or "releases" not in package_json:
@@ -26,7 +22,8 @@ class Aggregator(object):
 
             for release_id in package_json["releases"]:
                 package_json = self.get_package(package_id, release_id)
-                identifier, data = self._get_pypi(package_id, package_json, release_id)
+                identifier, data = self._get_pypi(package_id, package_json,
+                                                  release_id)
                 for plugin in PLUGINS:
                     plugin(identifier, data)
                 yield data
@@ -72,7 +69,8 @@ class Aggregator(object):
             print("ERROR", e)
             return None
 
-    def _get_pypi(self, package_id, package_json, release_id=str()):
+    @staticmethod
+    def _get_pypi(package_id, package_json, release_id=str()):
         # build file path
         identifier = package_id
         if release_id:
