@@ -86,11 +86,3 @@ class Aggregator(object):
             del url["downloads"]
             del url["md5_digest"]
         return identifier, json.dumps(data, indent=2)
-
-    def _create_packages_folder(self):
-        current_dir = os.path.dirname(os.path.realpath(__file__))
-        packages_dir = current_dir + "/" + self.packages_directory_name
-        if not os.path.exists(packages_dir):
-            os.makedirs(packages_dir)
-        return True
-
