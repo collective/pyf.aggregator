@@ -8,7 +8,6 @@ Welcome to pyf.aggregator’s documentation!
    readme
    installation
    usage
-   modules
    contributing
    authors
    history
