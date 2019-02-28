@@ -1,38 +1,70 @@
-import json
-import logging
-import requests
 from lxml import html
 from pyf.aggregator.logger import logger
+from pathlib import Path
+
+import requests
+import xmlrpc.client
+import time
 
 PLUGINS = []
 
 
 class Aggregator(object):
-    def __init__(self, pypi_base_url="https://pypi.org/", name_filter=None, limit=None):
+    def __init__(
+        self,
+        mode,
+        sincefile=".pyfaggregator",
+        pypi_base_url="https://pypi.org/",
+        name_filter=None,
+        limit=None,
+    ):
+        self.mode = mode
+        self.sincefile = sincefile
         self.pypi_base_url = pypi_base_url
         self.name_filter = name_filter
         self.limit = limit
 
     def __iter__(self):
         """ create all json for every package release """
-        for num, package_id in enumerate(self.package_ids):
-            if self.limit is not None and num > self.limit:
-                break
-            package_json = self.get_package(package_id)
-            if not package_json or "releases" not in package_json:
-                continue
-            logging.info("PACKAGE: {0:5d}: {1}".format(num, package_id))
-
-            for release_id in sorted(package_json["releases"]):
-                logging.info("- {0}".format(release_id))
-                package_json = self.get_package(package_id, release_id)
-                identifier, data = self._get_pypi(package_id, package_json, release_id)
-                for plugin in PLUGINS:
-                    plugin(identifier, data)
-                yield identifier, data
+        start = int(time.time())
+        filepath = Path(self.sincefile)
+        if self.mode == "first":
+            iterator = self._all_packages
+        elif self.mode == "incremental":
+            if not filepath.exists():
+                raise ValueError(
+                    "given since file does not exist {0}".format(self.sincefile)
+                )
+            with open(filepath) as fd:
+                since = int(fd.read())
+            iterator = self._package_updates(since)
+        with open(self.sincefile, "w") as fd:
+            fd.write(str(start))
+        count = 0
+        for package_id, release_id in iterator:
+            if self.limit and count > self.limit:
+                return
+            count += 1
+            identifier = "{0}-{1}".format(package_id, release_id)
+            data = self._get_pypi(package_id, release_id)
+            for plugin in PLUGINS:
+                plugin(identifier, data)
+            yield identifier, data
 
     @property
-    def package_ids(self):
+    def _all_packages(self):
+        for package_id in self._all_package_ids:
+            for release_id in self._all_package_versions(package_id):
+                yield package_id, release_id
+
+    def _all_package_versions(self, package_id):
+        package_json = self._get_pypi_json(package_id)
+        if package_json and "releases" in package_json:
+            for release_id in sorted(package_json["releases"]):
+                yield release_id
+
+    @property
+    def _all_package_ids(self):
         """ Get all package ids by pypi simple index """
         pypi_index_url = self.pypi_base_url + "/simple"
 
@@ -47,16 +79,32 @@ class Aggregator(object):
         logger.info("Got package list.")
 
         tree = html.fromstring(result)
-        all_links = tree.xpath("//a")
-
-        for link in all_links:
+        for link in tree.xpath("//a"):
             package_id = link.text
             if self.name_filter and self.name_filter not in package_id:
                 continue
-
             yield package_id
 
-    def get_package(self, package_id, release_id=str()):
+    def _package_updates(self, since):
+        """ Get all package ids by pypi updated after given time."""
+        client = xmlrpc.client.ServerProxy(self.pypi_base_url + "/pypi")
+        seen = set()
+        for package_id, release_id, ts, action in client.changelog(since):
+            if package_id in seen or (
+                self.name_filter and self.name_filter not in package_id
+            ):
+                continue
+            seen.update({package_id})
+            yield package_id, release_id
+
+    @property
+    def package_ids(self):
+        if self.mode == "first":
+            return self._all_packages
+        elif self.mode == "incremental":
+            return self._package_updates
+
+    def _get_pypi_json(self, package_id, release_id=""):
         """ get json for a package release """
         package_url = self.pypi_base_url + "/pypi/" + package_id
         if release_id:
@@ -65,22 +113,17 @@ class Aggregator(object):
 
         request_obj = requests.get(package_url)
         if not request_obj.status_code == 200:
-            logger.warning('Error on Package url "{}"'.format(package_url))
+            logger.warning('Error fetching URL "{}"'.format(package_url))
 
         try:
             package_json = request_obj.json()
             return package_json
-        except Exception as e:
-            print("ERROR", e)
+        except Exception:
+            logger.Exception('Error reading JSON from "{}"'.format(package_url))
             return None
 
-    @staticmethod
-    def _get_pypi(package_id, package_json, release_id=str()):
-        # build file path
-        identifier = package_id
-        if release_id:
-            identifier += "-" + release_id
-
+    def _get_pypi(self, package_id, release_id):
+        package_json = self._get_pypi_json(package_id, release_id)
         # restructure
         data = package_json["info"]
         data["urls"] = package_json["urls"]
@@ -88,5 +131,5 @@ class Aggregator(object):
         for url in data["urls"]:
             del url["downloads"]
             del url["md5_digest"]
-        data['name_sortable'] = data['name']
-        return identifier, json.dumps(data, indent=2)
+        data["name_sortable"] = data["name"]
+        return data

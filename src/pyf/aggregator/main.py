@@ -1,12 +1,37 @@
+# -*- coding: utf-8 -*-
+from argparse import ArgumentParser
 from pyf.aggregator.fetcher import Aggregator
 from pyf.aggregator.indexer import Indexer
 
-from pyf.aggregator.logger import logger
+import time
+
+
+parser = ArgumentParser(
+    description="Fetch information about pinned versions and its overrides in "
+    "simple and complex/cascaded buildouts."
+)
+parser.add_argument("-f", "--first", help="First fetch from PyPI", action="store_true")
+parser.add_argument(
+    "-i", "--incremental", help="Incremental fetch from PyPI", action="store_true"
+)
+parser.add_argument(
+    "-s",
+    "--sincefile",
+    help="File with timestamp of last run",
+    nargs="?",
+    type=str,
+    default=".pyaggregator.since",
+)
+parser.add_argument("--filter", nargs="?", type=str, default="")
+parser.add_argument("--limit", nargs="?", type=int, default=0)
 
 
 def main():
-    logger.info("Start ...")
-    agg = Aggregator(limit=100, name_filter="collective")
+    args = parser.parse_args()
+    mode = "incremental" if args.incremental else "first"
+    agg = Aggregator(
+        mode, sincefile=args.sincefile, name_filter=args.filter, limit=args.limit
+    )
     indexer = Indexer()
     indexer(agg)
 
