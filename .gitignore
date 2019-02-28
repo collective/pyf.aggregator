@@ -89,3 +89,10 @@ docs/_build/
 # PyBuilder
 target/
 
+# PyCharm
+.idea
+
+# Generated Test Data (temporary)
+elasticsearch-6.6.1
+data/
+.venv
