@@ -8,7 +8,7 @@ Quickstart
 ----------
 
 For detailed installation instructions, read the `docs
-<https://pyf.aggregator.readthedocs.io/en/latest/install.html>`_.
+<https://pyfaggregator.readthedocs.io/en/latest/installation.html>`_.
 
 License
 -------
