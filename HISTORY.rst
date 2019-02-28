@@ -2,8 +2,8 @@
 History
 =======
 
-v0.1.0 yyyy-mm-dd
------------------
+v1.0.0.dev0 yyyy-mm-dd
+----------------------
 
 * First release on PyPI.
 
