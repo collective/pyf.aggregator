@@ -84,6 +84,10 @@ class PyfAggregator(object):
         data = package_json['info']
         data['urls'] = package_json['urls']
         del data['downloads']
+        for url in data['urls']:
+            del url['downloads']
+            del url['md5_digest']
+
         # write file
         with open(file_path, "w") as file_obj:
             json.dump(data, file_obj, indent=2)
