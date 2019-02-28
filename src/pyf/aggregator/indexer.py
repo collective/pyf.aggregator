@@ -49,7 +49,7 @@ mapping.field(
             "requires_python": Text(),
             "size": Integer(),
             "upload_time": Date(),
-            "url": Text()
+            "url": Text(),
         }
     ),
 )

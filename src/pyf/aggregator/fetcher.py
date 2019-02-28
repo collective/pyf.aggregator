@@ -8,56 +8,51 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+PLUGINS = []
 
-class PyfAggregator(object):
 
-    pypi_base_url = "https://pypi.org/"
-    packages_directory_name = "data"
+class Aggregator(object):
+    def __init__(self, pypi_base_url="https://pypi.org/", name_filter=None):
+        self.pypi_base_url = pypi_base_url
+        self.name_filter = name_filter
 
-    def build_json_files(self, find_package=str()):
-        """ create all json files for every package release """
-        package_ids = self.get_package_ids(find_package)
-        if not package_ids:
-            return False
+    def __iter__(self):
+        """ create all json for every package release """
 
-        self._create_packages_folder()
-
-        for package_id in package_ids[:100]:
+        for package_id in self.package_ids[:100]:
             package_json = self.get_package(package_id)
             if not package_json or "releases" not in package_json:
                 continue
 
             for release_id in package_json["releases"]:
                 package_json = self.get_package(package_id, release_id)
-                self._build_json_file(package_id, package_json, release_id)
+                identifier, data = self._get_pypi(package_id, package_json, release_id)
+                for plugin in PLUGINS:
+                    plugin(identifier, data)
+                yield data
 
-        return True
-
-    def get_package_ids(self, find_package=""):
+    @property
+    def package_ids(self):
         """ Get all package ids by pypi simple index """
         pypi_index_url = self.pypi_base_url + "/simple"
 
         request_obj = requests.get(pypi_index_url)
         if not request_obj.status_code == 200:
-            raise Exception("[ERROR] No result for {}".format(pypi_index_url))
+            raise ValueError("Not 200 OK for {}".format(pypi_index_url))
 
         result = getattr(request_obj, "text", "")
         if not result:
-            return list()
+            raise ValueError("Empty result for {}".format(pypi_index_url))
 
         tree = html.fromstring(result)
         all_links = tree.xpath("//a")
 
-        package_ids = list()
         for link in all_links:
             package_id = link.text
-
-            if find_package and find_package not in package_id:
+            if self.name_filter and self.name_filter not in package_id:
                 continue
 
-            package_ids.append(package_id)
-
-        return sorted(package_ids)
+            yield (package_id)
 
     def get_package(self, package_id, release_id=str()):
         """ get json for a package release """
@@ -77,13 +72,11 @@ class PyfAggregator(object):
             print("ERROR", e)
             return None
 
-    def _build_json_file(self, package_id, package_json, release_id=str()):
+    def _get_pypi(self, package_id, package_json, release_id=str()):
         # build file path
-        filename = package_id
+        identifier = package_id
         if release_id:
-            filename += "-" + release_id
-        filename += ".json"
-        file_path = self.packages_directory_name + "/" + filename
+            identifier += "-" + release_id
 
         # restructure
         data = package_json["info"]
@@ -92,12 +85,7 @@ class PyfAggregator(object):
         for url in data["urls"]:
             del url["downloads"]
             del url["md5_digest"]
-
-        # write file
-        with open(file_path, "w") as file_obj:
-            json.dump(data, file_obj, indent=2)
-
-        return True
+        return identifier, json.dumps(data, indent=2)
 
     def _create_packages_folder(self):
         current_dir = os.path.dirname(os.path.realpath(__file__))
@@ -106,10 +94,3 @@ class PyfAggregator(object):
             os.makedirs(packages_dir)
         return True
 
-
-def main():
-    PyfAggregator().build_json_files("collective.")
-
-
-if __name__ == "__main__":
-    main()
