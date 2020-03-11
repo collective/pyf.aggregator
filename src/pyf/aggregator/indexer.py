@@ -9,7 +9,7 @@ class Indexer(object):
         self.set_mapping("package", PACKAGE_FIELD_MAPPING)
 
     def set_mapping(self, mapping_name, field_mapping):
-        mapping = Mapping(mapping_name)
+        mapping = Mapping()
         for field_id in field_mapping:
             mapping.field(field_id, field_mapping[field_id])
         mapping.save(index="packages", using=self.client)
@@ -18,7 +18,6 @@ class Indexer(object):
         for identifier, data in aggregator:
             index_keywords = {
                 "index": "packages",
-                "doc_type": "package",
                 "id": identifier,
                 "body": data,
             }
