@@ -6,6 +6,7 @@ import requests
 import xmlrpc.client
 import time
 
+# Plugin storage
 PLUGINS = []
 
 
