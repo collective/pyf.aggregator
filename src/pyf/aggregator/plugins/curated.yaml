@@ -1,0 +1,99 @@
+- collective.easyform:
+  score: 1
+  domain: plone
+- plone.restapi:
+  score: 1
+  domain: plone
+- eea.facetednavigation:
+  score: 2
+  domain: plone
+- collective.documentgenerator:
+  score: 3
+  domain: plone
+- collective.z3cform.datagridfield:
+  score: 4
+  domain: plone
+- collective.taxonomy:
+  score: 5
+  domain: plone
+- plone.app.mosaic:
+  score: 6
+  domain: plone
+- plone.app.imagecropping:
+  score: 6
+  domain: plone
+- pas.plugins.authomatic:
+  score: 6
+  domain: plone
+- collective.elasticsearch:
+  score: 7
+  domain: plone
+- collective.sentry:
+  score: 7
+  domain: plone
+- collective.collectionfilter:
+  score: 8
+  domain: plone
+- pas.plugins.ldap:
+  score: 8
+  domain: plone
+- plone.app.ldap:
+  score: 8
+  domain: plone
+- redturtle.tiles.management:
+  score: 9
+  domain: plone
+- collective.taskqueue:
+  score: 9
+  domain: plone
+- collective.venue:
+  score: 9
+  domain: plone
+- collective.lineage:
+  score: 10
+  domain: plone
+- Products.PloneKeywordManager:
+  score: 11
+  domain: plone
+- collective.eeafaceted.dashboard:
+  score: 12
+  domain: plone
+- Products.RedirectionTool:
+  score: 12
+  domain: plone
+- Products.PloneFormGen:
+  score: 13
+  domain: plone
+- collective.impersonate:
+  score: 13
+  domain: plone
+- collective.revisionmanager:
+  score: 13
+  domain: plone
+- collective.documentviewer:
+  score: 14
+  domain: plone
+- collective.editablemenu:
+  score: 14
+  domain: plone
+- eea.async.manager:
+  score: 14
+  domain: plone
+- collective.lazysizes:
+  score: 14
+  domain: plone
+- ftw.tika:
+  score: 14
+  domain: plone
+- pp.client-plone:
+  score: 14
+  domain: plone
+- collective.ambidexterity:
+  score: 15
+  domain: plone
+- collective.sidebar:
+  score: 15
+  domain: plone
+- Products.EasyNewsletter:
+  score: 15
+  domain: plone
