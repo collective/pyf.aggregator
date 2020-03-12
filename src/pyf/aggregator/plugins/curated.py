@@ -1,7 +1,4 @@
-from pyf.aggregator import config
 
-
-def curated(identifier, data):
+def load_curated(identifier, data):
     pass
 
-config.append(curated)
