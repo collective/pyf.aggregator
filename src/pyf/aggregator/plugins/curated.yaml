@@ -1,99 +1,99 @@
-- collective.easyform:
+collective.easyform:
   score: 1
   domain: plone
-- plone.restapi:
+plone.restapi:
   score: 1
   domain: plone
-- eea.facetednavigation:
+eea.facetednavigation:
   score: 2
   domain: plone
-- collective.documentgenerator:
+collective.documentgenerator:
   score: 3
   domain: plone
-- collective.z3cform.datagridfield:
+collective.z3cform.datagridfield:
   score: 4
   domain: plone
-- collective.taxonomy:
+collective.taxonomy:
   score: 5
   domain: plone
-- plone.app.mosaic:
+plone.app.mosaic:
   score: 6
   domain: plone
-- plone.app.imagecropping:
+plone.app.imagecropping:
   score: 6
   domain: plone
-- pas.plugins.authomatic:
+pas.plugins.authomatic:
   score: 6
   domain: plone
-- collective.elasticsearch:
+collective.elasticsearch:
   score: 7
   domain: plone
-- collective.sentry:
+collective.sentry:
   score: 7
   domain: plone
-- collective.collectionfilter:
+collective.collectionfilter:
   score: 8
   domain: plone
-- pas.plugins.ldap:
+pas.plugins.ldap:
   score: 8
   domain: plone
-- plone.app.ldap:
+plone.app.ldap:
   score: 8
   domain: plone
-- redturtle.tiles.management:
+redturtle.tiles.management:
   score: 9
   domain: plone
-- collective.taskqueue:
+collective.taskqueue:
   score: 9
   domain: plone
-- collective.venue:
+collective.venue:
   score: 9
   domain: plone
-- collective.lineage:
+collective.lineage:
   score: 10
   domain: plone
-- Products.PloneKeywordManager:
+Products.PloneKeywordManager:
   score: 11
   domain: plone
-- collective.eeafaceted.dashboard:
+collective.eeafaceted.dashboard:
   score: 12
   domain: plone
-- Products.RedirectionTool:
+Products.RedirectionTool:
   score: 12
   domain: plone
-- Products.PloneFormGen:
+Products.PloneFormGen:
   score: 13
   domain: plone
-- collective.impersonate:
+collective.impersonate:
   score: 13
   domain: plone
-- collective.revisionmanager:
+collective.revisionmanager:
   score: 13
   domain: plone
-- collective.documentviewer:
+collective.documentviewer:
   score: 14
   domain: plone
-- collective.editablemenu:
+collective.editablemenu:
   score: 14
   domain: plone
-- eea.async.manager:
+eea.async.manager:
   score: 14
   domain: plone
-- collective.lazysizes:
+collective.lazysizes:
   score: 14
   domain: plone
-- ftw.tika:
+ftw.tika:
   score: 14
   domain: plone
-- pp.client-plone:
+pp.client-plone:
   score: 14
   domain: plone
-- collective.ambidexterity:
+collective.ambidexterity:
   score: 15
   domain: plone
-- collective.sidebar:
+collective.sidebar:
   score: 15
   domain: plone
-- Products.EasyNewsletter:
+Products.EasyNewsletter:
   score: 15
   domain: plone

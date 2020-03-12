@@ -7,6 +7,7 @@ from elasticsearch_dsl import Text
 
 
 PACKAGE_FIELD_MAPPING = {
+    # PYPI
     "author": Text(),
     "author_email": Text(),
     "bugtrack_url": Text(),
@@ -44,5 +45,12 @@ PACKAGE_FIELD_MAPPING = {
             "upload_time": Date(),
             "url": Text(),
         }
+    ),
+    # CURATED
+    "curated": Nested(
+        properties={
+            "domain": Keyword(),
+            "score": Integer(),
+        },
     ),
 }
