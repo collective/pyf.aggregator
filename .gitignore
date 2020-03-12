@@ -15,3 +15,6 @@ data
 !.gitattributes
 !.gitignore
 /development-local.ini
+
+# Ignore build folder
+build
