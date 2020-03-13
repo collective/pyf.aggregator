@@ -51,6 +51,11 @@ PACKAGE_FIELD_MAPPING = {
             "url": Text(),
         }
     ),
+    # VERSION
+    "version_major": Integer(),
+    "version_minor": Integer(),
+    "version_bugfix": Integer(),
+    "version_postfix": Keyword(),
     # CURATED
     "curated": Nested(
         properties={
