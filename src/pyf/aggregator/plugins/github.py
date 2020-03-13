@@ -3,6 +3,7 @@ from github import RateLimitExceededException
 from pyf.aggregator.logger import logger
 
 import datetime
+import functools
 import re
 import time
 
@@ -11,11 +12,25 @@ PREFIX = "github_"
 github_regex = re.compile(r"^(http[s]{0,1}:\/\/|www\.)github\.com/(.+/.+)")
 
 
+def memoize(obj):
+    cache = obj.cache = {}
+
+    @functools.wraps(obj)
+    def memoizer(*args, **kwargs):
+        key = args[1].split("-")[0]
+        if key not in cache:
+            cache[key] = obj(*args, **kwargs)
+        return cache[key]
+
+    return memoizer
+
+
 class load_github_stats:
     def __init__(self, settings):
         self.token = settings.get("github_token")
         self.github = Github(self.token or None)
 
+    @memoize
     def __call__(self, identifier, data):
         urls = [data.get("home_page"), data.get("project_url")] + list((data.get("project_urls") or {}).values())
 
