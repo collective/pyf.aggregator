@@ -29,29 +29,30 @@ def memoize(obj):
 
 class GithubStats:
     """Helper to retrieve Github data.
-
     """
+
     def __init__(self, settings):
         self.token = settings.get("github_token")
         self.github = Github(self.token or None)
 
     @memoize
-    def add_github_data(self, repo_identifier, data):
-        """Add stats from a given Github repository (e.g. MyCompany/my_repo) to data.
+    def _get_github_data(self, repo_identifier):
+        """Return stats from a given Github repository (e.g. Owner/repo).
         """
         keys_mapping = {
             "stars": "stargazers_count",
             "open_issues": "open_issues",
             "is_archived": "archived",
-            "watchers": "watchers_count",
+            "watchers": "subscribers_count",
             "updated": "updated_at",
         }
+        data = {}
         while True:
             try:
                 repo = self.github.get_repo(repo_identifier)
                 for key, key_github in keys_mapping.items():
                     data[PREFIX + key] = getattr(repo, key_github)
-                break
+                return data
             except RateLimitExceededException:
                 reset_time = self.github.rate_limiting_resettime
                 delta = reset_time - time.time()
@@ -67,7 +68,6 @@ class GithubStats:
         Github stats.
         """
         urls = [data.get("home_page"), data.get("project_url")] + list((data.get("project_urls") or {}).values())
-
         for url in urls:
             if not url:
                 continue
@@ -78,8 +78,7 @@ class GithubStats:
         else:
             logger.debug("no github url repository found for {0}".format(identifier))
             return
-
-        self.add_github_data(repo_identifier, data)
+        data.update(self._get_github_data(repo_identifier))
 
 
 def load_github_stats(settings):
