@@ -6,7 +6,7 @@ Usage
 
 .. code:: bash
 
-    $ pyfaggregator --filter some.package --limit 10
+    $ pyfaggregator --filter-name some.package --limit 10
 
 This command triggers the aggregation of up to ``10`` result items according to the given filter query ``some.package``.
 These items will be added to ElasticSearch service (running on default configuration, i.e. ``localhost:9200``).
@@ -16,20 +16,22 @@ For more details on the pyfaggregator command, please refer to the ``--help`` op
 .. code:: bash
 
     $ pyfaggregator --help
-    usage: pyfaggregator [-h] [-f] [-i] [-s [SINCEFILE]] [-t [TOKEN]] [--filter [FILTER]] [--limit [LIMIT]]
+    usage: pyfaggregator [-h] [-f] [-i] [-s [SINCEFILE]] [-l [LIMIT]] [-n [FILTER_NAME]] [-t FILTER_TROOVE] [--github-token [GITHUB_TOKEN]]
 
     Fetch information about pinned versions and its overrides in simple and complex/cascaded buildouts.
 
     optional arguments:
-      -h, --help            show this help message and exit
-      -f, --first           First fetch from PyPI
-      -i, --incremental     Incremental fetch from PyPI
-      -s [SINCEFILE], --sincefile [SINCEFILE]
+    -h, --help            show this help message and exit
+    -f, --first           First fetch from PyPI
+    -i, --incremental     Incremental fetch from PyPI
+    -s [SINCEFILE], --sincefile [SINCEFILE]
                             File with timestamp of last run
-      -t [TOKEN], --token [TOKEN]
+    -l [LIMIT], --limit [LIMIT]
+    -n [FILTER_NAME], --filter-name [FILTER_NAME]
+    -t FILTER_TROOVE, --filter-troove FILTER_TROOVE
+    --github-token [GITHUB_TOKEN]
                             Github OAuth token
-      --filter [FILTER]
-      --limit [LIMIT]
+
 
 Using GitHub API
 ----------------

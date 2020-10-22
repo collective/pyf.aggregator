@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 #
 # pyf.aggregatori documentation build configuration file, created by
 # sphinx-quickstart on Wed Feb 28 09:17:41 2019.

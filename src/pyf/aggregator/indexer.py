@@ -3,7 +3,7 @@ from elasticsearch_dsl import Mapping
 from pyf.aggregator.config import PACKAGE_FIELD_MAPPING
 
 
-class Indexer(object):
+class Indexer:
     def __init__(self):
         self.client = Elasticsearch([{"host": "localhost", "port": "9200"}])
         self.set_mapping("package", PACKAGE_FIELD_MAPPING)

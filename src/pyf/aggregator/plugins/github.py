@@ -48,18 +48,19 @@ class GithubStats:
             try:
                 repo = self.github.get_repo(repo_identifier)
             except UnknownObjectException:
-                return data
+                return {}
             except RateLimitExceededException:
                 reset_time = self.github.rate_limiting_resettime
                 delta = reset_time - time.time()
                 logger.info(
-                    "Waiting until {0} (UTC) reset time to perform more Github requests.".format(
+                    "Waiting until {} (UTC) reset time to perform more Github requests.".format(
                         datetime.datetime.utcfromtimestamp(reset_time).strftime(
                             "%Y-%m-%d %H:%M:%S"
                         )
                     )
                 )
                 time.sleep(delta)
+
         data = {"github": {}}
         for key, key_github in GH_KEYS_MAP.items():
             data["github"][key] = getattr(repo, key_github)
@@ -80,7 +81,7 @@ class GithubStats:
                 repo_identifier = match.groups()[-1]
                 break
         else:
-            logger.debug("no github url repository found for {0}".format(identifier))
+            logger.debug(f"no github url repository found for {identifier}")
             return
         data.update(self._get_github_data(repo_identifier))
 

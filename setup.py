@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Installer for the collective.es.index package."""
 from setuptools import setup
 

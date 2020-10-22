@@ -11,21 +11,21 @@ import xmlrpc.client
 PLUGINS = []
 
 
-class Aggregator(object):
+class Aggregator:
     def __init__(
         self,
         mode,
         sincefile=".pyfaggregator",
         pypi_base_url="https://pypi.org/",
-        name_filter=None,
-        troove_filter=None,
+        filter_name=None,
+        filter_troove=None,
         limit=None,
     ):
         self.mode = mode
         self.sincefile = sincefile
         self.pypi_base_url = pypi_base_url
-        self.name_filter = name_filter
-        self.troove_filter = troove_filter
+        self.filter_name = filter_name
+        self.filter_troove = filter_troove
         self.limit = limit
 
     def __iter__(self):
@@ -36,9 +36,7 @@ class Aggregator(object):
             iterator = self._all_packages
         elif self.mode == "incremental":
             if not filepath.exists():
-                raise ValueError(
-                    "given since file does not exist {0}".format(self.sincefile)
-                )
+                raise ValueError(f"given since file does not exist {self.sincefile}")
             with open(filepath) as fd:
                 since = int(fd.read())
             iterator = self._package_updates(since)
@@ -49,7 +47,7 @@ class Aggregator(object):
             if self.limit and count > self.limit:
                 return
             count += 1
-            identifier = "{0}-{1}".format(package_id, release_id)
+            identifier = f"{package_id}-{release_id}"
             data = self._get_pypi(package_id, release_id)
             for plugin in PLUGINS:
                 plugin(identifier, data)
@@ -64,32 +62,36 @@ class Aggregator(object):
     def _all_package_versions(self, package_id):
         package_json = self._get_pypi_json(package_id)
         if package_json and "releases" in package_json:
-            for release_id in sorted(package_json["releases"]):
-                yield release_id
+            yield from sorted(package_json["releases"])
 
     @property
-    def _all_package_ids_full(self):
+    def _all_package_ids(self):
         """ Get all package ids by pypi simple index """
-        # client = xmlrpc.client.ServerProxy(self.pypi_base_url + "/pypi")
+        if self.filter_troove:
+            # we can use an API to filter by troove
+            client = xmlrpc.client.ServerProxy(self.pypi_base_url + "/pypi")
+            for package_id in sorted({_[0] for _ in client.browse(self.filter_troove)}):
+                if self.filter_name and self.filter_name not in package_id:
+                    continue
+                yield package_id
+        else:
+            pypi_index_url = self.pypi_base_url + "/simple"
+            request_obj = requests.get(pypi_index_url)
+            if not request_obj.status_code == 200:
+                raise ValueError(f"Not 200 OK for {pypi_index_url}")
 
-        pypi_index_url = self.pypi_base_url + "/simple"
+            result = getattr(request_obj, "text", "")
+            if not result:
+                raise ValueError(f"Empty result for {pypi_index_url}")
 
-        request_obj = requests.get(pypi_index_url)
-        if not request_obj.status_code == 200:
-            raise ValueError("Not 200 OK for {}".format(pypi_index_url))
+            logger.info("Got package list.")
 
-        result = getattr(request_obj, "text", "")
-        if not result:
-            raise ValueError("Empty result for {}".format(pypi_index_url))
-
-        logger.info("Got package list.")
-
-        tree = html.fromstring(result)
-        for link in tree.xpath("//a"):
-            package_id = link.text
-            if self.name_filter and self.name_filter not in package_id:
-                continue
-            yield package_id
+            tree = html.fromstring(result)
+            for link in tree.xpath("//a"):
+                package_id = link.text
+                if self.filter_name and self.filter_name not in package_id:
+                    continue
+                yield package_id
 
     def _package_updates(self, since):
         """ Get all package ids by pypi updated after given time."""
@@ -97,7 +99,7 @@ class Aggregator(object):
         seen = set()
         for package_id, release_id, ts, action in client.changelog(since):
             if package_id in seen or (
-                self.name_filter and self.name_filter not in package_id
+                self.filter_name and self.filter_name not in package_id
             ):
                 continue
             seen.update({package_id})
@@ -119,13 +121,13 @@ class Aggregator(object):
 
         request_obj = requests.get(package_url)
         if not request_obj.status_code == 200:
-            logger.warning('Error fetching URL "{}"'.format(package_url))
+            logger.warning(f'Error fetching URL "{package_url}"')
 
         try:
             package_json = request_obj.json()
             return package_json
         except Exception:
-            logger.exception('Error reading JSON from "{}"'.format(package_url))
+            logger.exception(f'Error reading JSON from "{package_url}"')
             return None
 
     def _get_pypi(self, package_id, release_id):

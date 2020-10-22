@@ -6,7 +6,7 @@ import yaml
 
 _current_dir = Path(os.path.dirname(__file__))
 
-with open(_current_dir / "curated.yaml", "r") as fio:
+with open(_current_dir / "curated.yaml") as fio:
     CURATED = yaml.safe_load(fio)
 
 

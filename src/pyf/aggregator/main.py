@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 from .fetcher import Aggregator
 from .fetcher import PLUGINS
 from .indexer import Indexer
@@ -24,17 +23,17 @@ parser.add_argument(
     type=str,
     default=".pyaggregator.since",
 )
+parser.add_argument("-l", "--limit", nargs="?", type=int, default=0)
+parser.add_argument("-n", "--filter-name", nargs="?", type=str, default="")
+parser.add_argument("-t", "--filter-troove", action='append', default=[])
+
 parser.add_argument(
-    "-t",
-    "--token",
+    "--github-token",
     help="Github OAuth token",
     nargs="?",
     type=str,
     default="",
 )
-parser.add_argument("--filter-name", nargs="?", type=str, default="")
-parser.add_argument("--filter-troove", nargs="?", type=str, default="")
-parser.add_argument("--limit", nargs="?", type=int, default=0)
 
 
 def main():
@@ -43,10 +42,10 @@ def main():
     settings = {
         "mode": mode,
         "sincefile": args.sincefile,
-        "name_filter": args.filter_name,
-        "troove_filter": args.filter_troove,
+        "filter_name": args.filter_name,
+        "filter_troove": args.filter_troove,
         "limit": args.limit,
-        "github_token": args.token,
+        "github_token": args.github_token,
     }
 
     register_plugins(PLUGINS, settings)
@@ -54,8 +53,8 @@ def main():
     agg = Aggregator(
         mode,
         sincefile=settings["sincefile"],
-        name_filter=settings["name_filter"],
-        troove_filter=settings["troove_filter"],
+        filter_name=settings["filter_name"],
+        filter_troove=settings["filter_troove"],
         limit=settings["limit"],
     )
     indexer = Indexer()
