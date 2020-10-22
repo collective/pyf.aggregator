@@ -10,8 +10,8 @@ search_obj = Search(using=client, index='packages')
 
 search_obj = search_obj.filter(
     'terms',
-    classifiers=['Framework :: Plone :: 4.2']
+    classifiers=['Framework :: Plone :: 5.2']
 )
 
 result = search_obj.execute()
-print result
+print(result)
