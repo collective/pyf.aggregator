@@ -1,10 +1,11 @@
 from lxml import html
-from pyf.aggregator.logger import logger
 from pathlib import Path
+from pyf.aggregator.logger import logger
 
 import requests
-import xmlrpc.client
 import time
+import xmlrpc.client
+
 
 # Plugin storage
 PLUGINS = []
@@ -17,12 +18,14 @@ class Aggregator(object):
         sincefile=".pyfaggregator",
         pypi_base_url="https://pypi.org/",
         name_filter=None,
+        troove_filter=None,
         limit=None,
     ):
         self.mode = mode
         self.sincefile = sincefile
         self.pypi_base_url = pypi_base_url
         self.name_filter = name_filter
+        self.troove_filter = troove_filter
         self.limit = limit
 
     def __iter__(self):
@@ -65,8 +68,10 @@ class Aggregator(object):
                 yield release_id
 
     @property
-    def _all_package_ids(self):
+    def _all_package_ids_full(self):
         """ Get all package ids by pypi simple index """
+        # client = xmlrpc.client.ServerProxy(self.pypi_base_url + "/pypi")
+
         pypi_index_url = self.pypi_base_url + "/simple"
 
         request_obj = requests.get(pypi_index_url)

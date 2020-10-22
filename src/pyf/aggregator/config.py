@@ -16,11 +16,6 @@ PACKAGE_FIELD_MAPPING = {
     "description_content_type": Text(),
     "docs_url": Text(),
     "download_url": Text(),
-    "github_stars": Integer(),
-    "github_open_issues": Integer(),
-    "github_is_archived": Boolean(),
-    "github_watchers": Integer(),
-    "github_updated": Date(),
     "home_page": Text(),
     "keywords": Keyword(),
     "license": Keyword(),
@@ -63,5 +58,15 @@ PACKAGE_FIELD_MAPPING = {
             "domain": Keyword(),
             "score": Integer(),
         },
+    ),
+    # github
+    "github": Nested(
+        properties={
+            "stars": Integer(),
+            "open_issues": Integer(),
+            "is_archived": Boolean(),
+            "watchers": Integer(),
+            "updated": Date(),
+        }
     ),
 }

@@ -5,5 +5,5 @@ from setuptools import setup
 
 setup(
     # zest releaser does not change cfg file.
-    version='1.0.0.dev0',
+    version="1.0.0.dev0",
 )

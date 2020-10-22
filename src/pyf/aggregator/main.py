@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-from argparse import ArgumentParser
 from .fetcher import Aggregator
+from .fetcher import PLUGINS
 from .indexer import Indexer
+from .plugins import register_plugins
+from argparse import ArgumentParser
 
 import time
-from .plugins import register_plugins
-from .fetcher import PLUGINS
 
 
 parser = ArgumentParser(
@@ -30,9 +30,10 @@ parser.add_argument(
     help="Github OAuth token",
     nargs="?",
     type=str,
-    default='',
+    default="",
 )
-parser.add_argument("--filter", nargs="?", type=str, default="")
+parser.add_argument("--filter-name", nargs="?", type=str, default="")
+parser.add_argument("--filter-troove", nargs="?", type=str, default="")
 parser.add_argument("--limit", nargs="?", type=int, default=0)
 
 
@@ -42,15 +43,20 @@ def main():
     settings = {
         "mode": mode,
         "sincefile": args.sincefile,
-        "name_filter": args.filter,
+        "name_filter": args.filter_name,
+        "troove_filter": args.filter_troove,
         "limit": args.limit,
-        "github_token": args.token
+        "github_token": args.token,
     }
 
     register_plugins(PLUGINS, settings)
 
     agg = Aggregator(
-        mode, sincefile=settings["sincefile"], name_filter=settings["name_filter"], limit=settings["limit"]
+        mode,
+        sincefile=settings["sincefile"],
+        name_filter=settings["name_filter"],
+        troove_filter=settings["troove_filter"],
+        limit=settings["limit"],
     )
     indexer = Indexer()
     indexer(agg)

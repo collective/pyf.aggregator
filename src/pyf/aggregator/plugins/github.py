@@ -9,13 +9,19 @@ import re
 import time
 
 
-PREFIX = "github_"
 github_regex = re.compile(r"^(http[s]{0,1}:\/\/|www\.)github\.com/(.+/.+)")
+
+GH_KEYS_MAP = {
+    "stars": "stargazers_count",
+    "open_issues": "open_issues",
+    "is_archived": "archived",
+    "watchers": "subscribers_count",
+    "updated": "updated_at",
+}
 
 
 def memoize(obj):
-    """Decorator for memoizing the return value.
-    """
+    """Decorator for memoizing the return value."""
     cache = obj.cache = {}
 
     @functools.wraps(obj)
@@ -29,8 +35,7 @@ def memoize(obj):
 
 
 class GithubStats:
-    """Helper to retrieve Github data.
-    """
+    """Helper to retrieve Github data."""
 
     def __init__(self, settings):
         self.token = settings.get("github_token")
@@ -38,43 +43,35 @@ class GithubStats:
 
     @memoize
     def _get_github_data(self, repo_identifier):
-        """Return stats from a given Github repository (e.g. Owner/repo).
-        """
-        keys_mapping = {
-            "stars": "stargazers_count",
-            "open_issues": "open_issues",
-            "is_archived": "archived",
-            "watchers": "subscribers_count",
-            "updated": "updated_at",
-        }
-        data = {}
+        """Return stats from a given Github repository (e.g. Owner/repo)."""
         while True:
             try:
-                logger.info(f"Github fetch {repo_identifier}")
-                try:
-                    repo = self.github.get_repo(repo_identifier)
-                except UnknownObjectException:
-                    return data
-                for key, key_github in keys_mapping.items():
-                    data[PREFIX + key] = getattr(repo, key_github)
+                repo = self.github.get_repo(repo_identifier)
+            except UnknownObjectException:
                 return data
             except RateLimitExceededException:
                 reset_time = self.github.rate_limiting_resettime
                 delta = reset_time - time.time()
                 logger.info(
                     "Waiting until {0} (UTC) reset time to perform more Github requests.".format(
-                        datetime.datetime.utcfromtimestamp(reset_time).strftime("%Y-%m-%d %H:%M:%S")
+                        datetime.datetime.utcfromtimestamp(reset_time).strftime(
+                            "%Y-%m-%d %H:%M:%S"
+                        )
                     )
                 )
                 time.sleep(delta)
-                pass
-
+        data = {"github": {}}
+        for key, key_github in GH_KEYS_MAP.items():
+            data["github"][key] = getattr(repo, key_github)
+        return data
 
     def __call__(self, identifier, data):
         """Search for a referenced Github repository from pypi package information and if present, add those relevant
         Github stats.
         """
-        urls = [data.get("home_page"), data.get("project_url")] + list((data.get("project_urls") or {}).values())
+        urls = [data.get("home_page"), data.get("project_url")] + list(
+            (data.get("project_urls") or {}).values()
+        )
         for url in urls:
             if not url:
                 continue
@@ -89,6 +86,5 @@ class GithubStats:
 
 
 def load_github_stats(settings):
-    """Return a callable to add Github stats.
-    """
+    """Return a callable to add Github stats."""
     return GithubStats(settings)
