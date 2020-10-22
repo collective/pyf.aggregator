@@ -52,6 +52,7 @@ PACKAGE_FIELD_MAPPING = {
         }
     ),
     # VERSION
+    "version_raw": Text(),
     "version_major": Integer(),
     "version_minor": Integer(),
     "version_bugfix": Integer(),

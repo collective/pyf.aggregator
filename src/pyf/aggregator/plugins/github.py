@@ -1,5 +1,6 @@
 from github import Github
 from github import RateLimitExceededException
+from github import UnknownObjectException
 from pyf.aggregator.logger import logger
 
 import datetime
@@ -49,7 +50,11 @@ class GithubStats:
         data = {}
         while True:
             try:
-                repo = self.github.get_repo(repo_identifier)
+                logger.info(f"Github fetch {repo_identifier}")
+                try:
+                    repo = self.github.get_repo(repo_identifier)
+                except UnknownObjectException:
+                    return data
                 for key, key_github in keys_mapping.items():
                     data[PREFIX + key] = getattr(repo, key_github)
                 return data
@@ -62,6 +67,8 @@ class GithubStats:
                     )
                 )
                 time.sleep(delta)
+                pass
+
 
     def __call__(self, identifier, data):
         """Search for a referenced Github repository from pypi package information and if present, add those relevant

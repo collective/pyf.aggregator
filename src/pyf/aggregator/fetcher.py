@@ -120,7 +120,7 @@ class Aggregator(object):
             package_json = request_obj.json()
             return package_json
         except Exception:
-            logger.Exception('Error reading JSON from "{}"'.format(package_url))
+            logger.exception('Error reading JSON from "{}"'.format(package_url))
             return None
 
     def _get_pypi(self, package_id, release_id):
