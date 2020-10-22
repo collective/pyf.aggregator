@@ -41,6 +41,6 @@ metadata (e.g. number of stars, number of watchers, last update etc.). Due to ve
 GitHub API (at the time of writing: 60 requests / hour), there is the option to add your GitHub OAuth token to exploit
 the  higher rate limit for registered users (at the time of writing: 5000 requests / hour).
 
-To do so, `create your token <https://github.com/settings/tokens>`_ and pass it with the ``--token`` option.
+To do so, `create your token <https://github.com/settings/tokens>`_ and pass it with the ``--github-token`` option.
 
 When the rate limit is being hit, the aggregator will wait until the Github API can be accessed again.
