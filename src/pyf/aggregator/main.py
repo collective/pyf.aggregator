@@ -25,7 +25,7 @@ parser.add_argument(
 )
 parser.add_argument("-l", "--limit", nargs="?", type=int, default=0)
 parser.add_argument("-n", "--filter-name", nargs="?", type=str, default="")
-parser.add_argument("-t", "--filter-troove", action='append', default=[])
+parser.add_argument("-t", "--filter-troove", action="append", default=[])
 
 parser.add_argument(
     "--github-token",
