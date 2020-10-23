@@ -78,7 +78,8 @@ class GithubStats:
                 continue
             match = github_regex.match(url)
             if match:
-                repo_identifier = match.groups()[-1]
+                repo_identifier_parts = match.groups()[-1].split('/')
+                repo_identifier = '/'.join(repo_identifier_parts[0:2])
                 break
         else:
             logger.debug(f"no github url repository found for {identifier}")
