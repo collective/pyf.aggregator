@@ -35,6 +35,11 @@ parser.add_argument(
     default="",
 )
 
+parser.add_argument(
+    "--skip-github",
+    help="Don't call Github for meta data",
+    action="store_true"
+)
 
 def main():
     args = parser.parse_args()
@@ -46,6 +51,7 @@ def main():
         "filter_troove": args.filter_troove,
         "limit": args.limit,
         "github_token": args.github_token,
+        "skip_github": args.skip_github,
     }
 
     register_plugins(PLUGINS, settings)
@@ -55,6 +61,7 @@ def main():
         sincefile=settings["sincefile"],
         filter_name=settings["filter_name"],
         filter_troove=settings["filter_troove"],
+        skip_github=settings["skip_github"],
         limit=settings["limit"],
     )
     indexer = Indexer()

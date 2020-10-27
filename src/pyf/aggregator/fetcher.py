@@ -19,6 +19,7 @@ class Aggregator:
         pypi_base_url="https://pypi.org/",
         filter_name=None,
         filter_troove=None,
+        skip_github=False,
         limit=None,
     ):
         self.mode = mode
@@ -26,6 +27,7 @@ class Aggregator:
         self.pypi_base_url = pypi_base_url
         self.filter_name = filter_name
         self.filter_troove = filter_troove
+        self.skip_github = skip_github
         self.limit = limit
 
     def __iter__(self):
@@ -50,6 +52,8 @@ class Aggregator:
             identifier = f"{package_id}-{release_id}"
             data = self._get_pypi(package_id, release_id)
             for plugin in PLUGINS:
+                if self.skip_github and hasattr(plugin, 'github'):
+                    continue
                 plugin(identifier, data)
             yield identifier, data
 
