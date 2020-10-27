@@ -18,3 +18,10 @@ data
 
 # Ignore build folder
 build
+/GITHUB_TOKEN
+/lib
+/share
+/bin
+/etc/jupyter/jupyter_notebook_config.d/jupyterlab.json
+/include
+/elasticsearch
