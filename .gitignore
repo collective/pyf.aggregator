@@ -25,3 +25,7 @@ build
 /etc/jupyter/jupyter_notebook_config.d/jupyterlab.json
 /include
 /elasticsearch
+/local/
+/pip-selfcheck.json
+/results.json
+/venv38

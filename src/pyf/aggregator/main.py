@@ -7,6 +7,9 @@ from argparse import ArgumentParser
 import time
 
 
+COLLECTION_NAME = "packages1"
+
+
 parser = ArgumentParser(
     description="Fetch information about pinned versions and its overrides in "
     "simple and complex/cascaded buildouts."
@@ -26,6 +29,7 @@ parser.add_argument(
 parser.add_argument("-l", "--limit", nargs="?", type=int, default=0)
 parser.add_argument("-n", "--filter-name", nargs="?", type=str, default="")
 parser.add_argument("-t", "--filter-troove", action="append", default=[])
+parser.add_argument("-c", "--collection-name", nargs="?", type=str)
 
 parser.add_argument(
     "--github-token",
@@ -52,6 +56,7 @@ def main():
         "limit": args.limit,
         "github_token": args.github_token,
         "skip_github": args.skip_github,
+        "collection_name": args.collection_name,
     }
 
     register_plugins(PLUGINS, settings)
@@ -64,7 +69,7 @@ def main():
         skip_github=settings["skip_github"],
         limit=settings["limit"],
     )
-    indexer = Indexer()
+    indexer = Indexer(collection_name=settings["collection_name"])
     indexer(agg)
 
 

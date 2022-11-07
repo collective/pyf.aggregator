@@ -51,10 +51,15 @@ class Aggregator:
             count += 1
             identifier = f"{package_id}-{release_id}"
             data = self._get_pypi(package_id, release_id)
-            for plugin in PLUGINS:
-                if self.skip_github and hasattr(plugin, 'github'):
-                    continue
-                plugin(identifier, data)
+
+            # TODO: reimplement plugins outside of the aggregation
+            # we can iterate over packages in typesense and aggregate more date
+            # this way it will be easier to update infos from different sources
+
+            # for plugin in PLUGINS:
+            #     if self.skip_github and hasattr(plugin, 'github'):
+            #         continue
+            #     plugin(identifier, data)
             yield identifier, data
 
     @property
@@ -71,6 +76,7 @@ class Aggregator:
     @property
     def _all_package_ids(self):
         """ Get all package ids by pypi simple index """
+        logger.info(f"get package ids pypi...")
         if self.filter_troove:
             # we can use an API to filter by troove
             client = xmlrpc.client.ServerProxy(self.pypi_base_url + "/pypi")
@@ -118,6 +124,7 @@ class Aggregator:
 
     def _get_pypi_json(self, package_id, release_id=""):
         """ get json for a package release """
+        logger.info(f"fetch data from pypi for: {package_id}")
         package_url = self.pypi_base_url + "/pypi/" + package_id
         if release_id:
             package_url += "/" + release_id
