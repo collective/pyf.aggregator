@@ -1,14 +1,11 @@
-# from elasticsearch import Elasticsearch
-# from elasticsearch_dsl import Mapping
-from pyf.aggregator.logger import logger
-from pyf.aggregator.db import TypesenceBase
 from datetime import datetime
+from pyf.aggregator.db import TypesenceBase
+from pyf.aggregator.logger import logger
+
 import typesense
 
 
-
 class Indexer(TypesenceBase):
-
     def clean_data(self, data):
         list_fields = ["requires_dist", "classifiers"]
         for key, value in data.items():

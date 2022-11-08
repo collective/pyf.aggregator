@@ -1,5 +1,17 @@
+from dotenv import load_dotenv
 from pyf.aggregator.logger import logger
+
+import os
 import typesense
+
+
+load_dotenv()
+
+TYPESENSE_HOST = os.getenv('TYPESENSE_HOST')
+TYPESENSE_PORT = os.getenv('TYPESENSE_PORT')
+TYPESENSE_PROTOCOL = os.getenv('TYPESENSE_PROTOCOL')
+TYPESENSE_API_KEY = os.getenv('TYPESENSE_API_KEY')
+TYPESENSE_TIMEOUT = os.getenv('TYPESENSE_TIMEOUT')
 
 
 class TypesenceConnection:
@@ -9,13 +21,13 @@ class TypesenceConnection:
             {
                 "nodes": [
                     {
-                        "host": "localhost",  # For Typesense Cloud use xxx.a1.typesense.net
-                        "port": "8108",  # For Typesense Cloud use 443
-                        "protocol": "http",  # For Typesense Cloud use https
+                        "host": TYPESENSE_HOST,  # For Typesense Cloud use xxx.a1.typesense.net
+                        "port": TYPESENSE_PORT,  # For Typesense Cloud use 443
+                        "protocol": TYPESENSE_PROTOCOL,  # For Typesense Cloud use https
                     }
                 ],
-                "api_key": "OGBPyJWlzA2dSdt9b8ZxAs8wFOVb0eNG7lSctnzbyBLc8SWR",
-                "connection_timeout_seconds": 300,
+                "api_key": TYPESENSE_API_KEY,
+                "connection_timeout_seconds": int(TYPESENSE_TIMEOUT) or 300,
             }
         )
 
@@ -105,6 +117,10 @@ class TypesensePackagesCollection:
                 {"name": "version_postfix", "type": "string"},
                 {"name": "version_raw", "type": "string", "sort": True, "facet": True},
                 {"name": "yanked", "type": "bool"},
+                {"name": "github_stars", "type": "auto", "facet": True},
+                {"name": "github_watchers", "type": "auto", "facet": True},
+                {"name": "github_updated", "type": "auto", "facet": True},
+                {"name": "github_open_issues", "type": "auto", "facet": True},
                 {
                     "name": "yanked_reason",
                     "type": "string",

@@ -31,7 +31,7 @@ class Aggregator:
         self.limit = limit
 
     def __iter__(self):
-        """ create all json for every package release """
+        """create all json for every package release"""
         start = int(time.time())
         filepath = Path(self.sincefile)
         if self.mode == "first":
@@ -75,7 +75,7 @@ class Aggregator:
 
     @property
     def _all_package_ids(self):
-        """ Get all package ids by pypi simple index """
+        """Get all package ids by pypi simple index"""
         logger.info(f"get package ids pypi...")
         if self.filter_troove:
             # we can use an API to filter by troove
@@ -104,7 +104,7 @@ class Aggregator:
                 yield package_id
 
     def _package_updates(self, since):
-        """ Get all package ids by pypi updated after given time."""
+        """Get all package ids by pypi updated after given time."""
         client = xmlrpc.client.ServerProxy(self.pypi_base_url + "/pypi")
         seen = set()
         for package_id, release_id, ts, action in client.changelog(since):
@@ -123,7 +123,7 @@ class Aggregator:
             return self._package_updates
 
     def _get_pypi_json(self, package_id, release_id=""):
-        """ get json for a package release """
+        """get json for a package release"""
         logger.info(f"fetch data from pypi for: {package_id}")
         package_url = self.pypi_base_url + "/pypi/" + package_id
         if release_id:

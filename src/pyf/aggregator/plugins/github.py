@@ -60,11 +60,11 @@ class GithubStats:
                     )
                 )
                 time.sleep(delta)
-
-        data = {"github": {}}
-        for key, key_github in GH_KEYS_MAP.items():
-            data["github"][key] = getattr(repo, key_github)
-        return data
+            else:
+                data = {"github": {}}
+                for key, key_github in GH_KEYS_MAP.items():
+                    data["github"][key] = getattr(repo, key_github)
+                return data
 
     def __call__(self, identifier, data):
         """Search for a referenced Github repository from pypi package information and if present, add those relevant
