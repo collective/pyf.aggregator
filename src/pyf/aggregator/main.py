@@ -60,7 +60,7 @@ def main():
             f"no target collection with the name {settings['target']} found, create one."
         )
         indexer.create_collection(name=settings["target"])
-    indexer(agg)
+    indexer(agg, settings['target'])
 
 
 if __name__ == "__main__":

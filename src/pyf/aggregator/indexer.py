@@ -14,13 +14,13 @@ class Indexer(TypesenceConnection, TypesensePackagesCollection):
                 data[key] = ""
         return data
 
-    def index_data(self, data, i):
+    def index_data(self, data, i, target):
         logger.info(f"Aggregated {i} packages from PyPi :)")
-        self.client.collections[self.collection_name].documents.import_(
+        self.client.collections[target].documents.import_(
             data, {"action": "upsert"}
         )
 
-    def __call__(self, aggregator):
+    def __call__(self, aggregator, target):
         i = 0
         logger.info(f"[{datetime.now()}] Start aggregating packages from PyPi...")
         batch = []
@@ -30,8 +30,8 @@ class Indexer(TypesenceConnection, TypesensePackagesCollection):
             logger.info(f"Index package: {identifier}")
             batch.append(data)
             i += 1
-            if i % 100 == 0:
-                self.index_data(batch, i)
+            if i % 10 == 0:
+                self.index_data(batch, i, target)
                 batch = []
 
         logger.info(f"Aggregated {i} packages from PyPi :)")

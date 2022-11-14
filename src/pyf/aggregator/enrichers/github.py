@@ -61,7 +61,7 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
             "query_by": "name",
             "group_by": "name_sortable",
             "group_limit": 1,
-            "per_page": 250,
+            "per_page": 50,
         }
         results = self.ts_search(target, search_parameters)
 
