@@ -52,14 +52,8 @@ class Aggregator:
             identifier = f"{package_id}-{release_id}"
             data = self._get_pypi(package_id, release_id)
 
-            # TODO: reimplement plugins outside of the aggregation
-            # we can iterate over packages in typesense and aggregate more date
-            # this way it will be easier to update infos from different sources
-
-            # for plugin in PLUGINS:
-            #     if self.skip_github and hasattr(plugin, 'github'):
-            #         continue
-            #     plugin(identifier, data)
+            for plugin in PLUGINS:
+                plugin(identifier, data)
             yield identifier, data
 
     @property
