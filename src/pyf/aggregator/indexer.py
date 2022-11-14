@@ -1,11 +1,9 @@
 from datetime import datetime
-from pyf.aggregator.db import TypesenceBase
+from pyf.aggregator.db import TypesenceConnection, TypesensePackagesCollection
 from pyf.aggregator.logger import logger
 
-import typesense
 
-
-class Indexer(TypesenceBase):
+class Indexer(TypesenceConnection, TypesensePackagesCollection):
     def clean_data(self, data):
         list_fields = ["requires_dist", "classifiers"]
         for key, value in data.items():
