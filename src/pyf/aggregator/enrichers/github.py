@@ -33,6 +33,7 @@ GH_KEYS_MAP = {
     "is_archived": "archived",
     "watchers": "subscribers_count",
     "updated": "updated_at",
+    "gh_url": "html_url",
 }
 
 
@@ -69,8 +70,8 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
         found = results["found"]
         logger.info(f"[{datetime.now()}][found] Start enriching data from github...")
         enrich_counter = 0
-        page = 1
-        for p in range(1, found, per_page):
+        page = 0
+        for p in range(0, found, per_page):
             page +=1
             results = self.ts_search(target, search_parameters, page)
             for group in results["grouped_hits"]:
@@ -88,21 +89,13 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
                     self.update_doc(target, data['id'], gh_data, page, enrich_counter)
         logger.info(f"[{datetime.now()}] done")
 
-    # def update_collection_schema(self, fields):
-    #     update_schema = {
-    #         'fields': [
-    #             {"name": "github_stars", "type": "int32", "sort": True, "facet": True},
-    #             {"name": "github_watchers", "type": "int32", "sort": True, "facet": True},
-    #         ]
-    #     }
-    #     self.client.collections['companies'].update(update_schema)
-
     def update_doc(self, target, id, data, page, enrich_counter):
         document = {
             'github_stars': data["github"]["stars"],
             'github_watchers': data["github"]["watchers"],
             'github_updated': data["github"]["updated"].timestamp(),
             'github_open_issues': data["github"]["open_issues"],
+            'github_url': data["github"]["gh_url"],
         }
         doc = self.client.collections[target].documents[id].update(document)
         logger.info(f"[{page}/{enrich_counter}] Updated document {id}")
