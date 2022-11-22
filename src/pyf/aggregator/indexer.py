@@ -15,7 +15,9 @@ class Indexer(TypesenceConnection, TypesensePackagesCollection):
         return data
 
     def index_data(self, data, i, target):
-        logger.info(f"Aggregated {i} packages from PyPi :)")
+        logger.info(f"Index {i} packages from PyPi into collection: {target} :)")
+        # from pprint import pprint
+        # pprint(data)
         self.client.collections[target].documents.import_(
             data, {"action": "upsert"}
         )
@@ -33,6 +35,6 @@ class Indexer(TypesenceConnection, TypesensePackagesCollection):
             if i % 10 == 0:
                 self.index_data(batch, i, target)
                 batch = []
-
+        self.index_data(batch, i, target)
         logger.info(f"Aggregated {i} packages from PyPi :)")
         logger.info(f"[{datetime.now()}] Aggregation finished!")
