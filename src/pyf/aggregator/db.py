@@ -57,11 +57,13 @@ class TypesensePackagesCollection:
         schema = {
             "name": name,
             "fields": [
-                {"name": "id", "type": "string"},
+                # {"name": "id", "type": "string"},
                 {"name": "author", "type": "string"},
                 {"name": "author_email", "type": "string"},
                 {"name": "bugtrack_url", "type": "string"},
                 {"name": "classifiers", "type": "string[]", "facet": True},
+                {"name": "framework_versions", "type": "string[]", "facet": True},
+                {"name": "python_versions", "type": "string[]", "facet": True},
                 {"name": "description", "type": "string"},
                 {"name": "description_content_type", "type": "string"},
                 {

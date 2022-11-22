@@ -29,3 +29,4 @@ build
 /pip-selfcheck.json
 /results.json
 /venv38
+/typesense-data.tar.gz

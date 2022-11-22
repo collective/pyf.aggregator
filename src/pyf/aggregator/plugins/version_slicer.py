@@ -1,7 +1,7 @@
 from pkg_resources import parse_version
 
 
-def process_version(identifier, data):
+def process(identifier, data):
     # parse version to test against:
     data["version_raw"] = data["version"]
     try:
@@ -19,5 +19,5 @@ def process_version(identifier, data):
         return
 
 
-def load_version(settings):
-    return process_version
+def load(settings):
+    return process

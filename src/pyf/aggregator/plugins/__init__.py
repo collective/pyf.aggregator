@@ -1,7 +1,11 @@
 # from .curated import load_curated
-from .version import load_version
+from . import version_slicer
+from . import framwork_versions
+from . import python_versions
 
 
 def register_plugins(PLUGINS, settings):
     # PLUGINS.append(load_curated(settings))
-    PLUGINS.append(load_version(settings))
+    PLUGINS.append(version_slicer.load(settings))
+    PLUGINS.append(framwork_versions.load(settings))
+    PLUGINS.append(python_versions.load(settings))
