@@ -7,17 +7,17 @@ regex = re.compile(r"^(?P<major>\d*)\.(?P<minor>\d*)\.?(?P<postfix1>[a-zA-Z]+\d*
 def process(identifier, data):
     # parse version to test against:
     data["version_raw"] = data["version"]
+    data["version_major"] = 0
+    data["version_minor"] = 0
+    data["version_bugfix"] = 0
+    data["version_postfix"] = ""
+    data["version_sortable"] = "0.0.0.0.0"
     try:
         version = parse_version(data["version"])
     except TypeError:
         return
     try:
         vmatch = regex.search(data["version"])
-        data["version_major"] = 0
-        data["version_minor"] = 0
-        data["version_bugfix"] = 0
-        data["version_postfix"] = ""
-        data["version_sortable"] = "0.0.0.0.0"
         if not vmatch:
             return
         groups = vmatch.groupdict()

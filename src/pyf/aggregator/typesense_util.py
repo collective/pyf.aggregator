@@ -73,7 +73,7 @@ class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
         key = self.client.keys.create(
             {
                 "description": "Search-only companies key.",
-                "actions": ["documents:search"],
+                "actions": ["*"],
                 "collections": [
                     collection_filter,
                 ],
