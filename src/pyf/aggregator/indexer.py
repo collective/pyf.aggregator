@@ -16,25 +16,26 @@ class Indexer(TypesenceConnection, TypesensePackagesCollection):
 
     def index_data(self, data, i, target):
         logger.info(f"Index {i} packages from PyPi into collection: {target} :)")
-        # from pprint import pprint
-        # pprint(data)
-        self.client.collections[target].documents.import_(
+        res = self.client.collections[target].documents.import_(
             data, {"action": "upsert"}
         )
+        logger.info(res)
 
     def __call__(self, aggregator, target):
         i = 0
         logger.info(f"[{datetime.now()}] Start aggregating packages from PyPi...")
         batch = []
+        bsize = 50
         for identifier, data in aggregator:
             data["id"] = identifier
+            data["identifier"] = identifier
             data = self.clean_data(data)
             logger.info(f"Index package: {identifier}")
             batch.append(data)
             i += 1
-            if i % 10 == 0:
+            if i % bsize == 0:
                 self.index_data(batch, i, target)
                 batch = []
-        self.index_data(batch, i, target)
-        logger.info(f"Aggregated {i} packages from PyPi :)")
+        if batch:
+            self.index_data(batch, i, target)
         logger.info(f"[{datetime.now()}] Aggregation finished!")
