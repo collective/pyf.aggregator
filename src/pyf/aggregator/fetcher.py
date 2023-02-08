@@ -45,12 +45,13 @@ class Aggregator:
         with open(self.sincefile, "w") as fd:
             fd.write(str(start))
         count = 0
-        for package_id, release_id in iterator:
+        for package_id, release_id, ts in iterator:
             if self.limit and count > self.limit:
                 return
             count += 1
             identifier = f"{package_id}-{release_id}"
             data = self._get_pypi(package_id, release_id)
+            data["upload_timestamp"] = ts
 
             for plugin in PLUGINS:
                 plugin(identifier, data)
@@ -59,13 +60,19 @@ class Aggregator:
     @property
     def _all_packages(self):
         for package_id in self._all_package_ids:
-            for release_id in self._all_package_versions(package_id):
-                yield package_id, release_id
+            package_json = self._get_pypi_json(package_id)
+            if package_json and "releases" in package_json:
+                releases = package_json["releases"]
+                for release_id, release in self._all_package_versions(releases):
+                    if len(release) > 0 and "upload_time" in release[0]:
+                        ts = release[0]["upload_time"]
+                    else:
+                        ts = None
+                    yield package_id, release_id, ts
 
-    def _all_package_versions(self, package_id):
-        package_json = self._get_pypi_json(package_id)
-        if package_json and "releases" in package_json:
-            yield from sorted(package_json["releases"])
+    def _all_package_versions(self, releases):
+        sorted_releases = sorted(releases.items())
+        return sorted_releases
 
     @property
     def _all_package_ids(self):
@@ -107,7 +114,7 @@ class Aggregator:
             ):
                 continue
             seen.update({package_id})
-            yield package_id, release_id
+            yield package_id, release_id, ts
 
     @property
     def package_ids(self):

@@ -27,10 +27,17 @@ parser.add_argument(
 parser.add_argument(
     "--add-search-only-apikey",
     help="Add a search only API key, for given collection filter",
-    nargs="?",
-    type=str,
+    action="store_true",
 )
 
+parser.add_argument(
+    "-key",
+    "--key",
+    help="key to be used, if missing we will generate one",
+    nargs="?",
+    default="gen",
+    type=str,
+)
 
 class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
     """
@@ -69,18 +76,19 @@ class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
         self.client.aliases.upsert(source, aliased_collection)
         logger.info(f"add collection alias: [{source}] => [{target}]")
 
-    def add_search_only_apikey(self, collection_filter):
-        key = self.client.keys.create(
-            {
-                "description": "Search-only companies key.",
+    def add_search_only_apikey(self, collection_filter, key=None):
+        q = {
+                "description": "Search-only key.",
                 "actions": ["*"],
                 "collections": [
                     collection_filter,
                 ],
-            }
-        )
-        logger.info(f"add search only API key, with collection filter: {collection_filter}")
-        print(key)
+        }
+        if key:
+            q["value"] = key
+        res_key = self.client.keys.create(q)
+        logger.info(f"add search only API key {key}, with collection filter: {collection_filter}")
+        print(f"res_key: {res_key}")
 
 
 def main():
@@ -117,4 +125,8 @@ def main():
     if args.add_alias:
         ts_util.add_alias(source=args.source, target=args.target)
     if args.add_search_only_apikey:
-        ts_util.add_search_only_apikey(collection_filter=args.add_search_only_apikey)
+        if args.key != "gen":
+            key = args.key
+        else:
+            key = None
+        ts_util.add_search_only_apikey(collection_filter=args.target, key=key)
