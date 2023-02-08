@@ -1,6 +1,6 @@
 # from .curated import load_curated
 from . import version_slicer
-from . import version_timestamp
+# from . import version_timestamp
 from . import framwork_versions
 from . import python_versions
 from . import rst_to_html
