@@ -19,7 +19,7 @@ class Indexer(TypesenceConnection, TypesensePackagesCollection):
         res = self.client.collections[target].documents.import_(
             data, {"action": "upsert"}
         )
-        logger.info(res)
+        # logger.info(res)
 
     def __call__(self, aggregator, target):
         i = 0
