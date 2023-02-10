@@ -145,11 +145,11 @@ class Aggregator:
     def _get_pypi(self, package_id, release_id):
         package_json = self._get_pypi_json(package_id, release_id)
         # restructure
-        data = package_json["info"]
-        data["urls"] = package_json["urls"]
+        data = package_json.get("info", {})
+        data["urls"] = package_json.get("urls")
         del data["downloads"]
-        for url in data["urls"]:
+        for url in data.get("urls"):
             del url["downloads"]
             del url["md5_digest"]
-        data["name_sortable"] = data["name"]
+        data["name_sortable"] = data.get("name")
         return data
