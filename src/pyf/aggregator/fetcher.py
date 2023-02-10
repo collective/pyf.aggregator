@@ -147,7 +147,8 @@ class Aggregator:
         # restructure
         data = package_json.get("info", {})
         data["urls"] = package_json.get("urls")
-        del data["downloads"]
+        if "downloads" in data:
+            del data["downloads"]
         for url in data.get("urls"):
             del url["downloads"]
             del url["md5_digest"]
