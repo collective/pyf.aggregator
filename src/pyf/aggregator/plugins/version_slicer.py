@@ -6,7 +6,10 @@ regex = re.compile(r"^(?P<major>\d*)\.(?P<minor>\d*)\.?(?P<postfix1>[a-zA-Z]+\d*
 
 def process(identifier, data):
     # parse version to test against:
-    data["version_raw"] = data["version"]
+    version = data.get("version")
+    if not version:
+        return
+    data["version_raw"] = version
     data["version_major"] = 0
     data["version_minor"] = 0
     data["version_bugfix"] = 0
