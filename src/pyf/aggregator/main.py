@@ -3,8 +3,10 @@ from .fetcher import PLUGINS
 from .indexer import Indexer
 from .plugins import register_plugins
 from argparse import ArgumentParser
+from pyf.aggregator.logger import logger
 
-import time
+
+COLLECTION_NAME = "packages1"
 
 
 parser = ArgumentParser(
@@ -24,22 +26,12 @@ parser.add_argument(
     default=".pyaggregator.since",
 )
 parser.add_argument("-l", "--limit", nargs="?", type=int, default=0)
-parser.add_argument("-n", "--filter-name", nargs="?", type=str, default="")
-parser.add_argument("-t", "--filter-troove", action="append", default=[])
-
+parser.add_argument("-fn", "--filter-name", nargs="?", type=str, default="")
+parser.add_argument("-ft", "--filter-troove", action="append", default=[])
 parser.add_argument(
-    "--github-token",
-    help="Github OAuth token",
-    nargs="?",
-    type=str,
-    default="",
+    "-t", "--target", help="target collection name", nargs="?", type=str
 )
 
-parser.add_argument(
-    "--skip-github",
-    help="Don't call Github for meta data",
-    action="store_true"
-)
 
 def main():
     args = parser.parse_args()
@@ -50,8 +42,7 @@ def main():
         "filter_name": args.filter_name,
         "filter_troove": args.filter_troove,
         "limit": args.limit,
-        "github_token": args.github_token,
-        "skip_github": args.skip_github,
+        "target": args.target,
     }
 
     register_plugins(PLUGINS, settings)
@@ -61,11 +52,15 @@ def main():
         sincefile=settings["sincefile"],
         filter_name=settings["filter_name"],
         filter_troove=settings["filter_troove"],
-        skip_github=settings["skip_github"],
         limit=settings["limit"],
     )
     indexer = Indexer()
-    indexer(agg)
+    if not indexer.collection_exists(name=settings["target"]):
+        logger.info(
+            f"no target collection with the name {settings['target']} found, create one."
+        )
+        indexer.create_collection(name=settings["target"])
+    indexer(agg, settings['target'])
 
 
 if __name__ == "__main__":

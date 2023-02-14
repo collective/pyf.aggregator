@@ -7,6 +7,21 @@ information of all Python packages in the PyPI.
 Quickstart
 ----------
 
+To aggregate Plone content from PyPi run the following command:
+
+.. code-block: shell
+
+    ./venv39/bin/pyfaggregator -ft "Framework :: Plone" -i -t packages4
+
+The target Typesense collection is given here with ``-t``.
+
+To enrich the data with data from GitHub, run the following command:
+
+.. code-block: shell
+
+    ./venv39/bin/pyfgithub -t packages4
+
+
 For detailed installation instructions, read the `docs
 <https://pyfaggregator.readthedocs.io/en/latest/installation.html>`_.
 

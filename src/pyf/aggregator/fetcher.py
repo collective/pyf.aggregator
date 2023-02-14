@@ -31,7 +31,7 @@ class Aggregator:
         self.limit = limit
 
     def __iter__(self):
-        """ create all json for every package release """
+        """create all json for every package release"""
         start = int(time.time())
         filepath = Path(self.sincefile)
         if self.mode == "first":
@@ -45,32 +45,39 @@ class Aggregator:
         with open(self.sincefile, "w") as fd:
             fd.write(str(start))
         count = 0
-        for package_id, release_id in iterator:
+        for package_id, release_id, ts in iterator:
             if self.limit and count > self.limit:
                 return
             count += 1
             identifier = f"{package_id}-{release_id}"
             data = self._get_pypi(package_id, release_id)
+            data["upload_timestamp"] = ts
+
             for plugin in PLUGINS:
-                if self.skip_github and hasattr(plugin, 'github'):
-                    continue
                 plugin(identifier, data)
             yield identifier, data
 
     @property
     def _all_packages(self):
         for package_id in self._all_package_ids:
-            for release_id in self._all_package_versions(package_id):
-                yield package_id, release_id
+            package_json = self._get_pypi_json(package_id)
+            if package_json and "releases" in package_json:
+                releases = package_json["releases"]
+                for release_id, release in self._all_package_versions(releases):
+                    if len(release) > 0 and "upload_time" in release[0]:
+                        ts = release[0]["upload_time"]
+                    else:
+                        ts = None
+                    yield package_id, release_id, ts
 
-    def _all_package_versions(self, package_id):
-        package_json = self._get_pypi_json(package_id)
-        if package_json and "releases" in package_json:
-            yield from sorted(package_json["releases"])
+    def _all_package_versions(self, releases):
+        sorted_releases = sorted(releases.items())
+        return sorted_releases
 
     @property
     def _all_package_ids(self):
-        """ Get all package ids by pypi simple index """
+        """Get all package ids by pypi simple index"""
+        logger.info(f"get package ids pypi...")
         if self.filter_troove:
             # we can use an API to filter by troove
             client = xmlrpc.client.ServerProxy(self.pypi_base_url + "/pypi")
@@ -98,7 +105,7 @@ class Aggregator:
                 yield package_id
 
     def _package_updates(self, since):
-        """ Get all package ids by pypi updated after given time."""
+        """Get all package ids by pypi updated after given time."""
         client = xmlrpc.client.ServerProxy(self.pypi_base_url + "/pypi")
         seen = set()
         for package_id, release_id, ts, action in client.changelog(since):
@@ -107,7 +114,7 @@ class Aggregator:
             ):
                 continue
             seen.update({package_id})
-            yield package_id, release_id
+            yield package_id, release_id, ts
 
     @property
     def package_ids(self):
@@ -117,7 +124,8 @@ class Aggregator:
             return self._package_updates
 
     def _get_pypi_json(self, package_id, release_id=""):
-        """ get json for a package release """
+        """get json for a package release"""
+        logger.info(f"fetch data from pypi for: {package_id}")
         package_url = self.pypi_base_url + "/pypi/" + package_id
         if release_id:
             package_url += "/" + release_id
@@ -137,11 +145,12 @@ class Aggregator:
     def _get_pypi(self, package_id, release_id):
         package_json = self._get_pypi_json(package_id, release_id)
         # restructure
-        data = package_json["info"]
-        data["urls"] = package_json["urls"]
-        del data["downloads"]
-        for url in data["urls"]:
+        data = package_json.get("info", {})
+        data["urls"] = package_json.get("urls")
+        if "downloads" in data:
+            del data["downloads"]
+        for url in data.get("urls"):
             del url["downloads"]
             del url["md5_digest"]
-        data["name_sortable"] = data["name"]
+        data["name_sortable"] = data.get("name")
         return data

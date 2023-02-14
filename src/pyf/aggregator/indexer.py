@@ -1,24 +1,41 @@
-from elasticsearch import Elasticsearch
-from elasticsearch_dsl import Mapping
-from pyf.aggregator.config import PACKAGE_FIELD_MAPPING
+from datetime import datetime
+from pyf.aggregator.db import TypesenceConnection, TypesensePackagesCollection
+from pyf.aggregator.logger import logger
 
 
-class Indexer:
-    def __init__(self):
-        self.client = Elasticsearch([{"host": "localhost", "port": "9200"}])
-        self.set_mapping("package", PACKAGE_FIELD_MAPPING)
+class Indexer(TypesenceConnection, TypesensePackagesCollection):
+    def clean_data(self, data):
+        list_fields = ["requires_dist", "classifiers"]
+        for key, value in data.items():
+            if key in list_fields and value == None:
+                data[key] = []
+                continue
+            if value is None:
+                data[key] = ""
+        return data
 
-    def set_mapping(self, mapping_name, field_mapping):
-        mapping = Mapping()
-        for field_id in field_mapping:
-            mapping.field(field_id, field_mapping[field_id])
-        mapping.save(index="packages", using=self.client)
+    def index_data(self, data, i, target):
+        logger.info(f"Index {i} packages from PyPi into collection: {target} :)")
+        res = self.client.collections[target].documents.import_(
+            data, {"action": "upsert"}
+        )
+        # logger.info(res)
 
-    def __call__(self, aggregator):
+    def __call__(self, aggregator, target):
+        i = 0
+        logger.info(f"[{datetime.now()}] Start aggregating packages from PyPi...")
+        batch = []
+        bsize = 50
         for identifier, data in aggregator:
-            index_keywords = {
-                "index": "packages",
-                "id": identifier,
-                "body": data,
-            }
-            self.client.index(**index_keywords)
+            data["id"] = identifier
+            data["identifier"] = identifier
+            data = self.clean_data(data)
+            logger.info(f"Index package: {identifier}")
+            batch.append(data)
+            i += 1
+            if i % bsize == 0:
+                self.index_data(batch, i, target)
+                batch = []
+        if batch:
+            self.index_data(batch, i, target)
+        logger.info(f"[{datetime.now()}] Aggregation finished!")
