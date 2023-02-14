@@ -146,7 +146,7 @@ class Aggregator:
         package_json = self._get_pypi_json(package_id, release_id)
         # restructure
         data = package_json.get("info", {})
-        data["urls"] = package_json.get("urls")
+        data["urls"] = package_json.get("urls", [])
         if "downloads" in data:
             del data["downloads"]
         for url in data.get("urls"):
