@@ -109,11 +109,15 @@ class Aggregator:
     def _package_updates(self, since):
         """Get all package ids by pypi updated after given time."""
         client = xmlrpc.client.ServerProxy(self.pypi_base_url + "/pypi")
+        all_package_ids = set(self._all_package_ids)
         seen = set()
         for package_id, release_id, ts, action in client.changelog(since):
             if package_id in seen or (
                 self.filter_name and self.filter_name not in package_id
             ):
+                continue
+            if all_package_ids.isdisjoint([package_id]):
+                logger.debug(f"package_id '{package_id}' not wanted by filter-troove, skip!")
                 continue
             seen.update({package_id})
             yield package_id, release_id, ts
