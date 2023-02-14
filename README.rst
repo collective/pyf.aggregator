@@ -2,7 +2,8 @@ Python Package Filter Aggregator
 ================================
 
 The Python Package Filter Aggregator (``pyf.aggregator``) aggregates the meta
-information of all Python packages in the PyPI.
+information of all Python packages in the PyPI and enhances it with data from GitHub.
+
 
 Requirements
 ------------
@@ -21,7 +22,7 @@ Create a virtualenv and install the package
     $ python -m venv venv
     $ ./venv/bin/pip install -e .
 
-For the connection to typesense we need to define some environment variables in a .env file.
+For the connection to Typesense we need to define some environment variables in a .env file.
 
 .. code-block:: ini
 
