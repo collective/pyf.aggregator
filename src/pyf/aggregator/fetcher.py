@@ -51,6 +51,8 @@ class Aggregator:
             count += 1
             identifier = f"{package_id}-{release_id}"
             data = self._get_pypi(package_id, release_id)
+            if not data:
+                continue
             data["upload_timestamp"] = ts
 
             for plugin in PLUGINS:
@@ -145,7 +147,9 @@ class Aggregator:
     def _get_pypi(self, package_id, release_id):
         package_json = self._get_pypi_json(package_id, release_id)
         # restructure
-        data = package_json.get("info", {})
+        data = package_json.get("info")
+        if not data:
+            return
         data["urls"] = package_json.get("urls", [])
         if "downloads" in data:
             del data["downloads"]
