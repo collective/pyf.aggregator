@@ -92,9 +92,6 @@ or if you want to define the key your self, you can provide one:
 The pyfupdater command can also be used to migrate a Typesense collection to another, when you make bigger changes to the schema.
 
 
-For detailed installation instructions, read the `docs
-<https://pyfaggregator.readthedocs.io/en/latest/installation.html>`_.
-
 
 License
 -------
