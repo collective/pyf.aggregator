@@ -1,0 +1,24 @@
+@baseUrl = https://pypi.org
+
+# Index API:
+
+###
+# all data! don't use here!
+get {{baseUrl}}/simple
+Accept: application/vnd.pypi.simple.v1+json
+
+###
+
+get {{baseUrl}}/simple/plone.gallery
+Accept: application/vnd.pypi.simple.v1+json
+
+# JSON API
+
+###
+# package infos we need
+get {{baseUrl}}/pypi/plone-gallery/json
+
+
+###
+# package infos of a single version
+get {{baseUrl}}/pypi/plone-gallery/1.1.6/json
