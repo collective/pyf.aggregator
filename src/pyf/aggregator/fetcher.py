@@ -80,31 +80,24 @@ class Aggregator:
     def _all_package_ids(self):
         """Get all package ids by pypi simple index"""
         logger.info(f"get package ids pypi...")
-        if self.filter_troove:
-            # we can use an API to filter by troove
-            client = xmlrpc.client.ServerProxy(self.pypi_base_url + "/pypi")
-            for package_id in sorted({_[0] for _ in client.browse(self.filter_troove)}):
-                if self.filter_name and self.filter_name not in package_id:
-                    continue
-                yield package_id
-        else:
-            pypi_index_url = self.pypi_base_url + "/simple"
-            request_obj = requests.get(pypi_index_url)
-            if not request_obj.status_code == 200:
-                raise ValueError(f"Not 200 OK for {pypi_index_url}")
+        pypi_index_url = self.pypi_base_url + "/simple"
+        headers = {"Accept": "application/vnd.pypi.simple.v1+json"}
+        request_obj = requests.get(pypi_index_url, headers=headers)
+        if not request_obj.status_code == 200:
+            raise ValueError(f"Not 200 OK for {pypi_index_url}")
+        import pdb; pdb.set_trace()  # NOQA: E702
+        result = getattr(request_obj, "text", "")
+        if not result:
+            raise ValueError(f"Empty result for {pypi_index_url}")
 
-            result = getattr(request_obj, "text", "")
-            if not result:
-                raise ValueError(f"Empty result for {pypi_index_url}")
+        logger.info("Got package list.")
 
-            logger.info("Got package list.")
-
-            tree = html.fromstring(result)
-            for link in tree.xpath("//a"):
-                package_id = link.text
-                if self.filter_name and self.filter_name not in package_id:
-                    continue
-                yield package_id
+        tree = html.fromstring(result)
+        for link in tree.xpath("//a"):
+            package_id = link.text
+            if self.filter_name and self.filter_name not in package_id:
+                continue
+            yield package_id
 
     def _package_updates(self, since):
         """Get all package ids by pypi updated after given time."""
