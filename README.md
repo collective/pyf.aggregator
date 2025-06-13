@@ -29,6 +29,7 @@ TYPESENSE_API_KEY=<your_secret_typesense_apikey>
 TYPESENSE_TIMEOUT=120
 GITHUB_COOLOFFTIME=2
 GITHUB_TOKEN=<your_secret_github_apikey>
+REDIS_HOST=localhost:6379
 ```
 
 ## Quickstart

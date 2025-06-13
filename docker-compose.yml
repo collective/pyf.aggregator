@@ -1,0 +1,17 @@
+
+
+services:
+  typesense:
+    image: docker.io/typesense/typesense:28.0
+    network_mode: "host"
+    ports:
+      - 8108:8108
+    volumes:
+      - ./data/typesense:/data
+    command: --data-dir /data --api-key=$TYPESENSE_API_KEY --enable-cors
+
+  redis:
+    image: 'valkey/valkey:latest'
+    network_mode: "host"
+    volumes:
+      - ./data/redis:/data

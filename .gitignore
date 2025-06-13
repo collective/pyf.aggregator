@@ -31,3 +31,4 @@ build
 /results.json
 /venv38
 /typesense-data.tar.gz
+/data/

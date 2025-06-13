@@ -23,6 +23,8 @@ dependencies = [
     "python-dotenv",
     "docutils",
     "readme-renderer[md]",
+    "feedparser",
+    "celery[redis]",
 ]
 
 [project.urls]
