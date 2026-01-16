@@ -164,10 +164,59 @@ def update_github(package_id):
     logger.info(f"Processing {package_id}")
     # TODO
 
-@app.task
-def read_rss_new_projects_and_queue():
-    # TODO
-    pass
+@app.task(bind=True, max_retries=3, default_retry_delay=120)
+def read_rss_new_projects_and_queue(self):
+    """
+    Read PyPI RSS feed for new packages and queue inspect_project for each.
+
+    This task fetches the PyPI new packages RSS feed, parses each entry,
+    and queues an inspect_project task for each new package found.
+    The inspect_project task will check if the package has the Plone
+    classifier and index it if so.
+
+    RSS Feed: https://pypi.org/rss/packages.xml (latest 40 new packages)
+    """
+    PYPI_NEW_PACKAGES_RSS = "https://pypi.org/rss/packages.xml"
+
+    logger.info("Starting RSS new projects scan...")
+
+    try:
+        # Create aggregator instance to use its RSS parsing methods
+        aggregator = Aggregator(mode="incremental")
+
+        # Parse the RSS feed
+        entries = aggregator._parse_rss_feed(PYPI_NEW_PACKAGES_RSS)
+
+        if not entries:
+            logger.info("No new packages found in RSS feed")
+            return {"status": "completed", "packages_queued": 0}
+
+        queued_count = 0
+        for entry in entries:
+            package_id = entry.get("package_id")
+            if not package_id:
+                continue
+
+            # Queue inspect_project task for this package
+            package_data = {
+                "package_id": package_id,
+                "release_id": entry.get("release_id"),
+                "timestamp": entry.get("timestamp"),
+            }
+            inspect_project.delay(package_data)
+            queued_count += 1
+            logger.debug(f"Queued inspect_project for new package: {package_id}")
+
+        logger.info(f"RSS new projects scan complete: {queued_count} packages queued")
+        return {"status": "completed", "packages_queued": queued_count}
+
+    except Exception as e:
+        logger.error(f"Error reading RSS new projects feed: {e}")
+        try:
+            raise self.retry(exc=e)
+        except self.MaxRetriesExceededError:
+            logger.error("Max retries exceeded for RSS new projects scan")
+            return {"status": "failed", "reason": str(e)}
 
 @app.task
 def read_rss_new_releases_and_queue():
