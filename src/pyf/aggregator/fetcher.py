@@ -3,7 +3,9 @@ from lxml import html
 from pathlib import Path
 from pyf.aggregator.logger import logger
 
+import feedparser
 import os
+import re
 import requests
 import time
 import xmlrpc.client
@@ -259,3 +261,112 @@ class Aggregator:
         """
         classifiers = package_json.get("info", {}).get("classifiers", [])
         return any(c.startswith(PLONE_CLASSIFIER) for c in classifiers)
+
+    def _parse_rss_feed(self, feed_url):
+        """Parse a PyPI RSS feed and extract package update information.
+
+        Args:
+            feed_url: URL of the RSS feed (e.g., https://pypi.org/rss/updates.xml)
+
+        Returns:
+            List of dicts with package_id, release_id (if available), and timestamp
+        """
+        logger.info(f"Fetching RSS feed: {feed_url}")
+
+        # Apply rate limiting
+        self._apply_rate_limit()
+
+        retries = 0
+        while retries <= PYPI_MAX_RETRIES:
+            try:
+                feed = feedparser.parse(feed_url)
+            except Exception as e:
+                logger.warning(f"Error parsing RSS feed {feed_url}: {e}")
+                retries += 1
+                if retries <= PYPI_MAX_RETRIES:
+                    backoff = PYPI_RETRY_BACKOFF ** retries
+                    logger.info(f"Retrying in {backoff:.1f}s (attempt {retries}/{PYPI_MAX_RETRIES})")
+                    time.sleep(backoff)
+                continue
+
+            # Check for feed parsing errors
+            if feed.bozo and feed.bozo_exception:
+                logger.warning(f"RSS feed parsing issue: {feed.bozo_exception}")
+                # feedparser still returns partial data even on errors, so continue
+
+            # Check if we have entries
+            if not feed.entries:
+                logger.warning(f"No entries found in RSS feed: {feed_url}")
+                return []
+
+            entries = []
+            for entry in feed.entries:
+                parsed_entry = self._parse_rss_entry(entry)
+                if parsed_entry:
+                    entries.append(parsed_entry)
+
+            logger.info(f"Parsed {len(entries)} entries from RSS feed")
+            return entries
+
+        logger.error(f"Max retries exceeded for RSS feed: {feed_url}")
+        return []
+
+    def _parse_rss_entry(self, entry):
+        """Parse a single RSS feed entry to extract package information.
+
+        PyPI RSS feed entries have titles like "package-name 1.0.0" and
+        links like "https://pypi.org/project/package-name/1.0.0/"
+
+        Args:
+            entry: A feedparser entry object
+
+        Returns:
+            Dict with package_id, release_id, timestamp, and link, or None if parsing fails
+        """
+        title = entry.get("title", "")
+        link = entry.get("link", "")
+
+        # Extract package_id and release_id from title (format: "package-name 1.0.0")
+        package_id = None
+        release_id = None
+
+        if title:
+            # Title format is typically "package-name version"
+            # Split on last space to handle package names with spaces/dashes
+            parts = title.rsplit(" ", 1)
+            if len(parts) == 2:
+                package_id = parts[0].strip()
+                release_id = parts[1].strip()
+            else:
+                package_id = title.strip()
+
+        # Fallback: try to extract from link
+        # Link format: https://pypi.org/project/package-name/1.0.0/
+        if not package_id and link:
+            match = re.search(r"/project/([^/]+)/?(?:([^/]+)/?)?$", link)
+            if match:
+                package_id = match.group(1)
+                release_id = match.group(2) if match.group(2) else None
+
+        if not package_id:
+            logger.debug(f"Could not parse package_id from RSS entry: {title}")
+            return None
+
+        # Extract timestamp
+        timestamp = None
+        if "published_parsed" in entry and entry.published_parsed:
+            timestamp = time.mktime(entry.published_parsed)
+        elif "updated_parsed" in entry and entry.updated_parsed:
+            timestamp = time.mktime(entry.updated_parsed)
+
+        # Apply name filter if set
+        if self.filter_name and self.filter_name not in package_id:
+            return None
+
+        return {
+            "package_id": package_id,
+            "release_id": release_id,
+            "timestamp": timestamp,
+            "link": link,
+            "description": entry.get("summary", ""),
+        }
