@@ -89,19 +89,28 @@ class Aggregator:
                 yield package_id
         else:
             pypi_index_url = self.pypi_base_url + "/simple"
-            request_obj = requests.get(pypi_index_url)
+            # Use PyPI Simple API JSON format
+            headers = {"Accept": "application/vnd.pypi.simple.v1+json"}
+            request_obj = requests.get(pypi_index_url, headers=headers)
             if not request_obj.status_code == 200:
                 raise ValueError(f"Not 200 OK for {pypi_index_url}")
 
-            result = getattr(request_obj, "text", "")
-            if not result:
-                raise ValueError(f"Empty result for {pypi_index_url}")
+            try:
+                result = request_obj.json()
+            except Exception:
+                logger.exception(f"Error parsing JSON from {pypi_index_url}")
+                raise ValueError(f"Invalid JSON response from {pypi_index_url}")
 
-            logger.info("Got package list.")
+            projects = result.get("projects", [])
+            if not projects:
+                raise ValueError(f"Empty projects list from {pypi_index_url}")
 
-            tree = html.fromstring(result)
-            for link in tree.xpath("//a"):
-                package_id = link.text
+            logger.info(f"Got package list with {len(projects)} projects.")
+
+            for project in projects:
+                package_id = project.get("name")
+                if not package_id:
+                    continue
                 if self.filter_name and self.filter_name not in package_id:
                     continue
                 yield package_id
