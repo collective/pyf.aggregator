@@ -73,10 +73,59 @@ class Aggregator:
             yield identifier, data
 
     @property
+    def _project_list(self):
+        """Get list of package IDs, optionally filtered by classifier.
+
+        When filter_troove is set (typically to 'Framework :: Plone'), each
+        package's JSON metadata is fetched to check if it has the classifier.
+        This is slower but necessary since XML-RPC browse() is deprecated.
+
+        Yields:
+            package_id: Package name/identifier
+        """
+        count = 0
+        for package_id in self._all_package_ids:
+            # Check limit
+            if self.limit and count >= self.limit:
+                return
+
+            # If classifier filtering is enabled, check each package
+            if self.filter_troove:
+                package_json = self._get_pypi_json(package_id)
+                if not package_json:
+                    continue
+                if not self.has_plone_classifier(package_json):
+                    logger.debug(f"Skipping {package_id} - no Plone classifier")
+                    continue
+                logger.info(f"Found Plone package: {package_id}")
+
+            count += 1
+            yield package_id
+
+    @property
     def _all_packages(self):
+        """Get all package releases, with optional classifier filtering.
+
+        When filter_troove is set, only packages with the matching classifier
+        (e.g., 'Framework :: Plone') are yielded.
+
+        Yields:
+            Tuple of (package_id, release_id, timestamp) for each release
+        """
         for package_id in self._all_package_ids:
             package_json = self._get_pypi_json(package_id)
-            if package_json and "releases" in package_json:
+            if not package_json:
+                continue
+
+            # Apply classifier filter if set
+            if self.filter_troove and not self.has_plone_classifier(package_json):
+                logger.debug(f"Skipping {package_id} - no Plone classifier")
+                continue
+
+            if self.filter_troove:
+                logger.info(f"Found Plone package: {package_id}")
+
+            if "releases" in package_json:
                 releases = package_json["releases"]
                 for release_id, release in self._all_package_versions(releases):
                     if len(release) > 0 and "upload_time" in release[0]:
