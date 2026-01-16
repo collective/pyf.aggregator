@@ -10,6 +10,9 @@ import xmlrpc.client
 # Plugin storage
 PLUGINS = []
 
+# Classifier constant for Plone framework filtering
+PLONE_CLASSIFIER = "Framework :: Plone"
+
 
 class Aggregator:
     def __init__(
@@ -171,3 +174,15 @@ class Aggregator:
             del url["md5_digest"]
         data["name_sortable"] = data.get("name")
         return data
+
+    def has_plone_classifier(self, package_json):
+        """Check if a package has the Framework :: Plone classifier.
+
+        Args:
+            package_json: Dict containing package metadata with 'info.classifiers'
+
+        Returns:
+            True if any classifier starts with 'Framework :: Plone', False otherwise
+        """
+        classifiers = package_json.get("info", {}).get("classifiers", [])
+        return any(c.startswith(PLONE_CLASSIFIER) for c in classifiers)
