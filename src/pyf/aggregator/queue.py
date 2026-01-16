@@ -142,16 +142,79 @@ def inspect_project(self, package_data):
             logger.error(f"Max retries exceeded for package {package_id}")
             return {"status": "failed", "reason": str(e), "package_id": package_id}
 
-@app.task
-def update_project(package_id):
+@app.task(bind=True, max_retries=3, default_retry_delay=60)
+def update_project(self, package_id):
     """
-    Process a package release data.
+    Update/re-index a known Plone package from PyPI.
+
+    This task fetches the latest package metadata from PyPI JSON API and
+    indexes it to Typesense. Unlike inspect_project, this task does NOT
+    check for the Plone classifier - it assumes the package is already
+    known to be a Plone package (used for updating existing packages).
 
     Args:
-        package_id (str): The ID of the package.
+        package_id (str): The package name to update.
+
+    Returns:
+        dict: Status dict with 'status', 'package_id', and optionally 'identifier' or 'reason'.
     """
-    logger.info(f"Processing {package_id}")
-    # TODO
+    if not package_id:
+        logger.warning("update_project called without package_id, skipping")
+        return {"status": "skipped", "reason": "no package_id"}
+
+    logger.info(f"Updating package: {package_id}")
+
+    try:
+        # Create aggregator to fetch package data
+        aggregator = Aggregator(mode="first")
+
+        # Fetch full package JSON from PyPI (latest version)
+        package_json = aggregator._get_pypi_json(package_id)
+
+        if not package_json:
+            logger.warning(f"Could not fetch package JSON for: {package_id}")
+            return {"status": "skipped", "reason": "fetch_failed", "package_id": package_id}
+
+        # Extract and prepare data for indexing (following fetcher._get_pypi pattern)
+        data = package_json.get("info")
+        if not data:
+            logger.warning(f"Package {package_id} has no 'info' section")
+            return {"status": "skipped", "reason": "no_info", "package_id": package_id}
+
+        data["urls"] = package_json.get("urls", [])
+
+        # Remove unwanted fields
+        if "downloads" in data:
+            del data["downloads"]
+        for url in data.get("urls", []):
+            if "downloads" in url:
+                del url["downloads"]
+            if "md5_digest" in url:
+                del url["md5_digest"]
+
+        # Set identifier and sortable name
+        version = data.get("version", "")
+        identifier = f"{package_id}-{version}" if version else package_id
+        data["id"] = identifier
+        data["identifier"] = identifier
+        data["name_sortable"] = data.get("name", package_id)
+
+        # Index to Typesense
+        indexer = PackageIndexer()
+        data = indexer.clean_data(data)
+        indexer.index_single(data, TYPESENSE_COLLECTION)
+
+        logger.info(f"Successfully updated package: {identifier}")
+        return {"status": "indexed", "package_id": package_id, "identifier": identifier}
+
+    except Exception as e:
+        logger.error(f"Error updating package {package_id}: {e}")
+        # Retry on transient errors
+        try:
+            raise self.retry(exc=e)
+        except self.MaxRetriesExceededError:
+            logger.error(f"Max retries exceeded for package {package_id}")
+            return {"status": "failed", "reason": str(e), "package_id": package_id}
 
 @app.task
 def update_github(package_id):
