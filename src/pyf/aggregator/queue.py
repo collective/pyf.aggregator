@@ -1,6 +1,8 @@
 from celery import Celery
-from .logger import logger
 from celery.schedules import crontab
+from dotenv import load_dotenv
+from pyf.aggregator.logger import logger
+
 import os
 
 
