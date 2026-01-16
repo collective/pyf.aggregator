@@ -8,7 +8,6 @@ import os
 import re
 import requests
 import time
-import xmlrpc.client
 
 load_dotenv()
 
@@ -92,58 +91,115 @@ class Aggregator:
 
     @property
     def _all_package_ids(self):
-        """Get all package ids by pypi simple index"""
-        logger.info(f"get package ids pypi...")
+        """Get all package ids by pypi simple index.
+
+        Note: filter_troove is deprecated as XML-RPC browse() is no longer available.
+        When filter_troove is set, classifier filtering now happens in _all_packages
+        via has_plone_classifier() check on each package's JSON metadata.
+        """
+        logger.info("Fetching package list from PyPI Simple API...")
+
         if self.filter_troove:
-            # we can use an API to filter by troove
-            client = xmlrpc.client.ServerProxy(self.pypi_base_url + "/pypi")
-            for package_id in sorted({_[0] for _ in client.browse(self.filter_troove)}):
-                if self.filter_name and self.filter_name not in package_id:
-                    continue
-                yield package_id
-        else:
-            pypi_index_url = self.pypi_base_url + "/simple"
-            # Use PyPI Simple API JSON format
-            headers = {"Accept": "application/vnd.pypi.simple.v1+json"}
-            request_obj = requests.get(pypi_index_url, headers=headers)
-            if not request_obj.status_code == 200:
-                raise ValueError(f"Not 200 OK for {pypi_index_url}")
+            logger.warning(
+                f"filter_troove='{self.filter_troove}' is set but XML-RPC browse() "
+                "is deprecated. Classifier filtering will be done via JSON API "
+                "for each package (slower but works)."
+            )
 
-            try:
-                result = request_obj.json()
-            except Exception:
-                logger.exception(f"Error parsing JSON from {pypi_index_url}")
-                raise ValueError(f"Invalid JSON response from {pypi_index_url}")
+        pypi_index_url = self.pypi_base_url + "/simple"
+        # Use PyPI Simple API JSON format
+        headers = {"Accept": "application/vnd.pypi.simple.v1+json"}
 
-            projects = result.get("projects", [])
-            if not projects:
-                raise ValueError(f"Empty projects list from {pypi_index_url}")
+        # Apply rate limiting
+        self._apply_rate_limit()
 
-            logger.info(f"Got package list with {len(projects)} projects.")
+        request_obj = requests.get(pypi_index_url, headers=headers)
+        if not request_obj.status_code == 200:
+            raise ValueError(f"Not 200 OK for {pypi_index_url}")
 
-            for project in projects:
-                package_id = project.get("name")
-                if not package_id:
-                    continue
-                if self.filter_name and self.filter_name not in package_id:
-                    continue
-                yield package_id
+        try:
+            result = request_obj.json()
+        except Exception:
+            logger.exception(f"Error parsing JSON from {pypi_index_url}")
+            raise ValueError(f"Invalid JSON response from {pypi_index_url}")
+
+        projects = result.get("projects", [])
+        if not projects:
+            raise ValueError(f"Empty projects list from {pypi_index_url}")
+
+        logger.info(f"Got package list with {len(projects)} projects.")
+
+        for project in projects:
+            package_id = project.get("name")
+            if not package_id:
+                continue
+            if self.filter_name and self.filter_name not in package_id:
+                continue
+            yield package_id
 
     def _package_updates(self, since):
-        """Get all package ids by pypi updated after given time."""
-        client = xmlrpc.client.ServerProxy(self.pypi_base_url + "/pypi")
-        all_package_ids = set(self._all_package_ids)
+        """Get package updates since given timestamp using RSS feeds.
+
+        Uses PyPI RSS feeds (updates.xml and packages.xml) instead of
+        deprecated XML-RPC changelog() API. RSS feeds return the latest ~40
+        entries, so this method filters by timestamp.
+
+        Args:
+            since: Unix timestamp to filter updates from
+
+        Yields:
+            Tuple of (package_id, release_id, timestamp) for each update
+        """
+        logger.info(f"Fetching package updates since {since} via RSS feeds...")
+
+        # Collect entries from both RSS feeds
+        # updates.xml = recently updated packages
+        # packages.xml = newly created packages
+        rss_feeds = [
+            self.pypi_base_url.rstrip("/") + "/rss/updates.xml",
+            self.pypi_base_url.rstrip("/") + "/rss/packages.xml",
+        ]
+
         seen = set()
-        for package_id, release_id, ts, action in client.changelog(since):
-            if package_id in seen or (
-                self.filter_name and self.filter_name not in package_id
-            ):
+        all_entries = []
+
+        for feed_url in rss_feeds:
+            entries = self._parse_rss_feed(feed_url)
+            all_entries.extend(entries)
+
+        # Sort by timestamp descending (newest first) and deduplicate
+        all_entries.sort(key=lambda e: e.get("timestamp") or 0, reverse=True)
+
+        for entry in all_entries:
+            package_id = entry.get("package_id")
+            release_id = entry.get("release_id")
+            timestamp = entry.get("timestamp")
+
+            if not package_id:
                 continue
-            if all_package_ids.isdisjoint([package_id]):
-                logger.debug(f"package_id '{package_id}' not wanted by filter-troove, skip!")
+
+            # Skip if we've already seen this package
+            if package_id in seen:
                 continue
-            seen.update({package_id})
-            yield package_id, release_id, ts
+
+            # Skip if timestamp is before our "since" cutoff
+            # Note: RSS feeds only contain ~40 latest entries, so if timestamp
+            # is None we include it to be safe
+            if timestamp is not None and timestamp < since:
+                logger.debug(
+                    f"Skipping {package_id} - timestamp {timestamp} is before {since}"
+                )
+                continue
+
+            # Apply name filter
+            if self.filter_name and self.filter_name not in package_id:
+                continue
+
+            seen.add(package_id)
+            logger.debug(f"Found update: {package_id} {release_id}")
+            yield package_id, release_id, timestamp
+
+        logger.info(f"Found {len(seen)} package updates from RSS feeds")
 
     @property
     def package_ids(self):
