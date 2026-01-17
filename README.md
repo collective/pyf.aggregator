@@ -39,7 +39,9 @@ python -m venv venv
 
 ## Configuration
 
-Create a `.env` file with the following environment variables:
+copy example.env to .env
+
+or create a `.env` file with the following environment variables:
 
 ```ini
 # Typesense Configuration
