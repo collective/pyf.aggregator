@@ -16,15 +16,17 @@ app = Celery(
 #### Celery tasks
 
 @app.task
-def inspect_project(package_data):
+def inspect_project(project_data):
     """
-    Inspect a project and insert if matching
+    Fetch project JSON info, Inspect and insert if matching
 
     Args:
-        package_data (str): The data of the project.
+        agg (Aggregator): Aggregator object
+        project_data (dict): With `_last_serial` and `name` of the project.
     """
-    logger.info(f"Inspect package: {package_data}")
+    logger.info(f"Inspect package: {project_data}")
     # TODO (reduce also log above)
+
 
 @app.task
 def update_project(package_id):

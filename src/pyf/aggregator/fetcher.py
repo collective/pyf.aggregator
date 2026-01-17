@@ -1,10 +1,10 @@
 from lxml import html
 from pathlib import Path
 from pyf.aggregator.logger import logger
-
 import requests
 import time
 import xmlrpc.client
+import .queue
 
 
 # Plugin storage
@@ -61,43 +61,42 @@ class Aggregator:
 
     @property
     def _all_packages(self):
-        for package_id in self._all_package_ids:
-            package_json = self._get_pypi_json(package_id)
-            if package_json and "releases" in package_json:
-                releases = package_json["releases"]
-                for release_id, release in self._all_package_versions(releases):
-                    if len(release) > 0 and "upload_time" in release[0]:
-                        ts = release[0]["upload_time"]
-                    else:
-                        ts = None
-                    yield package_id, release_id, ts
+        for project in self._project_list:
+            queue.inspect_project.s(project)
+            # package_json = self._get_pypi_json(package_id)
+            # if package_json and "releases" in package_json:
+            #     releases = package_json["releases"]
+            #     for release_id, release in self._all_package_versions(releases):
+            #         if len(release) > 0 and "upload_time" in release[0]:
+            #             ts = release[0]["upload_time"]
+            #         else:
+            #             ts = None
+            #         yield package_id, release_id, ts
 
     def _all_package_versions(self, releases):
         sorted_releases = sorted(releases.items())
         return sorted_releases
 
     @property
-    def _all_package_ids(self):
-        """Get all package ids by pypi simple index"""
+    def _project_list(self):
+        """Get all projects by pypi simple index"""
         logger.info(f"get package ids pypi...")
         pypi_index_url = self.pypi_base_url + "/simple"
         headers = {"Accept": "application/vnd.pypi.simple.v1+json"}
         request_obj = requests.get(pypi_index_url, headers=headers)
         if not request_obj.status_code == 200:
             raise ValueError(f"Not 200 OK for {pypi_index_url}")
-        import pdb; pdb.set_trace()  # NOQA: E702
-        result = getattr(request_obj, "text", "")
+        result = request_obj.json()
         if not result:
             raise ValueError(f"Empty result for {pypi_index_url}")
 
         logger.info("Got package list.")
 
-        tree = html.fromstring(result)
-        for link in tree.xpath("//a"):
-            package_id = link.text
+        for project in result:
+            package_id = project.name
             if self.filter_name and self.filter_name not in package_id:
                 continue
-            yield package_id
+            yield project
 
     def _package_updates(self, since):
         """Get all package ids by pypi updated after given time."""

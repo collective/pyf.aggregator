@@ -47,13 +47,13 @@ def main():
 
     register_plugins(PLUGINS, settings)
 
-    agg = Aggregator(
-        mode,
-        sincefile=settings["sincefile"],
-        filter_name=settings["filter_name"],
-        filter_troove=settings["filter_troove"],
-        limit=settings["limit"],
-    )
+    # agg = Aggregator(
+    #     mode,
+    #     sincefile=settings["sincefile"],
+    #     filter_name=settings["filter_name"],
+    #     filter_troove=settings["filter_troove"],
+    #     limit=settings["limit"],
+    # )
     indexer = Indexer()
     if not indexer.collection_exists(name=settings["target"]):
         logger.info(
