@@ -32,3 +32,6 @@ build
 /venv38
 /typesense-data.tar.gz
 /data/
+
+# Auto Claude data directory
+.auto-claude/

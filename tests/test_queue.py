@@ -1,0 +1,742 @@
+"""
+Unit tests for pyf.aggregator.queue module.
+
+This module tests:
+- PackageIndexer helper class
+- inspect_project Celery task
+- update_project Celery task
+- read_rss_new_projects_and_queue Celery task
+- read_rss_new_releases_and_queue Celery task
+- Periodic task setup
+"""
+
+import time
+import pytest
+import responses
+from unittest.mock import patch, MagicMock
+import re
+
+from pyf.aggregator.queue import (
+    app,
+    PackageIndexer,
+    inspect_project,
+    update_project,
+    read_rss_new_projects_and_queue,
+    read_rss_new_releases_and_queue,
+    update_github,
+    queue_all_github_updates,
+    setup_periodic_tasks,
+    TYPESENSE_COLLECTION,
+)
+
+
+class FeedParserEntry:
+    """Mock feedparser entry that supports both dict-like and attribute access."""
+
+    def __init__(self, data):
+        self._data = data
+        for key, value in data.items():
+            setattr(self, key, value)
+
+    def get(self, key, default=""):
+        return self._data.get(key, default)
+
+    def __contains__(self, key):
+        return key in self._data
+
+
+# ============================================================================
+# PackageIndexer Tests
+# ============================================================================
+
+class TestPackageIndexer:
+    """Test the PackageIndexer helper class."""
+
+    def test_clean_data_replaces_none_with_empty_string(self):
+        """Test that None values are replaced with empty strings."""
+        with patch("pyf.aggregator.db.typesense.Client"):
+            indexer = PackageIndexer()
+            data = {"name": "test", "author": None, "version": "1.0"}
+            result = indexer.clean_data(data)
+
+            assert result["name"] == "test"
+            assert result["author"] == ""
+            assert result["version"] == "1.0"
+
+    def test_clean_data_replaces_none_list_fields_with_empty_list(self):
+        """Test that list fields with None are replaced with empty lists."""
+        with patch("pyf.aggregator.db.typesense.Client"):
+            indexer = PackageIndexer()
+            data = {"name": "test", "requires_dist": None, "classifiers": None}
+            result = indexer.clean_data(data)
+
+            assert result["requires_dist"] == []
+            assert result["classifiers"] == []
+
+    def test_clean_data_preserves_existing_values(self):
+        """Test that existing non-None values are preserved."""
+        with patch("pyf.aggregator.db.typesense.Client"):
+            indexer = PackageIndexer()
+            data = {
+                "name": "plone.api",
+                "requires_dist": ["zope.interface"],
+                "classifiers": ["Framework :: Plone"],
+            }
+            result = indexer.clean_data(data)
+
+            assert result["name"] == "plone.api"
+            assert result["requires_dist"] == ["zope.interface"]
+            assert result["classifiers"] == ["Framework :: Plone"]
+
+    def test_index_single_calls_upsert(self, mock_typesense_client):
+        """Test that index_single uses upsert operation."""
+        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
+            indexer = PackageIndexer()
+            data = {"id": "test-1.0", "name": "test"}
+
+            result = indexer.index_single(data, "test_collection")
+
+            mock_typesense_client.collections["test_collection"].documents.upsert.assert_called_once_with(data)
+
+    def test_index_single_handles_errors(self, mock_typesense_client):
+        """Test that index_single raises errors properly."""
+        mock_typesense_client.collections["test_collection"].documents.upsert.side_effect = Exception("Test error")
+
+        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
+            indexer = PackageIndexer()
+            data = {"id": "test-1.0", "name": "test"}
+
+            with pytest.raises(Exception, match="Test error"):
+                indexer.index_single(data, "test_collection")
+
+
+# ============================================================================
+# inspect_project Task Tests
+# ============================================================================
+
+class TestInspectProjectTask:
+    """Test the inspect_project Celery task."""
+
+    def test_task_is_registered(self):
+        """Test that inspect_project task is registered with Celery."""
+        assert "pyf.aggregator.queue.inspect_project" in app.tasks
+
+    def test_skips_when_no_package_id(self, celery_eager_mode):
+        """Test that task skips when package_id is missing."""
+        result = inspect_project({})
+        assert result["status"] == "skipped"
+        assert result["reason"] == "no package_id"
+
+    @responses.activate
+    def test_skips_non_plone_package(self, celery_eager_mode, sample_pypi_json_non_plone):
+        """Test that non-Plone packages are skipped."""
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+pypi/requests/json"),
+            json=sample_pypi_json_non_plone,
+            status=200,
+        )
+
+        result = inspect_project({"package_id": "requests"})
+
+        assert result["status"] == "skipped"
+        assert result["reason"] == "no_plone_classifier"
+        assert result["package_id"] == "requests"
+
+    @responses.activate
+    def test_indexes_plone_package(self, celery_eager_mode, sample_pypi_json_plone, mock_typesense_client):
+        """Test that Plone packages are indexed."""
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+pypi/plone\.api/json"),
+            json=sample_pypi_json_plone,
+            status=200,
+        )
+
+        with patch("pyf.aggregator.queue.PackageIndexer") as mock_indexer_class:
+            mock_indexer = MagicMock()
+            mock_indexer.clean_data.side_effect = lambda x: x
+            mock_indexer.index_single.return_value = {"success": True}
+            mock_indexer_class.return_value = mock_indexer
+
+            result = inspect_project({"package_id": "plone.api"})
+
+            assert result["status"] == "indexed"
+            assert result["package_id"] == "plone.api"
+            assert "identifier" in result
+            mock_indexer.index_single.assert_called_once()
+
+    @responses.activate
+    def test_handles_fetch_failure(self, celery_eager_mode):
+        """Test that task handles 404 gracefully."""
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+pypi/nonexistent/json"),
+            status=404,
+        )
+
+        result = inspect_project({"package_id": "nonexistent"})
+
+        assert result["status"] == "skipped"
+        assert result["reason"] == "fetch_failed"
+
+    @responses.activate
+    def test_handles_missing_info_section(self, celery_eager_mode):
+        """Test that task handles missing 'info' section in JSON."""
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+pypi/broken-package/json"),
+            json={"releases": {}, "urls": []},
+            status=200,
+        )
+
+        result = inspect_project({"package_id": "broken-package"})
+
+        assert result["status"] == "skipped"
+        # Could be fetch_failed or no_info depending on implementation
+        assert "reason" in result
+
+    @responses.activate
+    def test_uses_release_id_when_provided(self, celery_eager_mode, sample_pypi_json_plone, mock_typesense_client):
+        """Test that specific release_id is used when provided."""
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+pypi/plone\.api/1\.0\.0/json"),
+            json=sample_pypi_json_plone,
+            status=200,
+        )
+
+        with patch("pyf.aggregator.queue.PackageIndexer") as mock_indexer_class:
+            mock_indexer = MagicMock()
+            mock_indexer.clean_data.side_effect = lambda x: x
+            mock_indexer.index_single.return_value = {"success": True}
+            mock_indexer_class.return_value = mock_indexer
+
+            result = inspect_project({
+                "package_id": "plone.api",
+                "release_id": "1.0.0",
+            })
+
+            assert result["status"] == "indexed"
+
+    @responses.activate
+    def test_removes_downloads_field(self, celery_eager_mode, sample_pypi_json_plone, mock_typesense_client):
+        """Test that 'downloads' field is removed from indexed data."""
+        sample_with_downloads = sample_pypi_json_plone.copy()
+        sample_with_downloads["info"] = sample_with_downloads["info"].copy()
+        sample_with_downloads["info"]["downloads"] = {"last_week": 1000}
+
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+pypi/plone\.api/json"),
+            json=sample_with_downloads,
+            status=200,
+        )
+
+        with patch("pyf.aggregator.queue.PackageIndexer") as mock_indexer_class:
+            mock_indexer = MagicMock()
+            indexed_data = None
+
+            def capture_clean_data(data):
+                nonlocal indexed_data
+                indexed_data = data
+                return data
+
+            mock_indexer.clean_data.side_effect = capture_clean_data
+            mock_indexer.index_single.return_value = {"success": True}
+            mock_indexer_class.return_value = mock_indexer
+
+            inspect_project({"package_id": "plone.api"})
+
+            assert "downloads" not in indexed_data
+
+    @responses.activate
+    def test_sets_id_and_identifier(self, celery_eager_mode, sample_pypi_json_plone, mock_typesense_client):
+        """Test that id and identifier are set correctly."""
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+pypi/plone\.api/json"),
+            json=sample_pypi_json_plone,
+            status=200,
+        )
+
+        with patch("pyf.aggregator.queue.PackageIndexer") as mock_indexer_class:
+            mock_indexer = MagicMock()
+            indexed_data = None
+
+            def capture_clean_data(data):
+                nonlocal indexed_data
+                indexed_data = data
+                return data
+
+            mock_indexer.clean_data.side_effect = capture_clean_data
+            mock_indexer.index_single.return_value = {"success": True}
+            mock_indexer_class.return_value = mock_indexer
+
+            inspect_project({"package_id": "plone.api"})
+
+            assert indexed_data["id"] == "plone.api-2.0.0"
+            assert indexed_data["identifier"] == "plone.api-2.0.0"
+            assert indexed_data["name_sortable"] == "plone.api"
+
+
+# ============================================================================
+# update_project Task Tests
+# ============================================================================
+
+class TestUpdateProjectTask:
+    """Test the update_project Celery task."""
+
+    def test_task_is_registered(self):
+        """Test that update_project task is registered with Celery."""
+        assert "pyf.aggregator.queue.update_project" in app.tasks
+
+    def test_skips_when_no_package_id(self, celery_eager_mode):
+        """Test that task skips when package_id is empty."""
+        result = update_project("")
+        assert result["status"] == "skipped"
+        assert result["reason"] == "no package_id"
+
+    @responses.activate
+    def test_indexes_package(self, celery_eager_mode, sample_pypi_json_plone, mock_typesense_client):
+        """Test that package is indexed without classifier check."""
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+pypi/plone\.api/json"),
+            json=sample_pypi_json_plone,
+            status=200,
+        )
+
+        with patch("pyf.aggregator.queue.PackageIndexer") as mock_indexer_class:
+            mock_indexer = MagicMock()
+            mock_indexer.clean_data.side_effect = lambda x: x
+            mock_indexer.index_single.return_value = {"success": True}
+            mock_indexer_class.return_value = mock_indexer
+
+            result = update_project("plone.api")
+
+            assert result["status"] == "indexed"
+            assert result["package_id"] == "plone.api"
+            mock_indexer.index_single.assert_called_once()
+
+    @responses.activate
+    def test_does_not_check_plone_classifier(self, celery_eager_mode, sample_pypi_json_non_plone, mock_typesense_client):
+        """Test that non-Plone packages are still indexed (no classifier check)."""
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+pypi/requests/json"),
+            json=sample_pypi_json_non_plone,
+            status=200,
+        )
+
+        with patch("pyf.aggregator.queue.PackageIndexer") as mock_indexer_class:
+            mock_indexer = MagicMock()
+            mock_indexer.clean_data.side_effect = lambda x: x
+            mock_indexer.index_single.return_value = {"success": True}
+            mock_indexer_class.return_value = mock_indexer
+
+            result = update_project("requests")
+
+            # update_project doesn't check classifier - should still index
+            assert result["status"] == "indexed"
+
+    @responses.activate
+    def test_handles_fetch_failure(self, celery_eager_mode):
+        """Test that task handles 404 gracefully."""
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+pypi/nonexistent/json"),
+            status=404,
+        )
+
+        result = update_project("nonexistent")
+
+        assert result["status"] == "skipped"
+        assert result["reason"] == "fetch_failed"
+
+
+# ============================================================================
+# read_rss_new_projects_and_queue Task Tests
+# ============================================================================
+
+class TestReadRssNewProjectsAndQueue:
+    """Test the read_rss_new_projects_and_queue Celery task."""
+
+    def test_task_is_registered(self):
+        """Test that task is registered with Celery."""
+        assert "pyf.aggregator.queue.read_rss_new_projects_and_queue" in app.tasks
+
+    def test_queues_packages_from_rss(self, celery_eager_mode):
+        """Test that packages from RSS feed are queued."""
+        with patch('feedparser.parse') as mock_parse:
+            mock_feed = MagicMock()
+            mock_feed.bozo = False
+            mock_feed.bozo_exception = None
+            mock_feed.entries = [
+                FeedParserEntry({
+                    "title": "new-package 1.0.0",
+                    "link": "https://pypi.org/project/new-package/1.0.0/",
+                    "summary": "",
+                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                }),
+                FeedParserEntry({
+                    "title": "another-package 2.0.0",
+                    "link": "https://pypi.org/project/another-package/2.0.0/",
+                    "summary": "",
+                    "published_parsed": time.strptime("2023-06-14", "%Y-%m-%d"),
+                }),
+            ]
+            mock_parse.return_value = mock_feed
+
+            with patch("pyf.aggregator.queue.inspect_project.delay") as mock_delay:
+                result = read_rss_new_projects_and_queue()
+
+                assert result["status"] == "completed"
+                assert result["packages_queued"] == 2
+                assert mock_delay.call_count == 2
+
+    def test_returns_zero_when_empty_feed(self, celery_eager_mode):
+        """Test that empty feed returns 0 packages queued."""
+        with patch('feedparser.parse') as mock_parse:
+            mock_feed = MagicMock()
+            mock_feed.bozo = False
+            mock_feed.bozo_exception = None
+            mock_feed.entries = []
+            mock_parse.return_value = mock_feed
+
+            result = read_rss_new_projects_and_queue()
+
+            assert result["status"] == "completed"
+            assert result["packages_queued"] == 0
+
+    def test_skips_entries_without_package_id(self, celery_eager_mode):
+        """Test that entries without valid package_id are skipped."""
+        with patch('feedparser.parse') as mock_parse:
+            mock_feed = MagicMock()
+            mock_feed.bozo = False
+            mock_feed.bozo_exception = None
+            mock_feed.entries = [
+                FeedParserEntry({
+                    "title": "",
+                    "link": "",
+                    "summary": "",
+                }),
+                FeedParserEntry({
+                    "title": "valid-package 1.0.0",
+                    "link": "https://pypi.org/project/valid-package/1.0.0/",
+                    "summary": "",
+                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                }),
+            ]
+            mock_parse.return_value = mock_feed
+
+            with patch("pyf.aggregator.queue.inspect_project.delay") as mock_delay:
+                result = read_rss_new_projects_and_queue()
+
+                # Only valid package should be queued
+                assert result["packages_queued"] == 1
+                mock_delay.assert_called_once()
+
+    def test_passes_correct_data_to_inspect_project(self, celery_eager_mode):
+        """Test that correct package data is passed to inspect_project task."""
+        with patch('feedparser.parse') as mock_parse:
+            mock_feed = MagicMock()
+            mock_feed.bozo = False
+            mock_feed.bozo_exception = None
+            mock_feed.entries = [
+                FeedParserEntry({
+                    "title": "test-package 1.0.0",
+                    "link": "https://pypi.org/project/test-package/1.0.0/",
+                    "summary": "",
+                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                }),
+            ]
+            mock_parse.return_value = mock_feed
+
+            with patch("pyf.aggregator.queue.inspect_project.delay") as mock_delay:
+                read_rss_new_projects_and_queue()
+
+                # Check the package_data passed to inspect_project
+                call_args = mock_delay.call_args[0][0]
+                assert call_args["package_id"] == "test-package"
+                assert call_args["release_id"] == "1.0.0"
+
+
+# ============================================================================
+# read_rss_new_releases_and_queue Task Tests
+# ============================================================================
+
+class TestReadRssNewReleasesAndQueue:
+    """Test the read_rss_new_releases_and_queue Celery task."""
+
+    def test_task_is_registered(self):
+        """Test that task is registered with Celery."""
+        assert "pyf.aggregator.queue.read_rss_new_releases_and_queue" in app.tasks
+
+    def test_queues_releases_from_rss(self, celery_eager_mode):
+        """Test that releases from RSS feed are queued."""
+        with patch('feedparser.parse') as mock_parse:
+            mock_feed = MagicMock()
+            mock_feed.bozo = False
+            mock_feed.bozo_exception = None
+            mock_feed.entries = [
+                FeedParserEntry({
+                    "title": "updated-package 2.0.0",
+                    "link": "https://pypi.org/project/updated-package/2.0.0/",
+                    "summary": "",
+                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                }),
+            ]
+            mock_parse.return_value = mock_feed
+
+            with patch("pyf.aggregator.queue.inspect_project.delay") as mock_delay:
+                result = read_rss_new_releases_and_queue()
+
+                assert result["status"] == "completed"
+                assert result["packages_queued"] == 1
+                mock_delay.assert_called_once()
+
+    def test_returns_zero_when_empty_feed(self, celery_eager_mode):
+        """Test that empty feed returns 0 packages queued."""
+        with patch('feedparser.parse') as mock_parse:
+            mock_feed = MagicMock()
+            mock_feed.bozo = False
+            mock_feed.bozo_exception = None
+            mock_feed.entries = []
+            mock_parse.return_value = mock_feed
+
+            result = read_rss_new_releases_and_queue()
+
+            assert result["status"] == "completed"
+            assert result["packages_queued"] == 0
+
+
+# ============================================================================
+# Other Task Tests
+# ============================================================================
+
+class TestUpdateGithubTask:
+    """Test the update_github Celery task."""
+
+    def test_task_is_registered(self):
+        """Test that update_github task is registered with Celery."""
+        assert "pyf.aggregator.queue.update_github" in app.tasks
+
+    def test_task_exists(self):
+        """Test that update_github task can be called."""
+        # Task is a stub, just verify it exists and can be called
+        result = update_github("plone.api")
+        assert result is None  # Currently returns None as it's a TODO
+
+
+class TestQueueAllGithubUpdates:
+    """Test the queue_all_github_updates Celery task."""
+
+    def test_task_is_registered(self):
+        """Test that queue_all_github_updates task is registered with Celery."""
+        assert "pyf.aggregator.queue.queue_all_github_updates" in app.tasks
+
+
+# ============================================================================
+# Periodic Task Setup Tests
+# ============================================================================
+
+class TestPeriodicTaskSetup:
+    """Test the periodic task configuration."""
+
+    def test_setup_periodic_tasks_exists(self):
+        """Test that setup_periodic_tasks function exists."""
+        assert callable(setup_periodic_tasks)
+
+    def test_periodic_tasks_configured(self):
+        """Test that periodic tasks are configured correctly."""
+        mock_sender = MagicMock()
+
+        setup_periodic_tasks(mock_sender)
+
+        # Should have added 2 periodic tasks
+        assert mock_sender.add_periodic_task.call_count == 2
+
+        # Check task names
+        call_args_list = mock_sender.add_periodic_task.call_args_list
+        task_names = [call[1].get('name', '') for call in call_args_list]
+
+        assert 'read RSS new projects and add to queue' in task_names
+        assert 'read RSS new releases and add to queue' in task_names
+
+
+# ============================================================================
+# Constants and App Configuration Tests
+# ============================================================================
+
+class TestQueueConfiguration:
+    """Test queue module configuration."""
+
+    def test_typesense_collection_has_default(self):
+        """Test that TYPESENSE_COLLECTION has a default value."""
+        # The default is set in the module or from environment
+        assert TYPESENSE_COLLECTION is not None
+        assert isinstance(TYPESENSE_COLLECTION, str)
+
+    def test_celery_app_name(self):
+        """Test that Celery app has correct name."""
+        assert app.main == "pyf-aggregator"
+
+    def test_celery_app_has_broker_retry_on_startup(self):
+        """Test that Celery app has broker retry on startup enabled."""
+        # This is configured in the app initialization
+        assert app.conf.broker_connection_retry_on_startup is True
+
+
+# ============================================================================
+# Task Retry Configuration Tests
+# ============================================================================
+
+class TestTaskRetryConfiguration:
+    """Test that tasks have proper retry configuration."""
+
+    def test_inspect_project_has_retry_config(self):
+        """Test that inspect_project has retry configuration."""
+        task = app.tasks["pyf.aggregator.queue.inspect_project"]
+        assert task.max_retries == 3
+        assert task.default_retry_delay == 60
+
+    def test_update_project_has_retry_config(self):
+        """Test that update_project has retry configuration."""
+        task = app.tasks["pyf.aggregator.queue.update_project"]
+        assert task.max_retries == 3
+        assert task.default_retry_delay == 60
+
+    def test_rss_new_projects_has_retry_config(self):
+        """Test that read_rss_new_projects_and_queue has retry configuration."""
+        task = app.tasks["pyf.aggregator.queue.read_rss_new_projects_and_queue"]
+        assert task.max_retries == 3
+        assert task.default_retry_delay == 120
+
+    def test_rss_new_releases_has_retry_config(self):
+        """Test that read_rss_new_releases_and_queue has retry configuration."""
+        task = app.tasks["pyf.aggregator.queue.read_rss_new_releases_and_queue"]
+        assert task.max_retries == 3
+        assert task.default_retry_delay == 120
+
+
+# ============================================================================
+# Edge Case Tests
+# ============================================================================
+
+class TestEdgeCases:
+    """Test edge cases and error handling."""
+
+    @responses.activate
+    def test_inspect_project_handles_empty_package_json(self, celery_eager_mode):
+        """Test that empty package JSON is handled."""
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+pypi/empty-package/json"),
+            json={},
+            status=200,
+        )
+
+        result = inspect_project({"package_id": "empty-package"})
+
+        # Should skip due to no info or no classifier
+        assert result["status"] == "skipped"
+
+    @responses.activate
+    def test_inspect_project_handles_package_with_no_version(self, celery_eager_mode, mock_typesense_client):
+        """Test that packages without version are handled."""
+        package_json = {
+            "info": {
+                "name": "test-package",
+                "version": "",
+                "classifiers": ["Framework :: Plone"],
+            },
+            "urls": [],
+        }
+
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+pypi/test-package/json"),
+            json=package_json,
+            status=200,
+        )
+
+        with patch("pyf.aggregator.queue.PackageIndexer") as mock_indexer_class:
+            mock_indexer = MagicMock()
+            indexed_data = None
+
+            def capture_clean_data(data):
+                nonlocal indexed_data
+                indexed_data = data
+                return data
+
+            mock_indexer.clean_data.side_effect = capture_clean_data
+            mock_indexer.index_single.return_value = {"success": True}
+            mock_indexer_class.return_value = mock_indexer
+
+            result = inspect_project({"package_id": "test-package"})
+
+            assert result["status"] == "indexed"
+            # Identifier should be just package name when no version
+            assert indexed_data["id"] == "test-package"
+
+    @responses.activate
+    def test_update_project_handles_network_error(self, celery_eager_mode):
+        """Test that network errors trigger retry behavior."""
+        from celery.exceptions import Retry
+
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+pypi/network-error/json"),
+            body=Exception("Network error"),
+        )
+
+        # In eager mode with propagates=True, retry exceptions are raised
+        # The task should attempt to retry on network errors
+        with pytest.raises(Exception):
+            update_project("network-error")
+
+    def test_rss_task_handles_feedparser_error(self, celery_eager_mode):
+        """Test that feedparser errors are handled."""
+        with patch('feedparser.parse') as mock_parse:
+            mock_feed = MagicMock()
+            mock_feed.bozo = True
+            mock_feed.bozo_exception = Exception("Parse error")
+            mock_feed.entries = []
+            mock_parse.return_value = mock_feed
+
+            # Should handle gracefully
+            result = read_rss_new_projects_and_queue()
+
+            # Even with bozo feed, should return a status
+            assert "status" in result
+
+    @responses.activate
+    def test_inspect_project_with_timestamp(self, celery_eager_mode, sample_pypi_json_plone, mock_typesense_client):
+        """Test that upload_timestamp is set when provided."""
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+pypi/plone\.api/json"),
+            json=sample_pypi_json_plone,
+            status=200,
+        )
+
+        with patch("pyf.aggregator.queue.PackageIndexer") as mock_indexer_class:
+            mock_indexer = MagicMock()
+            indexed_data = None
+
+            def capture_clean_data(data):
+                nonlocal indexed_data
+                indexed_data = data
+                return data
+
+            mock_indexer.clean_data.side_effect = capture_clean_data
+            mock_indexer.index_single.return_value = {"success": True}
+            mock_indexer_class.return_value = mock_indexer
+
+            inspect_project({
+                "package_id": "plone.api",
+                "timestamp": 1686700000.0,
+            })
+
+            assert indexed_data["upload_timestamp"] == "1686700000.0"
