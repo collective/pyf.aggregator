@@ -419,8 +419,9 @@ class Aggregator:
     def _parse_rss_entry(self, entry):
         """Parse a single RSS feed entry to extract package information.
 
-        PyPI RSS feed entries have titles like "package-name 1.0.0" and
-        links like "https://pypi.org/project/package-name/1.0.0/"
+        PyPI RSS feeds have two formats:
+        - packages.xml (new packages): title="package-name added to PyPI", link="/project/package-name/"
+        - updates.xml (releases): title="package-name version", link="/project/package-name/version/"
 
         Args:
             entry: A feedparser entry object
@@ -431,27 +432,31 @@ class Aggregator:
         title = entry.get("title", "")
         link = entry.get("link", "")
 
-        # Extract package_id and release_id from title (format: "package-name 1.0.0")
         package_id = None
         release_id = None
 
-        if title:
-            # Title format is typically "package-name version"
-            # Split on last space to handle package names with spaces/dashes
-            parts = title.rsplit(" ", 1)
-            if len(parts) == 2:
-                package_id = parts[0].strip()
-                release_id = parts[1].strip()
-            else:
-                package_id = title.strip()
-
-        # Fallback: try to extract from link
-        # Link format: https://pypi.org/project/package-name/1.0.0/
-        if not package_id and link:
+        # Primary: extract from link (most reliable)
+        # Link format: https://pypi.org/project/package-name/ or https://pypi.org/project/package-name/1.0.0/
+        if link:
             match = re.search(r"/project/([^/]+)/?(?:([^/]+)/?)?$", link)
             if match:
                 package_id = match.group(1)
                 release_id = match.group(2) if match.group(2) else None
+
+        # Fallback: try to extract from title for updates.xml format "package-name version"
+        if not package_id and title:
+            # Check if title ends with "added to PyPI" (packages.xml format)
+            if title.endswith(" added to PyPI"):
+                package_id = title[:-len(" added to PyPI")].strip()
+            else:
+                # Title format is typically "package-name version"
+                # Split on last space to handle package names with spaces/dashes
+                parts = title.rsplit(" ", 1)
+                if len(parts) == 2:
+                    package_id = parts[0].strip()
+                    release_id = parts[1].strip()
+                else:
+                    package_id = title.strip()
 
         if not package_id:
             logger.debug(f"Could not parse package_id from RSS entry: {title}")
