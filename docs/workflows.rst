@@ -61,10 +61,10 @@ This processes only the first 100 packages, useful for:
 - Developing new features
 - Quick validation
 
-Using Manual Classifiers (Legacy)
-----------------------------------
+Using Manual Classifiers
+-------------------------
 
-For more control or custom classifier combinations:
+For more control, custom classifier combinations, or when profiles aren't available:
 
 .. code-block:: console
 
