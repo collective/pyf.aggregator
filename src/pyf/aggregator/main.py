@@ -3,6 +3,7 @@ from .fetcher import PLUGINS
 from .fetcher import PLONE_CLASSIFIER
 from .indexer import Indexer
 from .plugins import register_plugins
+from .profiles import ProfileManager
 from argparse import ArgumentParser
 from pyf.aggregator.logger import logger
 
@@ -95,14 +96,35 @@ def main():
     mode = "incremental" if args.incremental else "first"
 
     # Build filter_troove list
-    # By default, filter for Plone packages unless --no-plone-filter is specified
-    filter_troove = list(args.filter_troove) if args.filter_troove else []
-    if not args.no_plone_filter and PLONE_CLASSIFIER not in filter_troove:
-        filter_troove.append(PLONE_CLASSIFIER)
-        logger.info(f"Filtering for packages with classifier: {PLONE_CLASSIFIER}")
+    # If profile is specified, load classifiers from profile
+    # Otherwise, use default Plone filtering logic
+    if args.profile:
+        profile_manager = ProfileManager()
+        profile = profile_manager.get_profile(args.profile)
 
-    if args.no_plone_filter:
-        logger.warning("Plone classifier filtering disabled. Processing ALL packages.")
+        if not profile:
+            available_profiles = profile_manager.list_profiles()
+            logger.error(
+                f"Profile '{args.profile}' not found. "
+                f"Available profiles: {', '.join(available_profiles)}"
+            )
+            sys.exit(1)
+
+        if not profile_manager.validate_profile(args.profile):
+            logger.error(f"Profile '{args.profile}' is invalid")
+            sys.exit(1)
+
+        filter_troove = profile["classifiers"]
+        logger.info(f"Using profile '{args.profile}' with {len(filter_troove)} classifiers")
+    else:
+        # Default behavior: filter for Plone packages unless --no-plone-filter is specified
+        filter_troove = list(args.filter_troove) if args.filter_troove else []
+        if not args.no_plone_filter and PLONE_CLASSIFIER not in filter_troove:
+            filter_troove.append(PLONE_CLASSIFIER)
+            logger.info(f"Filtering for packages with classifier: {PLONE_CLASSIFIER}")
+
+        if args.no_plone_filter:
+            logger.warning("Plone classifier filtering disabled. Processing ALL packages.")
 
     settings = {
         "mode": mode,
