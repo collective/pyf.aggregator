@@ -3,6 +3,7 @@ from . import version_slicer
 from . import framwork_versions
 from . import python_versions
 from . import rst_to_html
+from . import health_score
 
 
 def register_plugins(PLUGINS, settings):
@@ -11,3 +12,4 @@ def register_plugins(PLUGINS, settings):
     PLUGINS.append(framwork_versions.load(settings))
     PLUGINS.append(python_versions.load(settings))
     PLUGINS.append(rst_to_html.load(settings))
+    PLUGINS.append(health_score.load(settings))
