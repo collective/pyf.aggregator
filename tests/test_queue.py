@@ -524,9 +524,11 @@ class TestUpdateGithubTask:
 
     def test_task_exists(self):
         """Test that update_github task can be called."""
-        # Task is a stub, just verify it exists and can be called
+        # Task should return a status dict
         result = update_github("plone.api")
-        assert result is None  # Currently returns None as it's a TODO
+        assert result is not None
+        assert "status" in result
+        assert "package_id" in result
 
 
 class TestQueueAllGithubUpdates:
