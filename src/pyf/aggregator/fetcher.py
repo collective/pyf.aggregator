@@ -377,6 +377,20 @@ class Aggregator:
                 return True
         return False
 
+    def has_plone_classifier(self, package_json):
+        """Check if a package has the Framework :: Plone classifier.
+
+        DEPRECATED: Use has_classifiers() for profile support.
+        This method is kept for backward compatibility.
+
+        Args:
+            package_json: Dict containing package metadata with 'info.classifiers'
+
+        Returns:
+            True if any classifier starts with 'Framework :: Plone', False otherwise
+        """
+        return self.has_classifiers(package_json, PLONE_CLASSIFIER)
+
     def _parse_rss_feed(self, feed_url):
         """Parse a PyPI RSS feed and extract package update information.
 
