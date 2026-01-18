@@ -87,11 +87,6 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    # Validate target collection is specified
-    if not args.target:
-        logger.error("Target collection name is required. Use -t <collection_name>")
-        sys.exit(1)
-
     # Determine mode
     mode = "incremental" if args.incremental else "first"
 
@@ -116,6 +111,11 @@ def main():
 
         filter_troove = profile["classifiers"]
         logger.info(f"Using profile '{args.profile}' with {len(filter_troove)} classifiers")
+
+        # Auto-set collection name from profile if not specified
+        if not args.target:
+            args.target = args.profile
+            logger.info(f"Auto-setting target collection from profile: {args.target}")
     else:
         # Default behavior: filter for Plone packages unless --no-plone-filter is specified
         filter_troove = list(args.filter_troove) if args.filter_troove else []
@@ -125,6 +125,11 @@ def main():
 
         if args.no_plone_filter:
             logger.warning("Plone classifier filtering disabled. Processing ALL packages.")
+
+    # Validate target collection is specified
+    if not args.target:
+        logger.error("Target collection name is required. Use -t <collection_name>")
+        sys.exit(1)
 
     settings = {
         "mode": mode,
