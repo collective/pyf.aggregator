@@ -1,0 +1,33 @@
+# Multi-Classifier Profile Configuration
+# Each profile defines a framework ecosystem to track and index
+# Profiles contain:
+#   - name: Human-readable name
+#   - classifiers: List of PyPI trove classifiers to filter packages
+
+profiles:
+  plone:
+    name: "Plone"
+    classifiers:
+      - "Framework :: Plone"
+      - "Framework :: Plone :: 6.0"
+      - "Framework :: Plone :: 5.2"
+      - "Framework :: Plone :: 5.1"
+      - "Framework :: Plone :: 5.0"
+      - "Framework :: Plone :: 4.3"
+      - "Framework :: Plone :: Core"
+      - "Framework :: Plone :: Addon"
+
+  django:
+    name: "Django"
+    classifiers:
+      - "Framework :: Django"
+      - "Framework :: Django :: 5.0"
+      - "Framework :: Django :: 4.2"
+      - "Framework :: Django :: 4.1"
+      - "Framework :: Django :: 4.0"
+      - "Framework :: Django :: 3.2"
+
+  flask:
+    name: "Flask"
+    classifiers:
+      - "Framework :: Flask"

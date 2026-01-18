@@ -56,6 +56,53 @@ GITHUB_COOLOFFTIME=2
 REDIS_HOST=localhost:6379
 ```
 
+### Profile Configuration
+
+The aggregator supports multiple framework ecosystems through **profiles**. Each profile defines a set of PyPI trove classifiers to track packages from different Python frameworks (Django, Flask, FastAPI, etc.).
+
+Profiles are defined in `src/pyf/aggregator/profiles.yaml`:
+
+```yaml
+profiles:
+  plone:
+    name: "Plone"
+    classifiers:
+      - "Framework :: Plone"
+      - "Framework :: Plone :: 6.0"
+      # ... more classifiers
+
+  django:
+    name: "Django"
+    classifiers:
+      - "Framework :: Django"
+      - "Framework :: Django :: 5.0"
+      # ... more classifiers
+
+  flask:
+    name: "Flask"
+    classifiers:
+      - "Framework :: Flask"
+```
+
+**Built-in Profiles:**
+- `plone` - Plone CMS packages
+- `django` - Django framework packages
+- `flask` - Flask framework packages
+
+**Adding Custom Profiles:**
+
+To add a new profile, edit `src/pyf/aggregator/profiles.yaml`:
+
+```yaml
+profiles:
+  fastapi:
+    name: "FastAPI"
+    classifiers:
+      - "Framework :: FastAPI"
+```
+
+Each profile automatically creates its own Typesense collection (using the profile key as the collection name), while sharing the GitHub enrichment cache across all profiles to save API calls.
+
 
 ## CLI Commands
 
@@ -77,19 +124,32 @@ pyfaggregator [options]
 | `-l`, `--limit` | Limit the number of packages to process |
 | `-fn`, `--filter-name` | Filter packages by name (substring match) |
 | `-ft`, `--filter-troove` | Filter by trove classifier (can be used multiple times) |
-| `-t`, `--target` | Target Typesense collection name |
+| `-p`, `--profile` | Use a predefined profile (loads classifiers and sets collection name) |
+| `-t`, `--target` | Target Typesense collection name (auto-set from profile if not specified) |
 
 **Examples:**
 
 ```shell
-# Full fetch of all Plone packages
+# Full fetch of all Plone packages (using manual classifiers)
 pyfaggregator -f -ft "Framework :: Plone" -t packages1
 
-# Incremental update
-pyfaggregator -i -ft "Framework :: Plone" -t packages1
+# Full fetch using the Plone profile (recommended)
+pyfaggregator -f -p plone
+
+# Full fetch of Django packages using the Django profile
+pyfaggregator -f -p django
+
+# Full fetch of Flask packages using the Flask profile
+pyfaggregator -f -p flask
+
+# Incremental update for Django profile
+pyfaggregator -i -p django
 
 # Fetch with limit for testing
-pyfaggregator -f -ft "Framework :: Plone" -t packages1 -l 100
+pyfaggregator -f -p plone -l 100
+
+# Profile with custom collection name (overrides auto-naming)
+pyfaggregator -f -p django -t django-test
 ```
 
 ### pyfgithub
@@ -100,9 +160,27 @@ Enriches indexed packages with data from GitHub (stars, watchers, issues, etc.).
 pyfgithub -t <collection_name>
 ```
 
-**Example:**
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `-p`, `--profile` | Use a profile (auto-sets target collection name) |
+| `-t`, `--target` | Target Typesense collection name (auto-set from profile if not specified) |
+
+**Examples:**
 
 ```shell
+# Enrich using profile (recommended)
+pyfgithub -p plone
+
+# Enrich Django packages
+pyfgithub -p django
+
+# Enrich Flask packages
+pyfgithub -p flask
+
+# Enrich a specific collection (manual)
+pyfgithub -t packages1
 pyfgithub -t packages1
 ```
 
@@ -112,6 +190,8 @@ This adds the following fields to each package (if a GitHub repository is found)
 - `github_updated` - Last update timestamp
 - `github_open_issues` - Number of open issues
 - `github_url` - URL to the GitHub repository
+
+**Note:** GitHub enrichment cache is shared across all profiles to minimize API calls.
 
 ### pyfupdater
 
@@ -132,8 +212,9 @@ pyfupdater [options]
 | `--migrate` | Migrate data from source to target collection |
 | `--add-alias` | Add a collection alias |
 | `--add-search-only-apikey` | Create a search-only API key |
+| `-p`, `--profile` | Use a profile (auto-sets target collection name) |
 | `-s`, `--source` | Source collection name (for migrate/alias) |
-| `-t`, `--target` | Target collection name |
+| `-t`, `--target` | Target collection name (auto-set from profile if not specified) |
 | `-key`, `--key` | Custom API key value (optional, auto-generated if not provided) |
 
 **Examples:**
@@ -159,10 +240,57 @@ pyfupdater --add-search-only-apikey -t packages
 
 # Create a search-only API key with custom value
 pyfupdater --add-search-only-apikey -t packages -key your_custom_key
+
+# Profile-aware operations
+pyfupdater --add-search-only-apikey -p django
+pyfupdater --add-alias -s django -t django-v2
+pyfupdater --add-search-only-apikey -t packages -key your_custom_key
 ```
 
 
 ## Quickstart
+
+### Using Profiles (Recommended)
+
+1. Start the required services:
+   ```shell
+   docker-compose up -d
+   ```
+
+2. Aggregate packages using a profile:
+   ```shell
+   # For Plone packages
+   pyfaggregator -f -p plone
+
+   # For Django packages
+   pyfaggregator -f -p django
+
+   # For Flask packages
+   pyfaggregator -f -p flask
+   ```
+
+3. Enrich with GitHub data:
+   ```shell
+   # For Plone
+   pyfgithub -p plone
+
+   # For Django
+   pyfgithub -p django
+
+   # For Flask
+   pyfgithub -p flask
+   ```
+
+4. Create a search-only API key for clients:
+   ```shell
+   # For Plone
+   pyfupdater --add-search-only-apikey -p plone
+
+   # For Django
+   pyfupdater --add-search-only-apikey -p django
+   ```
+
+### Manual Configuration (Legacy)
 
 1. Start the required services:
    ```shell
@@ -188,6 +316,69 @@ pyfupdater --add-search-only-apikey -t packages -key your_custom_key
    ```shell
    pyfupdater --add-search-only-apikey -t packages
    ```
+
+
+## Multi-Profile Support
+
+The aggregator supports tracking multiple Python framework ecosystems simultaneously. Each profile represents a different framework (Django, Flask, FastAPI, etc.) and can be managed independently with its own Typesense collection.
+
+### Benefits
+
+- **Ecosystem Independence**: Run separate collections for Django, Flask, Plone, etc.
+- **Shared GitHub Cache**: GitHub enrichment data is cached and shared across all profiles, reducing API calls
+- **Simplified Configuration**: Pre-defined classifier sets for popular frameworks
+- **Collection Auto-Naming**: Collections are automatically named after their profile (e.g., `django`, `flask`, `plone`)
+
+### Working with Multiple Profiles
+
+**Example: Managing both Django and Flask packages**
+
+```shell
+# Aggregate Django packages
+pyfaggregator -f -p django
+
+# Aggregate Flask packages
+pyfaggregator -f -p flask
+
+# Enrich both with GitHub data (cache is shared!)
+pyfgithub -p django
+pyfgithub -p flask
+
+# Create API keys for each
+pyfupdater --add-search-only-apikey -p django
+pyfupdater --add-search-only-apikey -p flask
+```
+
+**List all profile collections:**
+
+```shell
+pyfupdater -lsn
+```
+
+This might output:
+```
+django
+flask
+plone
+```
+
+### Profile vs. Manual Classifier Configuration
+
+**Using Profiles (Recommended):**
+```shell
+pyfaggregator -f -p django
+```
+- Automatically loads all Django-related classifiers
+- Auto-sets collection name to `django`
+- Easier to maintain and update
+
+**Using Manual Classifiers (Legacy):**
+```shell
+pyfaggregator -f -ft "Framework :: Django" -ft "Framework :: Django :: 5.0" -t django-packages
+```
+- Requires specifying each classifier individually
+- Manual collection name management
+- More flexible but more verbose
 
 
 ## Architecture

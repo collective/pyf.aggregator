@@ -184,6 +184,138 @@ def sample_pypi_json_no_info():
 
 
 @pytest.fixture
+def sample_pypi_json_django():
+    """Sample PyPI JSON response for a Django package."""
+    return {
+        "info": {
+            "name": "django-rest-framework",
+            "version": "3.14.0",
+            "author": "Tom Christie",
+            "author_email": "tom@tomchristie.com",
+            "bugtrack_url": None,
+            "classifiers": [
+                "Development Status :: 5 - Production/Stable",
+                "Framework :: Django",
+                "Framework :: Django :: 4.2",
+                "Framework :: Django :: 5.0",
+                "License :: OSI Approved :: BSD License",
+                "Programming Language :: Python :: 3",
+                "Programming Language :: Python :: 3.8",
+                "Programming Language :: Python :: 3.9",
+                "Programming Language :: Python :: 3.10",
+                "Programming Language :: Python :: 3.11",
+            ],
+            "description": "Web APIs for Django, made easy.",
+            "description_content_type": "text/markdown",
+            "docs_url": None,
+            "home_page": "https://www.django-rest-framework.org/",
+            "keywords": "django rest api",
+            "license": "BSD",
+            "maintainer": "",
+            "maintainer_email": "",
+            "package_url": "https://pypi.org/project/django-rest-framework/",
+            "platform": "",
+            "project_url": "https://pypi.org/project/django-rest-framework/",
+            "project_urls": {
+                "Homepage": "https://www.django-rest-framework.org/",
+                "Documentation": "https://www.django-rest-framework.org/",
+            },
+            "release_url": "https://pypi.org/project/django-rest-framework/3.14.0/",
+            "requires_dist": ["django>=3.0"],
+            "summary": "Web APIs for Django, made easy.",
+            "version": "3.14.0",
+            "yanked": False,
+            "yanked_reason": None,
+        },
+        "releases": {
+            "3.13.0": [{"upload_time": "2023-01-01T00:00:00"}],
+            "3.14.0": [{"upload_time": "2023-06-15T12:30:00"}],
+        },
+        "urls": [
+            {
+                "comment_text": "",
+                "digests": {"sha256": "abc123"},
+                "downloads": -1,
+                "filename": "django-rest-framework-3.14.0.tar.gz",
+                "md5_digest": "def456",
+                "packagetype": "sdist",
+                "python_requires": ">=3.8",
+                "requires_python": ">=3.8",
+                "size": 12345,
+                "upload_time": "2023-06-15T12:30:00",
+                "url": "https://files.pythonhosted.org/packages/django-rest-framework-3.14.0.tar.gz",
+                "yanked": False,
+            }
+        ],
+    }
+
+
+@pytest.fixture
+def sample_pypi_json_flask():
+    """Sample PyPI JSON response for a Flask package."""
+    return {
+        "info": {
+            "name": "flask-restful",
+            "version": "0.3.10",
+            "author": "Kyle Conroy",
+            "author_email": "info@twilio.com",
+            "bugtrack_url": None,
+            "classifiers": [
+                "Development Status :: 5 - Production/Stable",
+                "Framework :: Flask",
+                "License :: OSI Approved :: BSD License",
+                "Programming Language :: Python :: 3",
+                "Programming Language :: Python :: 3.7",
+                "Programming Language :: Python :: 3.8",
+                "Programming Language :: Python :: 3.9",
+                "Programming Language :: Python :: 3.10",
+            ],
+            "description": "Simple framework for creating REST APIs",
+            "description_content_type": "text/x-rst",
+            "docs_url": None,
+            "home_page": "https://flask-restful.readthedocs.io/",
+            "keywords": "flask rest api",
+            "license": "BSD",
+            "maintainer": "",
+            "maintainer_email": "",
+            "package_url": "https://pypi.org/project/flask-restful/",
+            "platform": "",
+            "project_url": "https://pypi.org/project/flask-restful/",
+            "project_urls": {
+                "Homepage": "https://flask-restful.readthedocs.io/",
+                "Documentation": "https://flask-restful.readthedocs.io/",
+            },
+            "release_url": "https://pypi.org/project/flask-restful/0.3.10/",
+            "requires_dist": ["flask>=0.8"],
+            "summary": "Simple framework for creating REST APIs",
+            "version": "0.3.10",
+            "yanked": False,
+            "yanked_reason": None,
+        },
+        "releases": {
+            "0.3.9": [{"upload_time": "2022-01-01T00:00:00"}],
+            "0.3.10": [{"upload_time": "2023-03-15T12:30:00"}],
+        },
+        "urls": [
+            {
+                "comment_text": "",
+                "digests": {"sha256": "xyz789"},
+                "downloads": -1,
+                "filename": "flask-restful-0.3.10.tar.gz",
+                "md5_digest": "uvw012",
+                "packagetype": "sdist",
+                "python_requires": ">=3.7",
+                "requires_python": ">=3.7",
+                "size": 9876,
+                "upload_time": "2023-03-15T12:30:00",
+                "url": "https://files.pythonhosted.org/packages/flask-restful-0.3.10.tar.gz",
+                "yanked": False,
+            }
+        ],
+    }
+
+
+@pytest.fixture
 def sample_simple_api_response():
     """Sample PyPI Simple API JSON response."""
     return {
