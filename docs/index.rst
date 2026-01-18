@@ -9,7 +9,6 @@ Welcome to pyf.aggregator’s documentation!
    installation
    cli_reference
    workflows
-   api_reference
    contributing
    authors
    history
