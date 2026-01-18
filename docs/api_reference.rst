@@ -25,7 +25,7 @@ Python API
 ----------
 
 For programmatic access to pyf.aggregator functionality, please refer to the
-:doc:`usage` documentation which covers the command-line interface and Python
+:doc:`cli_reference` documentation which covers the command-line interface and Python
 module usage.
 
 Core Classes
