@@ -7,6 +7,8 @@ Welcome to pyf.aggregator’s documentation!
 
    readme
    installation
+   cli_reference
+   workflows
    contributing
    authors
    history
