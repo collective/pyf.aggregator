@@ -65,6 +65,12 @@ parser.add_argument(
     help="Disable automatic Plone classifier filtering (process all packages)",
     action="store_true"
 )
+parser.add_argument(
+    "-p", "--profile",
+    help="Profile name for classifier filtering",
+    nargs="?",
+    type=str
+)
 
 
 def main():
