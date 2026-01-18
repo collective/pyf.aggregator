@@ -131,25 +131,25 @@ pyfaggregator [options]
 
 ```shell
 # Full fetch of all Plone packages (using manual classifiers)
-./venv/bin/pyfaggregator -f -ft "Framework :: Plone" -t packages1
+pyfaggregator -f -ft "Framework :: Plone" -t packages1
 
 # Full fetch using the Plone profile (recommended)
-./venv/bin/pyfaggregator -f -p plone
+pyfaggregator -f -p plone
 
 # Full fetch of Django packages using the Django profile
-./venv/bin/pyfaggregator -f -p django
+pyfaggregator -f -p django
 
 # Full fetch of Flask packages using the Flask profile
-./venv/bin/pyfaggregator -f -p flask
+pyfaggregator -f -p flask
 
 # Incremental update for Django profile
-./venv/bin/pyfaggregator -i -p django
+pyfaggregator -i -p django
 
 # Fetch with limit for testing
-./venv/bin/pyfaggregator -f -p plone -l 100
+pyfaggregator -f -p plone -l 100
 
 # Profile with custom collection name (overrides auto-naming)
-./venv/bin/pyfaggregator -f -p django -t django-test
+pyfaggregator -f -p django -t django-test
 ```
 
 ### pyfgithub
@@ -171,16 +171,16 @@ pyfgithub -t <collection_name>
 
 ```shell
 # Enrich using profile (recommended)
-./venv/bin/pyfgithub -p plone
+pyfgithub -p plone
 
 # Enrich Django packages
-./venv/bin/pyfgithub -p django
+pyfgithub -p django
 
 # Enrich Flask packages
-./venv/bin/pyfgithub -p flask
+pyfgithub -p flask
 
 # Enrich a specific collection (manual)
-./venv/bin/pyfgithub -t packages1
+pyfgithub -t packages1
 pyfgithub -t packages1
 ```
 
@@ -239,11 +239,11 @@ pyfupdater --migrate -s packages1 -t packages2
 pyfupdater --add-search-only-apikey -t packages
 
 # Create a search-only API key with custom value
-./venv/bin/pyfupdater --add-search-only-apikey -t packages -key your_custom_key
+pyfupdater --add-search-only-apikey -t packages -key your_custom_key
 
 # Profile-aware operations
-./venv/bin/pyfupdater --add-search-only-apikey -p django
-./venv/bin/pyfupdater --add-alias -s django -t django-v2
+pyfupdater --add-search-only-apikey -p django
+pyfupdater --add-alias -s django -t django-v2
 pyfupdater --add-search-only-apikey -t packages -key your_custom_key
 ```
 
@@ -260,34 +260,34 @@ pyfupdater --add-search-only-apikey -t packages -key your_custom_key
 2. Aggregate packages using a profile:
    ```shell
    # For Plone packages
-   ./venv/bin/pyfaggregator -f -p plone
+   pyfaggregator -f -p plone
 
    # For Django packages
-   ./venv/bin/pyfaggregator -f -p django
+   pyfaggregator -f -p django
 
    # For Flask packages
-   ./venv/bin/pyfaggregator -f -p flask
+   pyfaggregator -f -p flask
    ```
 
 3. Enrich with GitHub data:
    ```shell
    # For Plone
-   ./venv/bin/pyfgithub -p plone
+   pyfgithub -p plone
 
    # For Django
-   ./venv/bin/pyfgithub -p django
+   pyfgithub -p django
 
    # For Flask
-   ./venv/bin/pyfgithub -p flask
+   pyfgithub -p flask
    ```
 
 4. Create a search-only API key for clients:
    ```shell
    # For Plone
-   ./venv/bin/pyfupdater --add-search-only-apikey -p plone
+   pyfupdater --add-search-only-apikey -p plone
 
    # For Django
-   ./venv/bin/pyfupdater --add-search-only-apikey -p django
+   pyfupdater --add-search-only-apikey -p django
    ```
 
 ### Manual Configuration (Legacy)
@@ -335,24 +335,24 @@ The aggregator supports tracking multiple Python framework ecosystems simultaneo
 
 ```shell
 # Aggregate Django packages
-./venv/bin/pyfaggregator -f -p django
+pyfaggregator -f -p django
 
 # Aggregate Flask packages
-./venv/bin/pyfaggregator -f -p flask
+pyfaggregator -f -p flask
 
 # Enrich both with GitHub data (cache is shared!)
-./venv/bin/pyfgithub -p django
-./venv/bin/pyfgithub -p flask
+pyfgithub -p django
+pyfgithub -p flask
 
 # Create API keys for each
-./venv/bin/pyfupdater --add-search-only-apikey -p django
-./venv/bin/pyfupdater --add-search-only-apikey -p flask
+pyfupdater --add-search-only-apikey -p django
+pyfupdater --add-search-only-apikey -p flask
 ```
 
 **List all profile collections:**
 
 ```shell
-./venv/bin/pyfupdater -lsn
+pyfupdater -lsn
 ```
 
 This might output:
@@ -366,7 +366,7 @@ plone
 
 **Using Profiles (Recommended):**
 ```shell
-./venv/bin/pyfaggregator -f -p django
+pyfaggregator -f -p django
 ```
 - Automatically loads all Django-related classifiers
 - Auto-sets collection name to `django`
@@ -374,7 +374,7 @@ plone
 
 **Using Manual Classifiers (Legacy):**
 ```shell
-./venv/bin/pyfaggregator -f -ft "Framework :: Django" -ft "Framework :: Django :: 5.0" -t django-packages
+pyfaggregator -f -ft "Framework :: Django" -ft "Framework :: Django :: 5.0" -t django-packages
 ```
 - Requires specifying each classifier individually
 - Manual collection name management
