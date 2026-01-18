@@ -94,10 +94,10 @@ class Aggregator:
                 package_json = self._get_pypi_json(package_id)
                 if not package_json:
                     continue
-                if not self.has_plone_classifier(package_json):
-                    logger.debug(f"Skipping {package_id} - no Plone classifier")
+                if not self.has_classifiers(package_json, self.filter_troove):
+                    logger.debug(f"Skipping {package_id} - no matching classifier")
                     continue
-                logger.info(f"Found Plone package: {package_id}")
+                logger.info(f"Found matching package: {package_id}")
 
             count += 1
             yield package_id
@@ -118,12 +118,12 @@ class Aggregator:
                 continue
 
             # Apply classifier filter if set
-            if self.filter_troove and not self.has_plone_classifier(package_json):
-                logger.debug(f"Skipping {package_id} - no Plone classifier")
+            if self.filter_troove and not self.has_classifiers(package_json, self.filter_troove):
+                logger.debug(f"Skipping {package_id} - no matching classifier")
                 continue
 
             if self.filter_troove:
-                logger.info(f"Found Plone package: {package_id}")
+                logger.info(f"Found matching package: {package_id}")
 
             if "releases" in package_json:
                 releases = package_json["releases"]
@@ -355,17 +355,27 @@ class Aggregator:
         data["name_sortable"] = data.get("name")
         return data
 
-    def has_plone_classifier(self, package_json):
-        """Check if a package has the Framework :: Plone classifier.
+    def has_classifiers(self, package_json, filter_classifiers):
+        """Check if a package has any of the specified classifiers.
 
         Args:
             package_json: Dict containing package metadata with 'info.classifiers'
+            filter_classifiers: String or list of classifier prefixes to match
 
         Returns:
-            True if any classifier starts with 'Framework :: Plone', False otherwise
+            True if any package classifier starts with any filter classifier, False otherwise
         """
-        classifiers = package_json.get("info", {}).get("classifiers", [])
-        return any(c.startswith(PLONE_CLASSIFIER) for c in classifiers)
+        # Support both string and list input
+        if isinstance(filter_classifiers, str):
+            filter_classifiers = [filter_classifiers]
+
+        package_classifiers = package_json.get("info", {}).get("classifiers", [])
+
+        # Check if any package classifier starts with any filter classifier
+        for filter_classifier in filter_classifiers:
+            if any(c.startswith(filter_classifier) for c in package_classifiers):
+                return True
+        return False
 
     def _parse_rss_feed(self, feed_url):
         """Parse a PyPI RSS feed and extract package update information.
