@@ -106,12 +106,14 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
             breakdown["github_activity_bonus"] = activity_bonus
 
         # Bonus 3: Issue management (up to +10 points)
-        open_issues = data.get("github_open_issues", 0)
-        stars_for_ratio = data.get("github_stars", 0)
-        if stars_for_ratio > 0:  # Only meaningful for projects with some stars
-            issue_bonus = self._calculate_issue_management_bonus(open_issues, stars_for_ratio)
-            github_bonus += issue_bonus
-            breakdown["github_issue_bonus"] = issue_bonus
+        # Only calculate if we have both stars and open_issues data
+        if "github_open_issues" in data and "github_stars" in data:
+            open_issues = data.get("github_open_issues", 0)
+            stars_for_ratio = data.get("github_stars", 0)
+            if stars_for_ratio > 0:  # Only meaningful for projects with some stars
+                issue_bonus = self._calculate_issue_management_bonus(open_issues, stars_for_ratio)
+                github_bonus += issue_bonus
+                breakdown["github_issue_bonus"] = issue_bonus
 
         # Add GitHub bonus to breakdown
         if github_bonus > 0:

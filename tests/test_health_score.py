@@ -21,6 +21,7 @@ from pyf.aggregator.plugins.health_score import (
     calculate_metadata_score,
     load,
 )
+from pyf.aggregator.enrichers.health_calculator import HealthEnricher
 
 
 # ============================================================================
@@ -937,3 +938,234 @@ class TestHealthScoreIntegration:
         # All scores should be identical
         assert score1 == score2 == score3
         assert breakdown1 == breakdown2 == breakdown3
+
+
+# ============================================================================
+# Health Calculator Enricher Tests
+# ============================================================================
+
+class TestHealthCalculatorEnricher:
+    """Test the HealthEnricher class bonus calculation methods."""
+
+    @pytest.fixture
+    def enricher(self):
+        """Create HealthEnricher class for testing simple methods."""
+        # For testing simple bonus calculation methods
+        return HealthEnricher
+
+    @pytest.fixture
+    def enricher_instance(self):
+        """Create a mock HealthEnricher instance for testing complex methods."""
+        # Create an instance without calling __init__ to avoid Typesense connection
+        instance = HealthEnricher.__new__(HealthEnricher)
+        return instance
+
+    def test_calculate_stars_bonus_with_1000_plus_stars(self, enricher):
+        """Test that 1000+ stars gives 10 points."""
+        bonus = enricher._calculate_stars_bonus(enricher, 1000)
+        assert bonus == 10
+
+        bonus = enricher._calculate_stars_bonus(enricher, 5000)
+        assert bonus == 10
+
+    def test_calculate_stars_bonus_with_500_to_999_stars(self, enricher):
+        """Test that 500-999 stars gives 7 points."""
+        bonus = enricher._calculate_stars_bonus(enricher, 500)
+        assert bonus == 7
+
+        bonus = enricher._calculate_stars_bonus(enricher, 750)
+        assert bonus == 7
+
+    def test_calculate_stars_bonus_with_100_to_499_stars(self, enricher):
+        """Test that 100-499 stars gives 5 points."""
+        bonus = enricher._calculate_stars_bonus(enricher, 100)
+        assert bonus == 5
+
+        bonus = enricher._calculate_stars_bonus(enricher, 300)
+        assert bonus == 5
+
+    def test_calculate_stars_bonus_with_50_to_99_stars(self, enricher):
+        """Test that 50-99 stars gives 3 points."""
+        bonus = enricher._calculate_stars_bonus(enricher, 50)
+        assert bonus == 3
+
+        bonus = enricher._calculate_stars_bonus(enricher, 75)
+        assert bonus == 3
+
+    def test_calculate_stars_bonus_with_10_to_49_stars(self, enricher):
+        """Test that 10-49 stars gives 1 point."""
+        bonus = enricher._calculate_stars_bonus(enricher, 10)
+        assert bonus == 1
+
+        bonus = enricher._calculate_stars_bonus(enricher, 30)
+        assert bonus == 1
+
+    def test_calculate_stars_bonus_with_less_than_10_stars(self, enricher):
+        """Test that < 10 stars gives 0 points."""
+        bonus = enricher._calculate_stars_bonus(enricher, 0)
+        assert bonus == 0
+
+        bonus = enricher._calculate_stars_bonus(enricher, 5)
+        assert bonus == 0
+
+    def test_calculate_activity_bonus_within_30_days(self, enricher):
+        """Test that activity within 30 days gives 10 points."""
+        now = time.time()
+        recent = now - (20 * 86400)  # 20 days ago
+        bonus = enricher._calculate_activity_bonus(enricher, recent)
+        assert bonus == 10
+
+    def test_calculate_activity_bonus_within_90_days(self, enricher):
+        """Test that activity within 90 days gives 7 points."""
+        now = time.time()
+        recent = now - (60 * 86400)  # 60 days ago
+        bonus = enricher._calculate_activity_bonus(enricher, recent)
+        assert bonus == 7
+
+    def test_calculate_activity_bonus_within_180_days(self, enricher):
+        """Test that activity within 180 days gives 5 points."""
+        now = time.time()
+        recent = now - (120 * 86400)  # 120 days ago
+        bonus = enricher._calculate_activity_bonus(enricher, recent)
+        assert bonus == 5
+
+    def test_calculate_activity_bonus_within_365_days(self, enricher):
+        """Test that activity within 365 days gives 3 points."""
+        now = time.time()
+        recent = now - (300 * 86400)  # 300 days ago
+        bonus = enricher._calculate_activity_bonus(enricher, recent)
+        assert bonus == 3
+
+    def test_calculate_activity_bonus_over_365_days(self, enricher):
+        """Test that activity over 365 days gives 0 points."""
+        now = time.time()
+        old = now - (400 * 86400)  # 400 days ago
+        bonus = enricher._calculate_activity_bonus(enricher, old)
+        assert bonus == 0
+
+    def test_calculate_activity_bonus_with_none(self, enricher):
+        """Test that None timestamp gives 0 points."""
+        bonus = enricher._calculate_activity_bonus(enricher, None)
+        assert bonus == 0
+
+    def test_calculate_activity_bonus_with_invalid_type(self, enricher):
+        """Test that invalid timestamp type returns 0 via exception handling."""
+        bonus = enricher._calculate_activity_bonus(enricher, "invalid-timestamp-string")
+        assert bonus == 0
+
+    def test_calculate_issue_management_bonus_excellent_ratio(self, enricher):
+        """Test that ratio < 0.1 gives 10 points."""
+        # 5 issues, 100 stars = 0.05 ratio
+        bonus = enricher._calculate_issue_management_bonus(enricher, 5, 100)
+        assert bonus == 10
+
+    def test_calculate_issue_management_bonus_good_ratio(self, enricher):
+        """Test that ratio 0.1-0.3 gives 7 points."""
+        # 20 issues, 100 stars = 0.2 ratio
+        bonus = enricher._calculate_issue_management_bonus(enricher, 20, 100)
+        assert bonus == 7
+
+    def test_calculate_issue_management_bonus_fair_ratio(self, enricher):
+        """Test that ratio 0.3-0.5 gives 5 points."""
+        # 40 issues, 100 stars = 0.4 ratio
+        bonus = enricher._calculate_issue_management_bonus(enricher, 40, 100)
+        assert bonus == 5
+
+    def test_calculate_issue_management_bonus_poor_ratio(self, enricher):
+        """Test that ratio 0.5-1.0 gives 3 points."""
+        # 70 issues, 100 stars = 0.7 ratio
+        bonus = enricher._calculate_issue_management_bonus(enricher, 70, 100)
+        assert bonus == 3
+
+    def test_calculate_issue_management_bonus_very_poor_ratio(self, enricher):
+        """Test that ratio > 1.0 gives 0 points."""
+        # 150 issues, 100 stars = 1.5 ratio
+        bonus = enricher._calculate_issue_management_bonus(enricher, 150, 100)
+        assert bonus == 0
+
+    def test_calculate_issue_management_bonus_with_zero_stars(self, enricher):
+        """Test that zero stars returns 0 points."""
+        bonus = enricher._calculate_issue_management_bonus(enricher, 10, 0)
+        assert bonus == 0
+
+    def test_calculate_issue_management_bonus_with_invalid_types(self, enricher):
+        """Test that invalid types return 0 via exception handling."""
+        bonus = enricher._calculate_issue_management_bonus(enricher, None, "invalid")
+        assert bonus == 0
+
+    def test_calculate_enhanced_health_score_with_github_data(self, enricher_instance):
+        """Test enhanced score calculation with GitHub bonuses."""
+        data = {
+            "health_score": 60,
+            "health_score_breakdown": {"recency": 30, "docs": 20, "metadata": 10},
+            "github_stars": 500,  # +7 bonus
+            "github_updated": time.time() - (20 * 86400),  # 20 days ago = +10 bonus
+            "github_open_issues": 10,  # 10/500 = 0.02 ratio = +10 bonus
+        }
+
+        result = enricher_instance._calculate_enhanced_health_score(data)
+
+        assert result is not None
+        assert result["health_score"] == 87  # 60 + 7 + 10 + 10 = 87
+        assert "github_stars_bonus" in result["health_score_breakdown"]
+        assert "github_activity_bonus" in result["health_score_breakdown"]
+        assert "github_issue_bonus" in result["health_score_breakdown"]
+        assert "github_bonus_total" in result["health_score_breakdown"]
+
+    def test_calculate_enhanced_health_score_capped_at_100(self, enricher_instance):
+        """Test that final score is capped at 100."""
+        data = {
+            "health_score": 95,
+            "health_score_breakdown": {},
+            "github_stars": 2000,  # +10 bonus
+            "github_updated": time.time() - (10 * 86400),  # +10 bonus
+            "github_open_issues": 5,  # 5/2000 = 0.0025 ratio = +10 bonus
+        }
+
+        result = enricher_instance._calculate_enhanced_health_score(data)
+
+        assert result["health_score"] == 100  # Capped, not 125
+        assert result["health_score_breakdown"]["github_bonus_total"] == 30
+
+    def test_calculate_enhanced_health_score_returns_none_for_missing_base_score(self, enricher_instance):
+        """Test that packages without base score are skipped."""
+        data = {
+            "name": "test-package",
+            "version": "1.0.0",
+            # No health_score or breakdown
+        }
+
+        result = enricher_instance._calculate_enhanced_health_score(data)
+
+        assert result is None
+
+    def test_calculate_enhanced_health_score_with_partial_github_data(self, enricher_instance):
+        """Test enhanced score with only some GitHub fields."""
+        data = {
+            "health_score": 50,
+            "health_score_breakdown": {},
+            "github_stars": 100,  # +5 bonus
+            # No github_updated or github_open_issues
+        }
+
+        result = enricher_instance._calculate_enhanced_health_score(data)
+
+        assert result["health_score"] == 55  # 50 + 5
+        assert "github_stars_bonus" in result["health_score_breakdown"]
+        assert "github_activity_bonus" not in result["health_score_breakdown"]
+
+    def test_calculate_enhanced_health_score_with_no_github_data(self, enricher_instance):
+        """Test that packages without any GitHub data still get base score."""
+        data = {
+            "health_score": 70,
+            "health_score_breakdown": {"recency": 40, "docs": 30},
+            # No GitHub fields at all
+        }
+
+        result = enricher_instance._calculate_enhanced_health_score(data)
+
+        assert result["health_score"] == 70  # No change
+        assert "github_stars_bonus" not in result["health_score_breakdown"]
+        assert "github_activity_bonus" not in result["health_score_breakdown"]
+        assert "github_issue_bonus" not in result["health_score_breakdown"]
+        assert "github_bonus_total" not in result["health_score_breakdown"]
