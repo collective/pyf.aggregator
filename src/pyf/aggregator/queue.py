@@ -1,17 +1,38 @@
 from celery import Celery
 from celery.schedules import crontab
 from dotenv import load_dotenv
+from github import Github
+from github import RateLimitExceededException
+from github import UnknownObjectException
 from pyf.aggregator.db import TypesenceConnection, TypesensePackagesCollection
 from pyf.aggregator.fetcher import Aggregator, PLONE_CLASSIFIER
 from pyf.aggregator.logger import logger
 
 import os
+import re
+import time
 
 
 load_dotenv()
 
 # Target collection for indexing - uses environment variable with default
 TYPESENSE_COLLECTION = os.getenv("TYPESENSE_COLLECTION", "packages1")
+
+# GitHub configuration
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+
+# GitHub URL regex pattern
+github_regex = re.compile(r"^(http[s]{0,1}:\/\/|www\.)github\.com/(.+/.+)")
+
+# GitHub API field mapping
+GH_KEYS_MAP = {
+    "stars": "stargazers_count",
+    "open_issues": "open_issues",
+    "is_archived": "archived",
+    "watchers": "subscribers_count",
+    "updated": "updated_at",
+    "gh_url": "html_url",
+}
 
 app = Celery(
     "pyf-aggregator",
@@ -216,16 +237,144 @@ def update_project(self, package_id):
             logger.error(f"Max retries exceeded for package {package_id}")
             return {"status": "failed", "reason": str(e), "package_id": package_id}
 
-@app.task
-def update_github(package_id):
+@app.task(bind=True, max_retries=3, default_retry_delay=60)
+def update_github(self, package_id):
     """
-    Process a package release data.
+    Fetch GitHub repository data and update package in Typesense.
+
+    This task fetches the package document from Typesense, extracts the GitHub
+    repository URL from package metadata (home_page, project_url, project_urls),
+    makes a GitHub API call to fetch repository stats, and updates the Typesense
+    document with GitHub data (stars, watchers, open_issues, updated timestamp, URL).
 
     Args:
-        package_id (str): The ID of the package.
+        package_id (str): The document ID in Typesense (e.g., "plone.api-2.0.0").
+
+    Returns:
+        dict: Status dict with 'status', 'package_id', and optionally 'reason'.
     """
-    logger.info(f"Processing {package_id}")
-    # TODO
+    if not package_id:
+        logger.warning("update_github called without package_id, skipping")
+        return {"status": "skipped", "reason": "no package_id"}
+
+    logger.info(f"Updating GitHub data for package: {package_id}")
+
+    try:
+        # Fetch package document from Typesense
+        indexer = PackageIndexer()
+
+        try:
+            document = indexer.client.collections[TYPESENSE_COLLECTION].documents[package_id].retrieve()
+        except Exception as e:
+            logger.warning(f"Could not fetch document {package_id} from Typesense: {e}")
+            return {"status": "skipped", "reason": "fetch_from_typesense_failed", "package_id": package_id}
+
+        # Extract GitHub repository identifier from package metadata
+        repo_identifier = _get_package_repo_identifier(document)
+
+        if not repo_identifier:
+            logger.debug(f"No GitHub URL found for package: {package_id}")
+            return {"status": "skipped", "reason": "no_github_url", "package_id": package_id}
+
+        logger.info(f"Found GitHub repo for {package_id}: {repo_identifier}")
+
+        # Fetch GitHub repository data
+        gh_data = _get_github_data(repo_identifier)
+
+        if not gh_data:
+            logger.warning(f"Could not fetch GitHub data for repo: {repo_identifier}")
+            return {"status": "skipped", "reason": "github_fetch_failed", "package_id": package_id, "repo": repo_identifier}
+
+        # Update Typesense document with GitHub data
+        update_document = {
+            'github_stars': gh_data["github"]["stars"],
+            'github_watchers': gh_data["github"]["watchers"],
+            'github_updated': gh_data["github"]["updated"].timestamp(),
+            'github_open_issues': gh_data["github"]["open_issues"],
+            'github_url': gh_data["github"]["gh_url"],
+        }
+
+        indexer.client.collections[TYPESENSE_COLLECTION].documents[package_id].update(update_document)
+
+        logger.info(f"Successfully updated GitHub data for package: {package_id}")
+        return {"status": "updated", "package_id": package_id, "repo": repo_identifier}
+
+    except RateLimitExceededException as e:
+        logger.warning(f"GitHub rate limit exceeded for {package_id}, will retry later")
+        # Retry after rate limit cooldown
+        try:
+            raise self.retry(exc=e, countdown=300)  # Retry after 5 minutes
+        except self.MaxRetriesExceededError:
+            logger.error(f"Max retries exceeded for package {package_id} due to rate limits")
+            return {"status": "failed", "reason": "rate_limit_exceeded", "package_id": package_id}
+
+    except Exception as e:
+        logger.error(f"Error updating GitHub data for {package_id}: {e}")
+        # Retry on transient errors
+        try:
+            raise self.retry(exc=e)
+        except self.MaxRetriesExceededError:
+            logger.error(f"Max retries exceeded for package {package_id}")
+            return {"status": "failed", "reason": str(e), "package_id": package_id}
+
+
+def _get_package_repo_identifier(data):
+    """
+    Extract GitHub repository identifier from package metadata.
+
+    Searches home_page, project_url, and project_urls for a GitHub URL and
+    extracts the owner/repo identifier.
+
+    Args:
+        data (dict): Package document data from Typesense.
+
+    Returns:
+        str: GitHub repo identifier (e.g., "plone/plone.api") or None if not found.
+    """
+    urls = [data.get("home_page"), data.get("project_url")] + list(
+        (data.get("project_urls") or {}).values()
+    )
+    for url in urls:
+        if not url:
+            continue
+        match = github_regex.match(url)
+        if match:
+            repo_identifier_parts = match.groups()[-1].split("/")
+            repo_identifier = "/".join(repo_identifier_parts[0:2])
+            return repo_identifier
+    return None
+
+
+def _get_github_data(repo_identifier):
+    """
+    Return stats from a given Github repository.
+
+    Args:
+        repo_identifier (str): GitHub repository identifier (e.g., "plone/plone.api").
+
+    Returns:
+        dict: Dictionary with 'github' key containing repo stats, or empty dict on error.
+    """
+    github = Github(GITHUB_TOKEN or None)
+
+    while True:
+        try:
+            repo = github.get_repo(repo_identifier)
+        except UnknownObjectException:
+            logger.warning(f"GitHub repository not found: {repo_identifier}")
+            return {}
+        except RateLimitExceededException:
+            reset_time = github.rate_limiting_resettime
+            delta = reset_time - time.time()
+            logger.info(
+                f"Waiting until {reset_time} (UTC) reset time to perform more Github requests."
+            )
+            time.sleep(delta)
+        else:
+            data = {"github": {}}
+            for key, key_github in GH_KEYS_MAP.items():
+                data["github"][key] = getattr(repo, key_github)
+            return data
 
 @app.task(bind=True, max_retries=3, default_retry_delay=120)
 def read_rss_new_projects_and_queue(self):

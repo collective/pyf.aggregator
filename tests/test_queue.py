@@ -522,11 +522,440 @@ class TestUpdateGithubTask:
         """Test that update_github task is registered with Celery."""
         assert "pyf.aggregator.queue.update_github" in app.tasks
 
-    def test_task_exists(self):
-        """Test that update_github task can be called."""
-        # Task is a stub, just verify it exists and can be called
-        result = update_github("plone.api")
-        assert result is None  # Currently returns None as it's a TODO
+    def test_skips_when_no_package_id(self, celery_eager_mode):
+        """Test that task skips when package_id is empty."""
+        result = update_github("")
+        assert result["status"] == "skipped"
+        assert result["reason"] == "no package_id"
+
+    def test_skips_when_package_not_found_in_typesense(self, celery_eager_mode, mock_typesense_client):
+        """Test that task skips when package document not found in Typesense."""
+        # Configure mock to raise exception when retrieving document
+        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.retrieve.side_effect = Exception("Document not found")
+
+        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
+            result = update_github("plone.api-2.0.0")
+
+            assert result["status"] == "skipped"
+            assert result["reason"] == "fetch_from_typesense_failed"
+            assert result["package_id"] == "plone.api-2.0.0"
+
+    def test_skips_when_no_github_url_found(self, celery_eager_mode, mock_typesense_client):
+        """Test that task skips when package has no GitHub URL."""
+        # Mock document without GitHub URL
+        mock_document = {
+            "id": "some-package-1.0.0",
+            "name": "some-package",
+            "version": "1.0.0",
+            "home_page": "https://example.com",
+            "project_url": "https://pypi.org/project/some-package/",
+            "project_urls": {
+                "Documentation": "https://docs.example.com",
+            },
+        }
+
+        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.retrieve.return_value = mock_document
+
+        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
+            result = update_github("some-package-1.0.0")
+
+            assert result["status"] == "skipped"
+            assert result["reason"] == "no_github_url"
+            assert result["package_id"] == "some-package-1.0.0"
+
+    def test_skips_when_github_fetch_fails(self, celery_eager_mode, mock_typesense_client):
+        """Test that task skips when GitHub API fetch fails."""
+        # Mock document with GitHub URL
+        mock_document = {
+            "id": "plone.api-2.0.0",
+            "name": "plone.api",
+            "version": "2.0.0",
+            "home_page": "https://github.com/plone/plone.api",
+            "project_url": "https://pypi.org/project/plone.api/",
+            "project_urls": None,
+        }
+
+        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.retrieve.return_value = mock_document
+
+        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
+            with patch("pyf.aggregator.queue._get_github_data", return_value={}):
+                result = update_github("plone.api-2.0.0")
+
+                assert result["status"] == "skipped"
+                assert result["reason"] == "github_fetch_failed"
+                assert result["package_id"] == "plone.api-2.0.0"
+                assert result["repo"] == "plone/plone.api"
+
+    def test_successfully_updates_github_data(self, celery_eager_mode, mock_typesense_client):
+        """Test that GitHub data is successfully fetched and updated."""
+        from datetime import datetime
+
+        # Mock document with GitHub URL
+        mock_document = {
+            "id": "plone.api-2.0.0",
+            "name": "plone.api",
+            "version": "2.0.0",
+            "home_page": "https://github.com/plone/plone.api",
+            "project_url": "https://pypi.org/project/plone.api/",
+            "project_urls": None,
+        }
+
+        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.retrieve.return_value = mock_document
+        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.update.return_value = {"success": True}
+
+        # Mock GitHub data
+        mock_gh_data = {
+            "github": {
+                "stars": 150,
+                "watchers": 25,
+                "open_issues": 10,
+                "updated": datetime(2023, 6, 15, 12, 30, 0),
+                "gh_url": "https://github.com/plone/plone.api",
+            }
+        }
+
+        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
+            with patch("pyf.aggregator.queue._get_github_data", return_value=mock_gh_data):
+                result = update_github("plone.api-2.0.0")
+
+                assert result["status"] == "updated"
+                assert result["package_id"] == "plone.api-2.0.0"
+                assert result["repo"] == "plone/plone.api"
+
+                # Verify update was called with correct data
+                update_call = mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.update
+                update_call.assert_called_once()
+                update_data = update_call.call_args[0][0]
+                assert update_data["github_stars"] == 150
+                assert update_data["github_watchers"] == 25
+                assert update_data["github_open_issues"] == 10
+                assert update_data["github_url"] == "https://github.com/plone/plone.api"
+                assert "github_updated" in update_data
+
+    def test_handles_rate_limit_exception(self, celery_eager_mode, mock_typesense_client):
+        """Test that rate limit exceptions are handled and retried."""
+        from github import RateLimitExceededException
+
+        # Mock document with GitHub URL
+        mock_document = {
+            "id": "plone.api-2.0.0",
+            "name": "plone.api",
+            "version": "2.0.0",
+            "home_page": "https://github.com/plone/plone.api",
+            "project_url": "https://pypi.org/project/plone.api/",
+            "project_urls": None,
+        }
+
+        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.retrieve.return_value = mock_document
+
+        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
+            with patch("pyf.aggregator.queue._get_github_data", side_effect=RateLimitExceededException(429, {}, {})):
+                # In eager mode with propagates=True, retry exceptions are raised
+                with pytest.raises(Exception):
+                    update_github("plone.api-2.0.0")
+
+    def test_handles_general_exception(self, celery_eager_mode, mock_typesense_client):
+        """Test that general exceptions trigger retry behavior."""
+        # Mock document with GitHub URL
+        mock_document = {
+            "id": "plone.api-2.0.0",
+            "name": "plone.api",
+            "version": "2.0.0",
+            "home_page": "https://github.com/plone/plone.api",
+            "project_url": "https://pypi.org/project/plone.api/",
+            "project_urls": None,
+        }
+
+        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.retrieve.return_value = mock_document
+
+        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
+            with patch("pyf.aggregator.queue._get_github_data", side_effect=Exception("Network error")):
+                # In eager mode with propagates=True, retry exceptions are raised
+                with pytest.raises(Exception):
+                    update_github("plone.api-2.0.0")
+
+    def test_extracts_github_url_from_home_page(self, celery_eager_mode, mock_typesense_client):
+        """Test that GitHub URL is extracted from home_page field."""
+        from datetime import datetime
+
+        mock_document = {
+            "id": "test-pkg-1.0.0",
+            "name": "test-pkg",
+            "version": "1.0.0",
+            "home_page": "https://github.com/testorg/testrepo",
+            "project_url": "https://pypi.org/project/test-pkg/",
+            "project_urls": None,
+        }
+
+        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.retrieve.return_value = mock_document
+        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.update.return_value = {"success": True}
+
+        mock_gh_data = {
+            "github": {
+                "stars": 50,
+                "watchers": 10,
+                "open_issues": 5,
+                "updated": datetime(2023, 6, 15, 12, 30, 0),
+                "gh_url": "https://github.com/testorg/testrepo",
+            }
+        }
+
+        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
+            with patch("pyf.aggregator.queue._get_github_data", return_value=mock_gh_data):
+                result = update_github("test-pkg-1.0.0")
+
+                assert result["status"] == "updated"
+                assert result["repo"] == "testorg/testrepo"
+
+    def test_extracts_github_url_from_project_urls(self, celery_eager_mode, mock_typesense_client):
+        """Test that GitHub URL is extracted from project_urls field."""
+        from datetime import datetime
+
+        mock_document = {
+            "id": "test-pkg-1.0.0",
+            "name": "test-pkg",
+            "version": "1.0.0",
+            "home_page": "https://example.com",
+            "project_url": "https://pypi.org/project/test-pkg/",
+            "project_urls": {
+                "Homepage": "https://example.com",
+                "Source": "https://github.com/testorg/testrepo",
+                "Documentation": "https://docs.example.com",
+            },
+        }
+
+        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.retrieve.return_value = mock_document
+        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.update.return_value = {"success": True}
+
+        mock_gh_data = {
+            "github": {
+                "stars": 50,
+                "watchers": 10,
+                "open_issues": 5,
+                "updated": datetime(2023, 6, 15, 12, 30, 0),
+                "gh_url": "https://github.com/testorg/testrepo",
+            }
+        }
+
+        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
+            with patch("pyf.aggregator.queue._get_github_data", return_value=mock_gh_data):
+                result = update_github("test-pkg-1.0.0")
+
+                assert result["status"] == "updated"
+                assert result["repo"] == "testorg/testrepo"
+
+    def test_has_retry_config(self):
+        """Test that update_github has retry configuration."""
+        task = app.tasks["pyf.aggregator.queue.update_github"]
+        assert task.max_retries == 3
+        assert task.default_retry_delay == 60
+
+
+class TestGetPackageRepoIdentifier:
+    """Test the _get_package_repo_identifier helper function."""
+
+    def test_extracts_from_home_page(self):
+        """Test extraction of GitHub repo identifier from home_page."""
+        from pyf.aggregator.queue import _get_package_repo_identifier
+
+        data = {
+            "home_page": "https://github.com/plone/plone.api",
+            "project_url": None,
+            "project_urls": None,
+        }
+
+        result = _get_package_repo_identifier(data)
+        assert result == "plone/plone.api"
+
+    def test_extracts_from_project_url(self):
+        """Test extraction of GitHub repo identifier from project_url."""
+        from pyf.aggregator.queue import _get_package_repo_identifier
+
+        data = {
+            "home_page": None,
+            "project_url": "https://github.com/django/django",
+            "project_urls": None,
+        }
+
+        result = _get_package_repo_identifier(data)
+        assert result == "django/django"
+
+    def test_extracts_from_project_urls(self):
+        """Test extraction of GitHub repo identifier from project_urls dict."""
+        from pyf.aggregator.queue import _get_package_repo_identifier
+
+        data = {
+            "home_page": "https://example.com",
+            "project_url": None,
+            "project_urls": {
+                "Homepage": "https://example.com",
+                "Source": "https://github.com/requests/requests",
+                "Documentation": "https://docs.example.com",
+            },
+        }
+
+        result = _get_package_repo_identifier(data)
+        assert result == "requests/requests"
+
+    def test_handles_http_urls(self):
+        """Test extraction works with http:// URLs."""
+        from pyf.aggregator.queue import _get_package_repo_identifier
+
+        data = {
+            "home_page": "http://github.com/testorg/testrepo",
+            "project_url": None,
+            "project_urls": None,
+        }
+
+        result = _get_package_repo_identifier(data)
+        assert result == "testorg/testrepo"
+
+    def test_handles_www_prefix(self):
+        """Test extraction works with www. prefix."""
+        from pyf.aggregator.queue import _get_package_repo_identifier
+
+        data = {
+            "home_page": "www.github.com/testorg/testrepo",
+            "project_url": None,
+            "project_urls": None,
+        }
+
+        result = _get_package_repo_identifier(data)
+        assert result == "testorg/testrepo"
+
+    def test_returns_none_when_no_github_url(self):
+        """Test returns None when no GitHub URL is found."""
+        from pyf.aggregator.queue import _get_package_repo_identifier
+
+        data = {
+            "home_page": "https://example.com",
+            "project_url": "https://pypi.org/project/test/",
+            "project_urls": {
+                "Homepage": "https://example.com",
+                "Documentation": "https://docs.example.com",
+            },
+        }
+
+        result = _get_package_repo_identifier(data)
+        assert result is None
+
+    def test_returns_none_when_all_fields_none(self):
+        """Test returns None when all URL fields are None."""
+        from pyf.aggregator.queue import _get_package_repo_identifier
+
+        data = {
+            "home_page": None,
+            "project_url": None,
+            "project_urls": None,
+        }
+
+        result = _get_package_repo_identifier(data)
+        assert result is None
+
+    def test_handles_trailing_slashes_and_paths(self):
+        """Test extraction handles trailing slashes and additional path segments."""
+        from pyf.aggregator.queue import _get_package_repo_identifier
+
+        data = {
+            "home_page": "https://github.com/plone/plone.api/tree/main",
+            "project_url": None,
+            "project_urls": None,
+        }
+
+        result = _get_package_repo_identifier(data)
+        assert result == "plone/plone.api"
+
+    def test_handles_empty_project_urls_dict(self):
+        """Test handles empty project_urls dictionary."""
+        from pyf.aggregator.queue import _get_package_repo_identifier
+
+        data = {
+            "home_page": None,
+            "project_url": None,
+            "project_urls": {},
+        }
+
+        result = _get_package_repo_identifier(data)
+        assert result is None
+
+
+class TestGetGithubData:
+    """Test the _get_github_data helper function."""
+
+    def test_fetches_github_data_successfully(self):
+        """Test successful GitHub data fetching."""
+        from pyf.aggregator.queue import _get_github_data
+        from datetime import datetime
+
+        mock_repo = MagicMock()
+        mock_repo.stargazers_count = 100
+        mock_repo.subscribers_count = 20
+        mock_repo.open_issues = 15
+        mock_repo.archived = False
+        mock_repo.updated_at = datetime(2023, 6, 15, 12, 30, 0)
+        mock_repo.html_url = "https://github.com/plone/plone.api"
+
+        with patch("pyf.aggregator.queue.Github") as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.get_repo.return_value = mock_repo
+            mock_github_class.return_value = mock_github
+
+            result = _get_github_data("plone/plone.api")
+
+            assert "github" in result
+            assert result["github"]["stars"] == 100
+            assert result["github"]["watchers"] == 20
+            assert result["github"]["open_issues"] == 15
+            assert result["github"]["is_archived"] == False
+            assert result["github"]["updated"] == datetime(2023, 6, 15, 12, 30, 0)
+            assert result["github"]["gh_url"] == "https://github.com/plone/plone.api"
+
+    def test_returns_empty_dict_when_repo_not_found(self):
+        """Test returns empty dict when GitHub repository not found."""
+        from pyf.aggregator.queue import _get_github_data
+        from github import UnknownObjectException
+
+        with patch("pyf.aggregator.queue.Github") as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.get_repo.side_effect = UnknownObjectException(404, {}, {})
+            mock_github_class.return_value = mock_github
+
+            result = _get_github_data("nonexistent/repo")
+
+            assert result == {}
+
+    def test_waits_and_retries_on_rate_limit(self):
+        """Test waits and retries when rate limit is exceeded."""
+        from pyf.aggregator.queue import _get_github_data
+        from github import RateLimitExceededException
+        from datetime import datetime
+        import time
+
+        mock_repo = MagicMock()
+        mock_repo.stargazers_count = 50
+        mock_repo.subscribers_count = 10
+        mock_repo.open_issues = 5
+        mock_repo.archived = False
+        mock_repo.updated_at = datetime(2023, 6, 15, 12, 30, 0)
+        mock_repo.html_url = "https://github.com/testorg/testrepo"
+
+        with patch("pyf.aggregator.queue.Github") as mock_github_class:
+            with patch("time.sleep") as mock_sleep:
+                mock_github = MagicMock()
+                # First call raises rate limit, second call succeeds
+                mock_github.get_repo.side_effect = [
+                    RateLimitExceededException(429, {}, {}),
+                    mock_repo,
+                ]
+                mock_github.rate_limiting_resettime = time.time() + 1
+                mock_github_class.return_value = mock_github
+
+                result = _get_github_data("testorg/testrepo")
+
+                assert "github" in result
+                assert result["github"]["stars"] == 50
+                # Verify sleep was called (waiting for rate limit reset)
+                mock_sleep.assert_called_once()
 
 
 class TestQueueAllGithubUpdates:
