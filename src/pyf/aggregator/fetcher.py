@@ -148,13 +148,6 @@ class Aggregator:
         """
         logger.info("Fetching package list from PyPI Simple API...")
 
-        if self.filter_troove:
-            logger.warning(
-                f"filter_troove='{self.filter_troove}' is set but XML-RPC browse() "
-                "is deprecated. Classifier filtering will be done via JSON API "
-                "for each package (slower but works)."
-            )
-
         pypi_index_url = self.pypi_base_url + "/simple"
         # Use PyPI Simple API JSON format
         headers = {"Accept": "application/vnd.pypi.simple.v1+json"}
