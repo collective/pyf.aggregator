@@ -556,3 +556,384 @@ class TestIntegration:
         assert first_score == second_score
         # Timestamp should be updated
         assert second_timestamp > first_timestamp
+
+
+# ============================================================================
+# Health Score Integration Tests (Full Pipeline)
+# ============================================================================
+
+class TestHealthScoreIntegration:
+    """Integration tests for the full health scoring pipeline."""
+
+    def test_real_world_plone_package_simulation(self):
+        """Test realistic Plone package with typical PyPI data."""
+        data = {
+            "name": "plone.api",
+            "version": "2.0.3",
+            "upload_timestamp": (datetime.now(timezone.utc) - timedelta(days=30)).isoformat(),
+            "docs_url": "https://ploneapi.readthedocs.io/en/latest/",
+            "description": (
+                "plone.api is an elegant and simple API for Plone. "
+                "It provides a high-level API to access Plone functionality. "
+                "The goal is to make working with Plone easier."
+            ),
+            "project_urls": {
+                "Documentation": "https://ploneapi.readthedocs.io/",
+                "Source": "https://github.com/plone/plone.api",
+                "Tracker": "https://github.com/plone/plone.api/issues",
+            },
+            "maintainer": "Plone Foundation",
+            "maintainer_email": "plone-developers@lists.sourceforge.net",
+            "author": "Plone Team",
+            "author_email": "plone-developers@lists.sourceforge.net",
+            "license": "GPL version 2",
+            "classifiers": [
+                "Development Status :: 5 - Production/Stable",
+                "Framework :: Plone",
+                "Framework :: Plone :: 6.0",
+                "Programming Language :: Python",
+                "Programming Language :: Python :: 3.8",
+                "Programming Language :: Python :: 3.9",
+                "Programming Language :: Python :: 3.10",
+            ],
+        }
+
+        process("plone.api", data)
+
+        # Verify all expected fields are present
+        assert "health_score" in data
+        assert "health_score_breakdown" in data
+        assert "health_score_last_calculated" in data
+
+        # Verify score components
+        breakdown = data["health_score_breakdown"]
+        assert breakdown["recency"] == 40  # Recent upload
+        assert breakdown["documentation"] == 30  # Has docs_url, long description, and project_urls
+        assert breakdown["metadata"] == 30  # Has maintainer, license, and 3+ classifiers
+
+        # Verify total score
+        assert data["health_score"] == 100
+
+    def test_legacy_package_with_minimal_metadata(self):
+        """Test old package with minimal metadata (common for legacy packages)."""
+        old_date = datetime.now(timezone.utc) - timedelta(days=1500)
+        data = {
+            "name": "Products.PloneFormGen",
+            "version": "1.8.0",
+            "upload_timestamp": old_date.isoformat(),
+            "description": "A form generator for Plone",
+            "author": "Plone Community",
+            "classifiers": [
+                "Framework :: Plone",
+            ],
+        }
+
+        process("Products.PloneFormGen", data)
+
+        # Verify scoring for legacy package
+        breakdown = data["health_score_breakdown"]
+        assert breakdown["recency"] == 5  # Old release (3-5 years, 1500 days ≈ 4.1 years)
+        assert breakdown["documentation"] == 0  # No docs_url, short description, no project_urls
+        assert breakdown["metadata"] == 10  # Has author, no license, < 3 classifiers
+
+        assert data["health_score"] == 15
+
+    def test_brand_new_package_with_incomplete_setup(self):
+        """Test newly released package with incomplete metadata."""
+        data = {
+            "name": "experimental.plone.feature",
+            "version": "0.1.0",
+            "upload_timestamp": datetime.now(timezone.utc).isoformat(),
+            "description": "Experimental feature",
+            "author": "Developer",
+        }
+
+        process("experimental.plone.feature", data)
+
+        # Very recent but minimal metadata
+        breakdown = data["health_score_breakdown"]
+        assert breakdown["recency"] == 40  # Just released
+        assert breakdown["documentation"] == 0  # Minimal docs
+        assert breakdown["metadata"] == 10  # Has author only
+
+        assert data["health_score"] == 50
+
+    def test_well_documented_but_old_package(self):
+        """Test package with excellent documentation but old release."""
+        old_date = datetime.now(timezone.utc) - timedelta(days=729)
+        data = {
+            "name": "collective.easyform",
+            "version": "3.1.0",
+            "upload_timestamp": old_date.isoformat(),
+            "docs_url": "https://collectiveeasyform.readthedocs.io/",
+            "description": (
+                "collective.easyform enables creation of custom forms through-the-web. "
+                "It provides a powerful form builder with validation, custom actions, "
+                "and a variety of field types. Extensive documentation available online."
+            ),
+            "project_urls": {
+                "Documentation": "https://collectiveeasyform.readthedocs.io/",
+                "Source": "https://github.com/collective/collective.easyform",
+            },
+            "maintainer": "Collective Contributors",
+            "license": "GPL version 2",
+            "classifiers": [
+                "Framework :: Plone",
+                "Framework :: Plone :: 5.2",
+                "Framework :: Plone :: 6.0",
+                "Programming Language :: Python :: 3",
+            ],
+        }
+
+        process("collective.easyform", data)
+
+        # Old but well-maintained documentation
+        breakdown = data["health_score_breakdown"]
+        assert breakdown["recency"] == 20  # Just under 2 years (729 days)
+        assert breakdown["documentation"] == 30  # Full docs
+        assert breakdown["metadata"] == 30  # Complete metadata
+
+        assert data["health_score"] == 80
+
+    def test_multiple_packages_processed_independently(self):
+        """Test that multiple packages can be scored independently."""
+        package1 = {
+            "name": "package-one",
+            "version": "1.0.0",
+            "upload_timestamp": datetime.now(timezone.utc).isoformat(),
+            "maintainer": "Team One",
+        }
+
+        package2 = {
+            "name": "package-two",
+            "version": "2.0.0",
+            "upload_timestamp": (datetime.now(timezone.utc) - timedelta(days=400)).isoformat(),
+            "docs_url": "https://docs.example.com",
+            "description": "A" * 150,
+            "maintainer": "Team Two",
+            "license": "MIT",
+            "classifiers": ["A", "B", "C"],
+        }
+
+        # Process both packages
+        process("package-one", package1)
+        process("package-two", package2)
+
+        # Verify they have different scores
+        assert package1["health_score"] == 50  # 40 recency + 10 metadata
+        assert package2["health_score"] == 75  # 20 recency + 25 docs + 30 metadata
+
+        # Verify they don't interfere with each other
+        assert package1["name"] == "package-one"
+        assert package2["name"] == "package-two"
+
+    def test_pipeline_with_plugin_load_function(self):
+        """Test the full pipeline using the load function."""
+        # Get the processor through load function
+        processor = load({})
+
+        data = {
+            "name": "test.package",
+            "version": "1.0.0",
+            "upload_timestamp": datetime.now(timezone.utc).isoformat(),
+            "docs_url": "https://docs.test.com",
+            "description": "A" * 120,
+            "project_urls": {"Documentation": "https://docs.test.com"},
+            "maintainer": "Test Team",
+            "license": "BSD",
+            "classifiers": ["Framework :: Plone", "Programming :: Python", "License :: OSI"],
+        }
+
+        # Process through loaded function
+        processor("test.package", data)
+
+        # Verify complete pipeline execution
+        assert "health_score" in data
+        assert "health_score_breakdown" in data
+        assert "health_score_last_calculated" in data
+        assert data["health_score"] == 100
+
+    def test_pipeline_preserves_original_package_data(self):
+        """Test that pipeline doesn't modify original package fields."""
+        original_data = {
+            "name": "preserve.test",
+            "version": "1.0.0",
+            "upload_timestamp": datetime.now(timezone.utc).isoformat(),
+            "description": "Original description",
+            "maintainer": "Original Maintainer",
+            "license": "GPL",
+            "classifiers": ["A", "B", "C"],
+            "custom_field": "custom_value",
+        }
+
+        # Make a copy to compare
+        data = original_data.copy()
+        process("preserve.test", data)
+
+        # Verify original fields unchanged
+        assert data["name"] == original_data["name"]
+        assert data["version"] == original_data["version"]
+        assert data["upload_timestamp"] == original_data["upload_timestamp"]
+        assert data["description"] == original_data["description"]
+        assert data["maintainer"] == original_data["maintainer"]
+        assert data["license"] == original_data["license"]
+        assert data["custom_field"] == original_data["custom_field"]
+
+        # Verify new fields added
+        assert "health_score" in data
+        assert "health_score_breakdown" in data
+        assert "health_score_last_calculated" in data
+
+    def test_pipeline_handles_mixed_data_quality(self):
+        """Test pipeline with package having some good and some missing data."""
+        data = {
+            "name": "mixed.quality",
+            "version": "1.5.0",
+            "upload_timestamp": (datetime.now(timezone.utc) - timedelta(days=200)).isoformat(),
+            "docs_url": "https://docs.example.com",  # Good
+            "description": "Short desc",  # Too short
+            "project_urls": None,  # Missing
+            "maintainer": "Team",  # Good
+            "license": "",  # Empty
+            "classifiers": ["A", "B"],  # Too few
+        }
+
+        process("mixed.quality", data)
+
+        # Verify partial scoring
+        breakdown = data["health_score_breakdown"]
+        assert breakdown["recency"] == 30  # 6-12 months
+        assert breakdown["documentation"] == 15  # Only docs_url
+        assert breakdown["metadata"] == 10  # Only maintainer
+
+        assert data["health_score"] == 55
+
+    def test_pipeline_with_timestamp_variations(self):
+        """Test pipeline handles different timestamp formats."""
+        # Test with ISO format with Z
+        data1 = {
+            "name": "test1",
+            "upload_timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
+        process("test1", data1)
+        assert "health_score" in data1
+        assert data1["health_score_breakdown"]["recency"] == 40
+
+        # Test with standard ISO format
+        data2 = {
+            "name": "test2",
+            "upload_timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        process("test2", data2)
+        assert "health_score" in data2
+        assert data2["health_score_breakdown"]["recency"] == 40
+
+        # Test with invalid timestamp
+        data3 = {
+            "name": "test3",
+            "upload_timestamp": "invalid-timestamp",
+        }
+        process("test3", data3)
+        assert "health_score" in data3
+        assert data3["health_score_breakdown"]["recency"] == 0
+
+    def test_pipeline_scoring_boundaries(self):
+        """Test pipeline with boundary cases for each scoring category."""
+        # Exactly 6 months old (boundary between 40 and 30 points)
+        exactly_6_months = datetime.now(timezone.utc) - timedelta(days=180)
+        data = {
+            "name": "boundary.test",
+            "upload_timestamp": exactly_6_months.isoformat(),
+            "description": "A" * 100,  # Exactly 100 chars (boundary)
+            "classifiers": ["A", "B"],  # Exactly 2 (boundary)
+        }
+
+        process("boundary.test", data)
+
+        breakdown = data["health_score_breakdown"]
+        assert breakdown["recency"] == 30  # Should be in 6-12 month range
+        assert breakdown["documentation"] == 0  # Exactly 100 doesn't count (need > 100)
+        assert breakdown["metadata"] == 0  # Need >= 3 classifiers
+
+        assert data["health_score"] == 30
+
+    def test_pipeline_handles_all_edge_cases_simultaneously(self):
+        """Test pipeline with all edge cases in one package."""
+        data = {
+            "name": "edge.case.package",
+            "version": "0.0.1",
+            "upload_timestamp": None,  # Missing
+            "docs_url": "",  # Empty
+            "description": None,  # None
+            "project_urls": {},  # Empty dict
+            "maintainer": "",  # Empty string
+            "author": None,  # None
+            "license": None,  # None
+            "classifiers": [],  # Empty list
+        }
+
+        # Should not raise any errors
+        process("edge.case.package", data)
+
+        assert data["health_score"] == 0
+        assert data["health_score_breakdown"]["recency"] == 0
+        assert data["health_score_breakdown"]["documentation"] == 0
+        assert data["health_score_breakdown"]["metadata"] == 0
+
+    def test_pipeline_performance_with_large_data(self):
+        """Test pipeline performance with large metadata."""
+        data = {
+            "name": "large.package",
+            "version": "1.0.0",
+            "upload_timestamp": datetime.now(timezone.utc).isoformat(),
+            "docs_url": "https://docs.example.com",
+            "description": "A" * 10000,  # Very long description
+            "project_urls": {
+                "Documentation": "https://docs.example.com",
+                **{f"URL{i}": f"https://url{i}.com" for i in range(100)}
+            },  # Many URLs including documentation
+            "maintainer": "Team",
+            "license": "MIT",
+            "classifiers": [f"Classifier :: {i}" for i in range(100)],  # Many classifiers
+        }
+
+        # Should complete quickly
+        start = time.time()
+        process("large.package", data)
+        duration = time.time() - start
+
+        # Should complete in under 1 second even with large data
+        assert duration < 1.0
+
+        # Verify scoring still works correctly
+        assert data["health_score"] == 100
+
+    def test_pipeline_idempotency(self):
+        """Test that running pipeline multiple times produces consistent results."""
+        data = {
+            "name": "idempotent.test",
+            "version": "1.0.0",
+            "upload_timestamp": datetime.now(timezone.utc).isoformat(),
+            "maintainer": "Team",
+            "license": "MIT",
+            "classifiers": ["A", "B", "C"],
+        }
+
+        # Run three times
+        process("test-id", data)
+        score1 = data["health_score"]
+        breakdown1 = data["health_score_breakdown"].copy()
+
+        time.sleep(0.1)
+        process("test-id", data)
+        score2 = data["health_score"]
+        breakdown2 = data["health_score_breakdown"].copy()
+
+        time.sleep(0.1)
+        process("test-id", data)
+        score3 = data["health_score"]
+        breakdown3 = data["health_score_breakdown"].copy()
+
+        # All scores should be identical
+        assert score1 == score2 == score3
+        assert breakdown1 == breakdown2 == breakdown3
