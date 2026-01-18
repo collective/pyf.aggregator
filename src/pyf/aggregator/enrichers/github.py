@@ -3,6 +3,7 @@ from argparse import ArgumentParser
 from datetime import datetime
 from pyf.aggregator.db import TypesenceConnection, TypesensePackagesCollection
 from pyf.aggregator.logger import logger
+from pyf.aggregator.profiles import ProfileManager
 from pprint import pprint
 from github import Github
 from github import RateLimitExceededException
@@ -11,6 +12,7 @@ from pyf.aggregator.logger import logger
 
 import functools
 import re
+import sys
 import time
 import os
 
@@ -23,6 +25,12 @@ parser = ArgumentParser(
     description="updates/migrates typesense collections and export/import documents"
 )
 parser.add_argument("-t", "--target", nargs="?", type=str)
+parser.add_argument(
+    "-p", "--profile",
+    help="Profile name for classifier filtering",
+    nargs="?",
+    type=str
+)
 # parser.add_argument("command", help="")
 
 github_regex = re.compile(r"^(http[s]{0,1}:\/\/|www\.)github\.com/(.+/.+)")
@@ -149,5 +157,35 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
 
 def main():
     args = parser.parse_args()
+
+    # Handle profile if specified
+    if args.profile:
+        profile_manager = ProfileManager()
+        profile = profile_manager.get_profile(args.profile)
+
+        if not profile:
+            available_profiles = profile_manager.list_profiles()
+            logger.error(
+                f"Profile '{args.profile}' not found. "
+                f"Available profiles: {', '.join(available_profiles)}"
+            )
+            sys.exit(1)
+
+        if not profile_manager.validate_profile(args.profile):
+            logger.error(f"Profile '{args.profile}' is invalid")
+            sys.exit(1)
+
+        # Auto-set collection name from profile if not specified
+        if not args.target:
+            args.target = args.profile
+            logger.info(f"Auto-setting target collection from profile: {args.target}")
+
+        logger.info(f"Using profile '{args.profile}' for target collection '{args.target}'")
+
+    # Validate target is specified
+    if not args.target:
+        logger.error("Target collection name is required. Use -t <collection_name> or -p <profile_name>")
+        sys.exit(1)
+
     enricher = Enricher()
     enricher.run(target=args.target)
