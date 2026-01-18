@@ -27,21 +27,18 @@ This starts:
 
 ### Install the Package
 
-Git clone the package and install it in a virtual environment:
+Install using uv tool:
 
 ```shell
-git clone https://github.com/collective/pyf.aggregator.git
-cd pyf.aggregator
-python -m venv venv
-./venv/bin/pip install -e .
+uv tool install pyf.aggregator
 ```
 
 
 ## Configuration
 
-### Environment Variables
+copy example.env to .env
 
-Create a `.env` file with the following environment variables:
+or create a `.env` file with the following environment variables:
 
 ```ini
 # Typesense Configuration
@@ -114,7 +111,7 @@ Each profile automatically creates its own Typesense collection (using the profi
 Fetches package information from PyPI and indexes it into Typesense.
 
 ```shell
-./venv/bin/pyfaggregator [options]
+pyfaggregator [options]
 ```
 
 **Options:**
@@ -160,7 +157,7 @@ Fetches package information from PyPI and indexes it into Typesense.
 Enriches indexed packages with data from GitHub (stars, watchers, issues, etc.).
 
 ```shell
-./venv/bin/pyfgithub [options]
+pyfgithub -t <collection_name>
 ```
 
 **Options:**
@@ -184,6 +181,7 @@ Enriches indexed packages with data from GitHub (stars, watchers, issues, etc.).
 
 # Enrich a specific collection (manual)
 ./venv/bin/pyfgithub -t packages1
+pyfgithub -t packages1
 ```
 
 This adds the following fields to each package (if a GitHub repository is found):
@@ -200,7 +198,7 @@ This adds the following fields to each package (if a GitHub repository is found)
 Utility for managing Typesense collections, aliases, and API keys.
 
 ```shell
-./venv/bin/pyfupdater [options]
+pyfupdater [options]
 ```
 
 **Options:**
@@ -223,22 +221,22 @@ Utility for managing Typesense collections, aliases, and API keys.
 
 ```shell
 # List all collections
-./venv/bin/pyfupdater -ls
+pyfupdater -ls
 
 # List collection names only
-./venv/bin/pyfupdater -lsn
+pyfupdater -lsn
 
 # List aliases
-./venv/bin/pyfupdater -lsa
+pyfupdater -lsa
 
 # Add an alias (packages -> packages1)
-./venv/bin/pyfupdater --add-alias -s packages -t packages1
+pyfupdater --add-alias -s packages -t packages1
 
 # Migrate data between collections
-./venv/bin/pyfupdater --migrate -s packages1 -t packages2
+pyfupdater --migrate -s packages1 -t packages2
 
 # Create a search-only API key
-./venv/bin/pyfupdater --add-search-only-apikey -t packages
+pyfupdater --add-search-only-apikey -t packages
 
 # Create a search-only API key with custom value
 ./venv/bin/pyfupdater --add-search-only-apikey -t packages -key your_custom_key
@@ -246,6 +244,7 @@ Utility for managing Typesense collections, aliases, and API keys.
 # Profile-aware operations
 ./venv/bin/pyfupdater --add-search-only-apikey -p django
 ./venv/bin/pyfupdater --add-alias -s django -t django-v2
+pyfupdater --add-search-only-apikey -t packages -key your_custom_key
 ```
 
 
@@ -300,22 +299,22 @@ Utility for managing Typesense collections, aliases, and API keys.
 
 2. Aggregate Plone packages from PyPI:
    ```shell
-   ./venv/bin/pyfaggregator -f -ft "Framework :: Plone" -t packages1
+   pyfaggregator -f -ft "Framework :: Plone" -t packages1
    ```
 
 3. Enrich with GitHub data:
    ```shell
-   ./venv/bin/pyfgithub -t packages1
+   pyfgithub -t packages1
    ```
 
 4. Create a collection alias (required for client access):
    ```shell
-   ./venv/bin/pyfupdater --add-alias -s packages -t packages1
+   pyfupdater --add-alias -s packages -t packages1
    ```
 
 5. Create a search-only API key for clients:
    ```shell
-   ./venv/bin/pyfupdater --add-search-only-apikey -t packages
+   pyfupdater --add-search-only-apikey -t packages
    ```
 
 

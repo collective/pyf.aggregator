@@ -1,4 +1,4 @@
-from pkg_resources import parse_version
+from packaging.version import InvalidVersion, parse as parse_version
 
 import re
 
@@ -17,8 +17,8 @@ def process(identifier, data):
     data["version_sortable"] = "0.0.0.0.0"
     try:
         version = parse_version(data["version"])
-    except TypeError:
-        return
+    except (TypeError, InvalidVersion):
+        pass  # Continue with regex parsing for non-PEP 440 versions
     try:
         vmatch = regex.search(data["version"])
         if not vmatch:
