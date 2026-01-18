@@ -2,7 +2,10 @@ from argparse import ArgumentParser
 from datetime import datetime
 from pyf.aggregator.db import TypesenceConnection, TypesensePackagesCollection
 from pyf.aggregator.logger import logger
+from pyf.aggregator.profiles import ProfileManager
 from pprint import pprint
+
+import sys
 
 
 parser = ArgumentParser(
@@ -37,6 +40,12 @@ parser.add_argument(
     nargs="?",
     default="gen",
     type=str,
+)
+parser.add_argument(
+    "-p", "--profile",
+    help="Profile name for collection operations",
+    nargs="?",
+    type=str
 )
 
 class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
@@ -93,6 +102,31 @@ class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
 
 def main():
     args = parser.parse_args()
+
+    # Handle profile-based target collection
+    if args.profile:
+        profile_manager = ProfileManager()
+        profile = profile_manager.get_profile(args.profile)
+
+        if not profile:
+            available_profiles = profile_manager.list_profiles()
+            logger.error(
+                f"Profile '{args.profile}' not found. "
+                f"Available profiles: {', '.join(available_profiles)}"
+            )
+            sys.exit(1)
+
+        if not profile_manager.validate_profile(args.profile):
+            logger.error(f"Profile '{args.profile}' is invalid")
+            sys.exit(1)
+
+        # Auto-set target collection name from profile if not specified
+        if not args.target:
+            args.target = args.profile
+            logger.info(f"Auto-setting target collection from profile: {args.target}")
+
+        logger.info(f"Using profile '{args.profile}'")
+
     ts_util = TypesenceUtil()
     if (
         not args.migrate
