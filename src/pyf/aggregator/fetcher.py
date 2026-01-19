@@ -1,4 +1,6 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
+from itertools import islice
 from lxml import html
 from pathlib import Path
 from pyf.aggregator.logger import logger
@@ -7,6 +9,7 @@ import feedparser
 import os
 import re
 import requests
+import threading
 import time
 
 load_dotenv()
@@ -18,9 +21,15 @@ PLUGINS = []
 PLONE_CLASSIFIER = "Framework :: Plone"
 
 # Rate limiting configuration from environment
-PYPI_RATE_LIMIT_DELAY = float(os.getenv("PYPI_RATE_LIMIT_DELAY", 0.1))
+# PyPI JSON API has no formal rate limits due to CDN caching (per docs.pypi.org/api/)
+# Default 0.001s delay = ~1000 req/s max, the code handles 429 responses gracefully
+PYPI_RATE_LIMIT_DELAY = float(os.getenv("PYPI_RATE_LIMIT_DELAY", 0.001))
 PYPI_MAX_RETRIES = int(os.getenv("PYPI_MAX_RETRIES", 3))
 PYPI_RETRY_BACKOFF = float(os.getenv("PYPI_RETRY_BACKOFF", 2.0))
+# Number of parallel threads for fetching package metadata (default 20)
+PYPI_MAX_WORKERS = int(os.getenv("PYPI_MAX_WORKERS", 20))
+# Batch size for memory-efficient parallel fetching (default 500)
+PYPI_BATCH_SIZE = int(os.getenv("PYPI_BATCH_SIZE", 500))
 
 
 class Aggregator:
@@ -42,6 +51,10 @@ class Aggregator:
         self.skip_github = skip_github
         self.limit = limit
         self._last_request_time = 0
+        self._rate_limit_lock = threading.Lock()
+        self._fetch_counter = 0
+        self._fetch_counter_lock = threading.Lock()
+        self._total_packages = 0
 
     def __iter__(self):
         """create all json for every package release"""
@@ -102,37 +115,102 @@ class Aggregator:
             count += 1
             yield package_id
 
+    def _fetch_package_metadata(self, package_id):
+        """Fetch metadata for a single package (thread-safe).
+
+        Args:
+            package_id: The package name/identifier
+
+        Returns:
+            List of (package_id, release_id, timestamp) tuples, or None if filtered out
+        """
+        package_json = self._get_pypi_json(package_id)
+        if not package_json:
+            return None
+
+        # Apply classifier filter if set
+        if self.filter_troove and not self.has_classifiers(package_json, self.filter_troove):
+            logger.debug(f"Skipping {package_id} - no matching classifier")
+            return None
+
+        if self.filter_troove:
+            logger.info(f"Found matching package: {package_id}")
+
+        # Collect all releases
+        results = []
+        if "releases" in package_json:
+            releases = package_json["releases"]
+            for release_id, release in self._all_package_versions(releases):
+                if len(release) > 0 and "upload_time" in release[0]:
+                    ts = release[0]["upload_time"]
+                else:
+                    ts = None
+                results.append((package_id, release_id, ts))
+        return results if results else None
+
+    def _batched(self, iterable, batch_size):
+        """Yield batches from an iterable without loading all into memory."""
+        iterator = iter(iterable)
+        while True:
+            batch = list(islice(iterator, batch_size))
+            if not batch:
+                break
+            yield batch
+
     @property
     def _all_packages(self):
-        """Get all package releases, with optional classifier filtering.
+        """Get all package releases using memory-efficient parallel fetching.
 
+        Uses ThreadPoolExecutor to fetch package metadata in parallel,
+        processing in batches to limit memory usage.
         When filter_troove is set, only packages with the matching classifier
         (e.g., 'Framework :: Plone') are yielded.
 
         Yields:
             Tuple of (package_id, release_id, timestamp) for each release
         """
-        for package_id in self._all_package_ids:
-            package_json = self._get_pypi_json(package_id)
-            if not package_json:
-                continue
+        logger.info(f"Starting parallel fetch with {PYPI_MAX_WORKERS} threads, batch size {PYPI_BATCH_SIZE}...")
 
-            # Apply classifier filter if set
-            if self.filter_troove and not self.has_classifiers(package_json, self.filter_troove):
-                logger.debug(f"Skipping {package_id} - no matching classifier")
-                continue
+        completed = 0
+        matched = 0
+        batch_num = 0
+        start_time = time.time()
 
-            if self.filter_troove:
-                logger.info(f"Found matching package: {package_id}")
+        with ThreadPoolExecutor(max_workers=PYPI_MAX_WORKERS) as executor:
+            # Process package IDs in batches to limit memory usage
+            for batch in self._batched(self._all_package_ids, PYPI_BATCH_SIZE):
+                batch_num += 1
 
-            if "releases" in package_json:
-                releases = package_json["releases"]
-                for release_id, release in self._all_package_versions(releases):
-                    if len(release) > 0 and "upload_time" in release[0]:
-                        ts = release[0]["upload_time"]
-                    else:
-                        ts = None
-                    yield package_id, release_id, ts
+                # Submit batch of fetch tasks
+                futures = {
+                    executor.submit(self._fetch_package_metadata, pkg_id): pkg_id
+                    for pkg_id in batch
+                }
+
+                # Process results as they complete within this batch
+                for future in as_completed(futures):
+                    completed += 1
+                    if completed % 100 == 0:
+                        elapsed = time.time() - start_time
+                        rate = completed / elapsed if elapsed > 0 else 0
+                        total = self._total_packages
+                        pct = (completed / total * 100) if total > 0 else 0
+                        logger.info(f"Progress: {completed}/{total} ({pct:.1f}%) packages fetched ({rate:.1f}/sec)")
+
+                    try:
+                        results = future.result()
+                        if results:
+                            matched += 1
+                            for item in results:
+                                yield item
+                    except Exception as e:
+                        pkg_id = futures[future]
+                        logger.error(f"Error fetching {pkg_id}: {e}")
+
+        elapsed = time.time() - start_time
+        rate = completed / elapsed if elapsed > 0 else 0
+        match_pct = (matched / completed * 100) if completed > 0 else 0
+        logger.info(f"Completed: {completed} packages in {elapsed:.1f}s ({rate:.1f}/sec), {matched} matched ({match_pct:.1f}%)")
 
     def _all_package_versions(self, releases):
         sorted_releases = sorted(releases.items())
@@ -169,14 +247,29 @@ class Aggregator:
         if not projects:
             raise ValueError(f"Empty projects list from {pypi_index_url}")
 
-        logger.info(f"Got package list with {len(projects)} projects.")
-
+        # Filter and count packages
+        filtered_packages = []
         for project in projects:
             package_id = project.get("name")
             if not package_id:
                 continue
             if self.filter_name and self.filter_name not in package_id:
                 continue
+            filtered_packages.append(package_id)
+
+        # Apply limit and store total
+        if self.limit:
+            self._total_packages = min(len(filtered_packages), self.limit)
+        else:
+            self._total_packages = len(filtered_packages)
+
+        logger.info(f"Got {len(projects)} projects, {self._total_packages} to process.")
+
+        count = 0
+        for package_id in filtered_packages:
+            if self.limit and count >= self.limit:
+                return
+            count += 1
             yield package_id
 
     def _package_updates(self, since):
@@ -251,12 +344,13 @@ class Aggregator:
             return self._package_updates
 
     def _apply_rate_limit(self):
-        """Apply rate limiting delay between PyPI API requests."""
-        elapsed = time.time() - self._last_request_time
-        if elapsed < PYPI_RATE_LIMIT_DELAY:
-            sleep_time = PYPI_RATE_LIMIT_DELAY - elapsed
-            time.sleep(sleep_time)
-        self._last_request_time = time.time()
+        """Apply rate limiting delay between PyPI API requests (thread-safe)."""
+        with self._rate_limit_lock:
+            elapsed = time.time() - self._last_request_time
+            if elapsed < PYPI_RATE_LIMIT_DELAY:
+                sleep_time = PYPI_RATE_LIMIT_DELAY - elapsed
+                time.sleep(sleep_time)
+            self._last_request_time = time.time()
 
     def _get_pypi_json(self, package_id, release_id=""):
         """Get JSON for a package release with rate limiting and error handling.
@@ -268,7 +362,10 @@ class Aggregator:
         Returns:
             Package JSON dict or None if package not found or on error
         """
-        logger.info(f"fetch data from pypi for: {package_id}")
+        with self._fetch_counter_lock:
+            self._fetch_counter += 1
+            counter = self._fetch_counter
+        logger.info(f"[{counter}] fetch data from pypi for: {package_id}")
         package_url = self.pypi_base_url + "/pypi/" + package_id
         if release_id:
             package_url += "/" + release_id

@@ -19,7 +19,9 @@ import os
 load_dotenv()
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-GITHUB_COOLOFFTIME = os.getenv("GITHUB_COOLOFFTIME", 5)
+# GitHub API rate limits: 5000 req/hour authenticated (~1.4/sec), 60/hour unauthenticated
+# Default 0.75s delay = ~1.3 req/sec, staying just under the authenticated limit
+GITHUB_REQUEST_DELAY = float(os.getenv("GITHUB_REQUEST_DELAY", 0.75))
 
 parser = ArgumentParser(
     description="updates/migrates typesense collections and export/import documents"
@@ -63,6 +65,18 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
     """
     Enrich pyf data with data from Github
     """
+
+    def __init__(self):
+        super().__init__()
+        self._last_github_request = 0
+
+    def _apply_github_rate_limit(self):
+        """Apply rate limiting delay between GitHub API requests."""
+        elapsed = time.time() - self._last_github_request
+        if elapsed < GITHUB_REQUEST_DELAY:
+            sleep_time = GITHUB_REQUEST_DELAY - elapsed
+            time.sleep(sleep_time)
+        self._last_github_request = time.time()
 
     def run(self, target=None):
         search_parameters = {
@@ -131,6 +145,8 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
     @memoize
     def _get_github_data(self, repo_identifier):
         """Return stats from a given Github repository (e.g. Owner/repo)."""
+        # Apply rate limiting before making request
+        self._apply_github_rate_limit()
         github = Github(GITHUB_TOKEN or None)
         while True:
             try:
@@ -138,7 +154,7 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
             except UnknownObjectException:
                 return {}
             except RateLimitExceededException:
-                reset_time = self.github.rate_limiting_resettime
+                reset_time = github.rate_limiting_resettime
                 delta = reset_time - time.time()
                 logger.info(
                     "Waiting until {} (UTC) reset time to perform more Github requests.".format(

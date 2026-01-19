@@ -50,7 +50,18 @@ TYPESENSE_TIMEOUT=120
 
 # GitHub Configuration
 GITHUB_TOKEN=<your_secret_github_apikey>
-GITHUB_COOLOFFTIME=2
+# Rate limit: 5000 req/hour authenticated (~1.4/sec), default 0.75s delay
+GITHUB_REQUEST_DELAY=0.75
+
+# PyPI Configuration
+# PyPI JSON API has no formal rate limit (CDN cached), default 0.001s = ~1000 req/s
+PYPI_RATE_LIMIT_DELAY=0.001
+PYPI_MAX_RETRIES=3
+PYPI_RETRY_BACKOFF=2.0
+# Number of parallel threads for fetching (default 20, increase for faster fetching)
+PYPI_MAX_WORKERS=20
+# Batch size for memory-efficient fetching (default 500)
+PYPI_BATCH_SIZE=500
 
 # Redis Configuration (for Celery task queue)
 REDIS_HOST=localhost:6379
