@@ -22,19 +22,17 @@ docker-compose up -d
 
 ```shell
 # Run all tests with coverage
-.venv/bin/pytest
+uv run pytest
 
 # Run specific test file
-.venv/bin/pytest tests/test_fetcher.py -v
+uv run pytest tests/test_fetcher.py -v
 
 # Run without coverage (faster)
-.venv/bin/pytest --no-cov
+uv run pytest --no-cov
 
 # Run single test
-.venv/bin/pytest tests/test_fetcher.py::test_function_name -v
+uv run pytest tests/test_fetcher.py::test_function_name -v
 ```
-
-**Important**: Use `.venv/bin/pytest`, not globally installed pytest, as it needs access to project dependencies.
 
 ### CLI Commands
 

@@ -75,6 +75,13 @@ REDIS_HOST=localhost:6379
 
 # Celery Task Configuration
 TYPESENSE_COLLECTION=plone
+
+# Celery Periodic Task Schedules (crontab format: minute hour day_of_month month day_of_week)
+# Set to empty string to disable a task
+CELERY_SCHEDULE_RSS_PROJECTS=*/1 * * * *    # Check for new projects
+CELERY_SCHEDULE_RSS_RELEASES=*/1 * * * *    # Check for new releases
+CELERY_SCHEDULE_WEEKLY_REFRESH=0 2 * * 0    # Sunday 2:00 AM UTC
+CELERY_SCHEDULE_MONTHLY_FETCH=0 3 1 * *     # 1st of month, 3:00 AM UTC
 ```
 
 ### Profile Configuration
@@ -561,20 +568,16 @@ uv sync --extra test
 
 ### Running Tests
 
-Use the project's virtual environment pytest (not global uv tools):
-
 ```shell
 # Run all tests
-.venv/bin/pytest
+uv run pytest
 
 # Run specific test file
-.venv/bin/pytest tests/test_fetcher.py -v
+uv run pytest tests/test_fetcher.py -v
 
 # Run without coverage
-.venv/bin/pytest --no-cov
+uv run pytest --no-cov
 ```
-
-**Note:** Do not use globally installed pytest (via `uv tool install pytest`) as it runs in an isolated environment without access to the project's dependencies.
 
 
 ## License

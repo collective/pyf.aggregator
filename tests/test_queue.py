@@ -28,6 +28,7 @@ from pyf.aggregator.queue import (
     refresh_all_indexed_packages,
     full_fetch_all_packages,
     setup_periodic_tasks,
+    parse_crontab,
     TYPESENSE_COLLECTION,
 )
 
@@ -972,6 +973,45 @@ class TestQueueAllGithubUpdates:
 # Periodic Task Setup Tests
 # ============================================================================
 
+class TestParseCrontab:
+    """Test the parse_crontab helper function."""
+
+    def test_parse_crontab_valid(self):
+        """Test parsing a valid crontab string."""
+        result = parse_crontab("*/5 * * * *")
+        assert result is not None
+
+    def test_parse_crontab_full_schedule(self):
+        """Test parsing a full crontab schedule."""
+        result = parse_crontab("0 2 * * 0")
+        assert result is not None
+
+    def test_parse_crontab_empty_string(self):
+        """Test that empty string returns None (disables task)."""
+        result = parse_crontab("")
+        assert result is None
+
+    def test_parse_crontab_whitespace_only(self):
+        """Test that whitespace-only string returns None."""
+        result = parse_crontab("   ")
+        assert result is None
+
+    def test_parse_crontab_none(self):
+        """Test that None returns None."""
+        result = parse_crontab(None)
+        assert result is None
+
+    def test_parse_crontab_invalid_format(self):
+        """Test that invalid format returns None and logs warning."""
+        result = parse_crontab("* * *")  # Only 3 parts
+        assert result is None
+
+    def test_parse_crontab_too_many_parts(self):
+        """Test that too many parts returns None."""
+        result = parse_crontab("* * * * * *")  # 6 parts
+        assert result is None
+
+
 class TestPeriodicTaskSetup:
     """Test the periodic task configuration."""
 
@@ -980,7 +1020,7 @@ class TestPeriodicTaskSetup:
         assert callable(setup_periodic_tasks)
 
     def test_periodic_tasks_configured(self):
-        """Test that periodic tasks are configured correctly."""
+        """Test that periodic tasks are configured correctly with defaults."""
         mock_sender = MagicMock()
 
         setup_periodic_tasks(mock_sender)
@@ -996,6 +1036,33 @@ class TestPeriodicTaskSetup:
         assert 'read RSS new releases and add to queue' in task_names
         assert 'weekly refresh all indexed packages' in task_names
         assert 'monthly full fetch all packages' in task_names
+
+    def test_periodic_task_disabled_with_empty_string(self):
+        """Test that tasks can be disabled by setting schedule to empty string."""
+        mock_sender = MagicMock()
+
+        with patch('pyf.aggregator.queue.CELERY_SCHEDULE_MONTHLY_FETCH', ''):
+            setup_periodic_tasks(mock_sender)
+
+        # Should have added only 3 periodic tasks (monthly disabled)
+        assert mock_sender.add_periodic_task.call_count == 3
+
+        # Check that monthly task is not in the list
+        call_args_list = mock_sender.add_periodic_task.call_args_list
+        task_names = [call[1].get('name', '') for call in call_args_list]
+
+        assert 'monthly full fetch all packages' not in task_names
+        assert 'read RSS new projects and add to queue' in task_names
+
+    def test_periodic_task_custom_schedule(self):
+        """Test that custom schedules are applied."""
+        mock_sender = MagicMock()
+
+        with patch('pyf.aggregator.queue.CELERY_SCHEDULE_RSS_PROJECTS', '*/5 * * * *'):
+            setup_periodic_tasks(mock_sender)
+
+        # Should still have 4 tasks
+        assert mock_sender.add_periodic_task.call_count == 4
 
 
 # ============================================================================

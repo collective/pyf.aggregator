@@ -25,6 +25,13 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 # See: https://docs.celeryq.dev/en/stable/userguide/tasks.html#Task.rate_limit
 CELERY_TASK_RATE_LIMIT = os.getenv("CELERY_TASK_RATE_LIMIT", None)
 
+# Celery periodic task schedules (crontab format: minute hour day_of_month month day_of_week)
+# Set to empty string to disable a task
+CELERY_SCHEDULE_RSS_PROJECTS = os.getenv("CELERY_SCHEDULE_RSS_PROJECTS", "*/1 * * * *")
+CELERY_SCHEDULE_RSS_RELEASES = os.getenv("CELERY_SCHEDULE_RSS_RELEASES", "*/1 * * * *")
+CELERY_SCHEDULE_WEEKLY_REFRESH = os.getenv("CELERY_SCHEDULE_WEEKLY_REFRESH", "0 2 * * 0")
+CELERY_SCHEDULE_MONTHLY_FETCH = os.getenv("CELERY_SCHEDULE_MONTHLY_FETCH", "0 3 1 * *")
+
 # GitHub URL regex pattern
 github_regex = re.compile(r"^(http[s]{0,1}:\/\/|www\.)github\.com/(.+/.+)")
 
@@ -729,33 +736,74 @@ def full_fetch_all_packages(self, collection_name=None, profile_name=None):
 
 ####  Celery periodic tasks
 
+
+def parse_crontab(cron_string):
+    """Parse a crontab string into celery crontab kwargs.
+
+    Format: "minute hour day_of_month month day_of_week"
+    Returns None if string is empty (task disabled).
+    """
+    if not cron_string or not cron_string.strip():
+        return None
+
+    parts = cron_string.strip().split()
+    if len(parts) != 5:
+        logger.warning(f"Invalid crontab format: {cron_string}, expected 5 parts")
+        return None
+
+    return crontab(
+        minute=parts[0],
+        hour=parts[1],
+        day_of_month=parts[2],
+        month_of_year=parts[3],
+        day_of_week=parts[4],
+    )
+
+
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender, **kw):
-    """
-    Setup periodic tasks for the Celery app.
-    """
-    # Every minute: Read RSS feeds for new packages and releases
-    sender.add_periodic_task(
-        crontab(minute="*/1", hour="*"),
-        read_rss_new_projects_and_queue.s(),
-        name='read RSS new projects and add to queue'
-    )
-    sender.add_periodic_task(
-        crontab(minute="*/1", hour="*"),
-        read_rss_new_releases_and_queue.s(),
-        name='read RSS new releases and add to queue'
-    )
+    """Setup periodic tasks for the Celery app."""
 
-    # Weekly: Refresh all indexed packages from PyPI (Sunday 2:00 AM UTC)
-    sender.add_periodic_task(
-        crontab(minute=0, hour=2, day_of_week=0),
-        refresh_all_indexed_packages.s(),
-        name='weekly refresh all indexed packages'
-    )
+    # RSS new projects
+    schedule = parse_crontab(CELERY_SCHEDULE_RSS_PROJECTS)
+    if schedule:
+        sender.add_periodic_task(
+            schedule,
+            read_rss_new_projects_and_queue.s(),
+            name='read RSS new projects and add to queue'
+        )
+    else:
+        logger.info("RSS new projects task disabled")
 
-    # Monthly: Full fetch all packages (1st of month, 3:00 AM UTC)
-    sender.add_periodic_task(
-        crontab(minute=0, hour=3, day_of_month=1),
-        full_fetch_all_packages.s(),
-        name='monthly full fetch all packages'
-    )
+    # RSS new releases
+    schedule = parse_crontab(CELERY_SCHEDULE_RSS_RELEASES)
+    if schedule:
+        sender.add_periodic_task(
+            schedule,
+            read_rss_new_releases_and_queue.s(),
+            name='read RSS new releases and add to queue'
+        )
+    else:
+        logger.info("RSS new releases task disabled")
+
+    # Weekly refresh
+    schedule = parse_crontab(CELERY_SCHEDULE_WEEKLY_REFRESH)
+    if schedule:
+        sender.add_periodic_task(
+            schedule,
+            refresh_all_indexed_packages.s(),
+            name='weekly refresh all indexed packages'
+        )
+    else:
+        logger.info("Weekly refresh task disabled")
+
+    # Monthly full fetch
+    schedule = parse_crontab(CELERY_SCHEDULE_MONTHLY_FETCH)
+    if schedule:
+        sender.add_periodic_task(
+            schedule,
+            full_fetch_all_packages.s(),
+            name='monthly full fetch all packages'
+        )
+    else:
+        logger.info("Monthly full fetch task disabled")
