@@ -33,7 +33,16 @@ parser.add_argument(
     nargs="?",
     type=str
 )
-# parser.add_argument("command", help="")
+parser.add_argument(
+    "-n", "--name",
+    help="Single package name to enrich (enriches only this package)",
+    type=str
+)
+parser.add_argument(
+    "-v", "--verbose",
+    help="Show raw data from Typesense (PyPI) and GitHub API",
+    action="store_true"
+)
 
 github_regex = re.compile(r"^(http[s]{0,1}:\/\/|www\.)github\.com/(.+/.+)")
 
@@ -78,7 +87,7 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
             time.sleep(sleep_time)
         self._last_github_request = time.time()
 
-    def run(self, target=None):
+    def run(self, target=None, package_name=None, verbose=False):
         search_parameters = {
             "q": "*",
             "query_by": "name",
@@ -86,11 +95,20 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
             "group_limit": 1,
             "per_page": 50,
         }
+        if package_name:
+            search_parameters["filter_by"] = f"name:={package_name}"
+            logger.info(f"Filtering for single package: {package_name}")
+
         results = self.ts_search(target, search_parameters)
 
         per_page = results["request_params"]["per_page"]
         found = results["found"]
-        logger.info(f"[{datetime.now()}][found] Start enriching data from github...")
+
+        if package_name and found == 0:
+            logger.error(f"Package '{package_name}' not found in collection '{target}'")
+            return
+
+        logger.info(f"[{datetime.now()}][found {found}] Start enriching data from github...")
         enrich_counter = 0
         page = 0
         for p in range(0, found, per_page):
@@ -99,14 +117,39 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
             for group in results["grouped_hits"]:
                 for item in group["hits"]:
                     data = item["document"]
+
+                    if verbose:
+                        print(f"\n{'='*60}")
+                        print(f"=== Processing package: {data.get('name')} ===")
+                        print(f"{'='*60}")
+                        print("\n--- Typesense Document (PyPI data) ---")
+                        pprint(data)
+
                     package_repo_identifier = self.get_package_repo_identifier(data)
                     if not package_repo_identifier:
+                        if verbose:
+                            print("\n--- No GitHub repository found ---")
                         continue
-                    # print(package_repo_identifier)
-                    gh_data = self._get_github_data(package_repo_identifier)
-                    # pprint(gh_data)
+
+                    if verbose:
+                        print(f"\n--- GitHub Repository: {package_repo_identifier} ---")
+
+                    gh_data = self._get_github_data(package_repo_identifier, verbose=verbose)
                     if not gh_data:
+                        if verbose:
+                            print("--- No GitHub data available ---")
                         continue
+
+                    if verbose:
+                        print("\n--- Enrichment Result ---")
+                        pprint({
+                            'github_stars': gh_data["github"]["stars"],
+                            'github_watchers': gh_data["github"]["watchers"],
+                            'github_updated': gh_data["github"]["updated"],
+                            'github_open_issues': gh_data["github"]["open_issues"],
+                            'github_url': gh_data["github"]["gh_url"],
+                        })
+
                     enrich_counter +=1
                     self.update_doc(target, data['id'], gh_data, page, enrich_counter)
         logger.info(f"[{datetime.now()}] done")
@@ -143,7 +186,7 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
             return
 
     @memoize
-    def _get_github_data(self, repo_identifier):
+    def _get_github_data(self, repo_identifier, verbose=False):
         """Return stats from a given Github repository (e.g. Owner/repo)."""
         # Apply rate limiting before making request
         self._apply_github_rate_limit()
@@ -152,6 +195,8 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
             try:
                 repo = github.get_repo(repo_identifier)
             except UnknownObjectException:
+                if verbose:
+                    print(f"GitHub repository not found: {repo_identifier}")
                 return {}
             except RateLimitExceededException:
                 reset_time = github.rate_limiting_resettime
@@ -165,6 +210,23 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
                 )
                 time.sleep(delta)
             else:
+                if verbose:
+                    print("Raw GitHub API data:")
+                    raw_data = {
+                        "stargazers_count": repo.stargazers_count,
+                        "subscribers_count": repo.subscribers_count,
+                        "open_issues": repo.open_issues,
+                        "archived": repo.archived,
+                        "updated_at": str(repo.updated_at),
+                        "html_url": repo.html_url,
+                        "full_name": repo.full_name,
+                        "description": repo.description,
+                        "forks_count": repo.forks_count,
+                        "language": repo.language,
+                        "default_branch": repo.default_branch,
+                    }
+                    pprint(raw_data)
+
                 data = {"github": {}}
                 for key, key_github in GH_KEYS_MAP.items():
                     data["github"][key] = getattr(repo, key_github)
@@ -204,4 +266,4 @@ def main():
         sys.exit(1)
 
     enricher = Enricher()
-    enricher.run(target=args.target)
+    enricher.run(target=args.target, package_name=args.name, verbose=args.verbose)

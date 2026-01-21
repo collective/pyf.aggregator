@@ -132,7 +132,7 @@ Each profile automatically creates its own Typesense collection (using the profi
 Fetches package information from PyPI and indexes it into Typesense.
 
 ```shell
-pyfaggregator [options]
+uv run pyfaggregator [options]
 ```
 
 **Options:**
@@ -149,36 +149,45 @@ pyfaggregator [options]
 | `-p`, `--profile` | Use a predefined profile (loads classifiers and sets collection name) |
 | `-t`, `--target` | Target Typesense collection name (auto-set from profile if not specified) |
 | `--no-plone-filter` | Disable automatic Plone classifier filtering (process all packages) |
+| `--show PACKAGE_NAME` | Show indexed data for a package by name (for debugging, shows newest version) |
+| `--all-versions` | Show all versions when using --show (default: only newest) |
 
 **Examples:**
 
 ```shell
 # Full fetch of all Plone packages (using manual classifiers)
-pyfaggregator -f -ft "Framework :: Plone" -t packages1
+uv run pyfaggregator -f -ft "Framework :: Plone" -t packages1
 
 # Full fetch using the Plone profile (recommended)
-pyfaggregator -f -p plone
+uv run pyfaggregator -f -p plone
 
 # Full fetch of Django packages using the Django profile
-pyfaggregator -f -p django
+uv run pyfaggregator -f -p django
 
 # Full fetch of Flask packages using the Flask profile
-pyfaggregator -f -p flask
+uv run pyfaggregator -f -p flask
 
 # Incremental update for Django profile
-pyfaggregator -i -p django
+uv run pyfaggregator -i -p django
 
 # Refresh existing indexed packages from PyPI (updates data, removes packages no longer on PyPI)
-pyfaggregator --refresh-from-pypi -p plone
+uv run pyfaggregator --refresh-from-pypi -p plone
 
 # Refresh with limit for testing
-pyfaggregator --refresh-from-pypi -p plone -l 100
+uv run pyfaggregator --refresh-from-pypi -p plone -l 100
 
 # Fetch with limit for testing
-pyfaggregator -f -p plone -l 100
+uv run pyfaggregator -f -p plone -l 100
 
 # Profile with custom collection name (overrides auto-naming)
-pyfaggregator -f -p django -t django-test
+uv run pyfaggregator -f -p django -t django-test
+
+# Show indexed data for a package (newest version, for debugging)
+uv run pyfaggregator --show plone -t plone
+uv run pyfaggregator --show Django -p django
+
+# Show all versions of a package
+uv run pyfaggregator --show plone -p plone --all-versions
 ```
 
 ### pyfgithub
@@ -186,7 +195,7 @@ pyfaggregator -f -p django -t django-test
 Enriches indexed packages with data from GitHub (stars, watchers, issues, etc.).
 
 ```shell
-pyfgithub -t <collection_name>
+uv run pyfgithub -t <collection_name>
 ```
 
 **Options:**
@@ -195,22 +204,29 @@ pyfgithub -t <collection_name>
 |--------|-------------|
 | `-p`, `--profile` | Use a profile (auto-sets target collection name) |
 | `-t`, `--target` | Target Typesense collection name (auto-set from profile if not specified) |
+| `-n`, `--name` | Single package name to enrich (enriches only this package) |
+| `-v`, `--verbose` | Show raw data from Typesense (PyPI) and GitHub API |
 
 **Examples:**
 
 ```shell
 # Enrich using profile (recommended)
-pyfgithub -p plone
+uv run pyfgithub -p plone
 
 # Enrich Django packages
-pyfgithub -p django
+uv run pyfgithub -p django
 
 # Enrich Flask packages
-pyfgithub -p flask
+uv run pyfgithub -p flask
 
 # Enrich a specific collection (manual)
-pyfgithub -t packages1
-pyfgithub -t packages1
+uv run pyfgithub -t packages1
+
+# Enrich only a specific package
+uv run pyfgithub -p plone -n plone.api
+
+# Debug a single package with verbose output
+uv run pyfgithub -p plone -n plone.api -v
 ```
 
 This adds the following fields to each package (if a GitHub repository is found):
@@ -227,7 +243,7 @@ This adds the following fields to each package (if a GitHub repository is found)
 Utility for managing Typesense collections, aliases, and API keys.
 
 ```shell
-pyfupdater [options]
+uv run pyfupdater [options]
 ```
 
 **Options:**
@@ -251,33 +267,33 @@ pyfupdater [options]
 
 ```shell
 # List all collections
-pyfupdater -ls
+uv run pyfupdater -ls
 
 # List collection names only
-pyfupdater -lsn
+uv run pyfupdater -lsn
 
 # List aliases
-pyfupdater -lsa
+uv run pyfupdater -lsa
 
 # Add an alias (packages -> packages1)
-pyfupdater --add-alias -s packages -t packages1
+uv run pyfupdater --add-alias -s packages -t packages1
 
 # Migrate data between collections
-pyfupdater --migrate -s packages1 -t packages2
+uv run pyfupdater --migrate -s packages1 -t packages2
 
 # Create a search-only API key
-pyfupdater --add-search-only-apikey -t packages
+uv run pyfupdater --add-search-only-apikey -t packages
 
 # Create a search-only API key with custom value
-pyfupdater --add-search-only-apikey -t packages -key your_custom_key
+uv run pyfupdater --add-search-only-apikey -t packages -key your_custom_key
 
 # Profile-aware operations
-pyfupdater --add-search-only-apikey -p django
-pyfupdater --add-alias -s django -t django-v2
-pyfupdater --add-search-only-apikey -t packages -key your_custom_key
+uv run pyfupdater --add-search-only-apikey -p django
+uv run pyfupdater --add-alias -s django -t django-v2
+uv run pyfupdater --add-search-only-apikey -t packages -key your_custom_key
 
 # Delete an API key by ID
-pyfupdater --delete-apikey 123
+uv run pyfupdater --delete-apikey 123
 ```
 
 ### pyfdownloads
@@ -285,7 +301,7 @@ pyfupdater --delete-apikey 123
 Enriches indexed packages with download statistics from pypistats.org.
 
 ```shell
-pyfdownloads [options]
+uv run pyfdownloads [options]
 ```
 
 **Options:**
@@ -300,16 +316,16 @@ pyfdownloads [options]
 
 ```shell
 # Enrich using profile (recommended)
-pyfdownloads -p plone
+uv run pyfdownloads -p plone
 
 # Enrich Django packages
-pyfdownloads -p django
+uv run pyfdownloads -p django
 
 # Enrich a specific collection (manual)
-pyfdownloads -t packages1
+uv run pyfdownloads -t packages1
 
 # Test with limited packages
-pyfdownloads -p plone -l 100
+uv run pyfdownloads -p plone -l 100
 ```
 
 This adds the following fields to each package:
@@ -332,46 +348,46 @@ This adds the following fields to each package:
 2. Aggregate packages using a profile:
    ```shell
    # For Plone packages
-   pyfaggregator -f -p plone
+   uv run pyfaggregator -f -p plone
 
    # For Django packages
-   pyfaggregator -f -p django
+   uv run pyfaggregator -f -p django
 
    # For Flask packages
-   pyfaggregator -f -p flask
+   uv run pyfaggregator -f -p flask
    ```
 
 3. Enrich with GitHub data:
    ```shell
    # For Plone
-   pyfgithub -p plone
+   uv run pyfgithub -p plone
 
    # For Django
-   pyfgithub -p django
+   uv run pyfgithub -p django
 
    # For Flask
-   pyfgithub -p flask
+   uv run pyfgithub -p flask
    ```
 
 4. Enrich with download statistics:
    ```shell
    # For Plone
-   pyfdownloads -p plone
+   uv run pyfdownloads -p plone
 
    # For Django
-   pyfdownloads -p django
+   uv run pyfdownloads -p django
 
    # For Flask
-   pyfdownloads -p flask
+   uv run pyfdownloads -p flask
    ```
 
 5. Create a search-only API key for clients:
    ```shell
    # For Plone
-   pyfupdater --add-search-only-apikey -p plone
+   uv run pyfupdater --add-search-only-apikey -p plone
 
    # For Django
-   pyfupdater --add-search-only-apikey -p django
+   uv run pyfupdater --add-search-only-apikey -p django
    ```
 
 ### Manual Configuration (Legacy)
@@ -383,27 +399,27 @@ This adds the following fields to each package:
 
 2. Aggregate Plone packages from PyPI:
    ```shell
-   pyfaggregator -f -ft "Framework :: Plone" -t packages1
+   uv run pyfaggregator -f -ft "Framework :: Plone" -t packages1
    ```
 
 3. Enrich with GitHub data:
    ```shell
-   pyfgithub -t packages1
+   uv run pyfgithub -t packages1
    ```
 
 4. Enrich with download statistics:
    ```shell
-   pyfdownloads -t packages1
+   uv run pyfdownloads -t packages1
    ```
 
 5. Create a collection alias (required for client access):
    ```shell
-   pyfupdater --add-alias -s packages -t packages1
+   uv run pyfupdater --add-alias -s packages -t packages1
    ```
 
 6. Create a search-only API key for clients:
    ```shell
-   pyfupdater --add-search-only-apikey -t packages
+   uv run pyfupdater --add-search-only-apikey -t packages
    ```
 
 
@@ -424,24 +440,24 @@ The aggregator supports tracking multiple Python framework ecosystems simultaneo
 
 ```shell
 # Aggregate Django packages
-pyfaggregator -f -p django
+uv run pyfaggregator -f -p django
 
 # Aggregate Flask packages
-pyfaggregator -f -p flask
+uv run pyfaggregator -f -p flask
 
 # Enrich both with GitHub data (cache is shared!)
-pyfgithub -p django
-pyfgithub -p flask
+uv run pyfgithub -p django
+uv run pyfgithub -p flask
 
 # Create API keys for each
-pyfupdater --add-search-only-apikey -p django
-pyfupdater --add-search-only-apikey -p flask
+uv run pyfupdater --add-search-only-apikey -p django
+uv run pyfupdater --add-search-only-apikey -p flask
 ```
 
 **List all profile collections:**
 
 ```shell
-pyfupdater -lsn
+uv run pyfupdater -lsn
 ```
 
 This might output:
@@ -455,7 +471,7 @@ plone
 
 **Using Profiles (Recommended):**
 ```shell
-pyfaggregator -f -p django
+uv run pyfaggregator -f -p django
 ```
 - Automatically loads all Django-related classifiers
 - Auto-sets collection name to `django`
@@ -463,7 +479,7 @@ pyfaggregator -f -p django
 
 **Using Manual Classifiers (Legacy):**
 ```shell
-pyfaggregator -f -ft "Framework :: Django" -ft "Framework :: Django :: 5.0" -t django-packages
+uv run pyfaggregator -f -ft "Framework :: Django" -ft "Framework :: Django :: 5.0" -t django-packages
 ```
 - Requires specifying each classifier individually
 - Manual collection name management

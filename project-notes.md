@@ -38,23 +38,28 @@ docker-compose up -d
 
 ### CLI Commands
 
+**Important:** All CLI commands must be run with `uv run` prefix.
+
 ```shell
 # Full fetch using a profile (recommended)
-pyfaggregator -f -p plone
+uv run pyfaggregator -f -p plone
 
 # Incremental update
-pyfaggregator -i -p plone
+uv run pyfaggregator -i -p plone
 
 # Refresh indexed packages from PyPI (updates existing, removes 404s)
-pyfaggregator --refresh-from-pypi -p plone
+uv run pyfaggregator --refresh-from-pypi -p plone
 
 # Enrich with GitHub data
-pyfgithub -p plone
+uv run pyfgithub -p plone
+
+# Enrich single package with verbose output (for debugging)
+uv run pyfgithub -p plone -n plone.api -v
 
 # Manage Typesense collections
-pyfupdater -ls              # List collections
-pyfupdater -lsn             # List collection names
-pyfupdater --add-alias -s packages -t packages1
+uv run pyfupdater -ls              # List collections
+uv run pyfupdater -lsn             # List collection names
+uv run pyfupdater --add-alias -s packages -t packages1
 
 # Run Celery worker and beat scheduler
 uv run celery -A pyf.aggregator.queue worker --loglevel=info
@@ -159,8 +164,10 @@ GITHUB_TOKEN=<github_token>
 REDIS_HOST=localhost:6379
 ```
 
-## Code Style
+## Critical Rules
 
-- Uses `isort` with Plone profile
-- Uses `black` targeting Python 3.12
+- Use `RUF` for formating
 - Package uses namespace: `pyf.aggregator`
+- always write tests first, TDD
+- All CLI commands must be run with `uv run` prefix (e.g., `uv run pyfgithub -p plone`)
+

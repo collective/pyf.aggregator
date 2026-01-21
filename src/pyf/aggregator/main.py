@@ -7,10 +7,45 @@ from .profiles import ProfileManager
 from argparse import ArgumentParser
 from pyf.aggregator.logger import logger
 
+import json
 import sys
 
 
 COLLECTION_NAME = "packages1"
+
+
+def show_package(package_name, collection_name, all_versions=False):
+    """Show indexed data for a single package from Typesense (for debugging)."""
+    from .db import TypesenceConnection
+
+    conn = TypesenceConnection()
+
+    if not conn.collection_exists(name=collection_name):
+        logger.error(f"Collection '{collection_name}' does not exist.")
+        sys.exit(1)
+
+    # Search for exact package name, sorted by upload_timestamp descending (newest first)
+    result = conn.client.collections[collection_name].documents.search({
+        "q": package_name,
+        "query_by": "name",
+        "filter_by": f"name:={package_name}",
+        "sort_by": "upload_timestamp:desc",
+        "per_page": 100,
+    })
+
+    hits = result.get("hits", [])
+    if not hits:
+        logger.error(f"Package '{package_name}' not found in collection '{collection_name}'.")
+        sys.exit(1)
+
+    documents = [hit["document"] for hit in hits]
+
+    if all_versions:
+        # Output all versions
+        print(json.dumps(documents, indent=2))
+    else:
+        # Output only the newest version (first after sort)
+        print(json.dumps(documents[0], indent=2))
 
 
 def run_refresh_mode(settings):
@@ -216,10 +251,35 @@ parser.add_argument(
     help="Refresh indexed packages data from PyPi",
     action="store_true"
 )
+parser.add_argument(
+    "--show",
+    help="Show indexed data for a package by name (for debugging)",
+    type=str,
+    metavar="PACKAGE_NAME"
+)
+parser.add_argument(
+    "--all-versions",
+    help="Show all versions when using --show (default: only newest)",
+    action="store_true"
+)
 
 
 def main():
     args = parser.parse_args()
+
+    # Handle --show mode separately (for debugging indexed data)
+    if args.show:
+        target = args.target
+        # Auto-set target from profile if not specified
+        if not target and args.profile:
+            profile_manager = ProfileManager()
+            if profile_manager.get_profile(args.profile):
+                target = args.profile
+        if not target:
+            logger.error("Target collection name is required. Use -t <collection_name> or -p <profile>")
+            sys.exit(1)
+        show_package(args.show, target, all_versions=args.all_versions)
+        return
 
     # Validate mode flags - must specify exactly one of -f, -i, or --refresh-from-pypi
     modes = [args.first, args.incremental, args.refresh_from_pypi]
