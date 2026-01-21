@@ -42,3 +42,5 @@ build
 .worktrees/
 .security-key
 logs/security/
+/celerybeat-schedule.db
+/uv.lock

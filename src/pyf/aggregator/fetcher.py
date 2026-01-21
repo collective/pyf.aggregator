@@ -432,6 +432,8 @@ class Aggregator:
 
     def _get_pypi(self, package_id, release_id):
         package_json = self._get_pypi_json(package_id, release_id)
+        if not package_json:
+            return None
         # restructure
         data = package_json.get("info")
         if not data:
@@ -557,14 +559,18 @@ class Aggregator:
                 package_id = match.group(1)
                 release_id = match.group(2) if match.group(2) else None
 
-        # Fallback: try to extract from title for updates.xml format "package-name version"
+        # Fallback: try to extract from title
         if not package_id and title:
-            # Check if title ends with "added to PyPI" (packages.xml format)
-            if title.endswith(" added to PyPI"):
-                package_id = title[:-len(" added to PyPI")].strip()
+            # Check for "added to PyPI" pattern (new packages feed)
+            if " added to PyPI" in title:
+                package_id = title.split(" added to PyPI")[0].strip()
+                release_id = None
+            elif " added to" in title:
+                # Handle case where "PyPI" might be missing
+                package_id = title.split(" added to")[0].strip()
+                release_id = None
             else:
-                # Title format is typically "package-name version"
-                # Split on last space to handle package names with spaces/dashes
+                # Title format is typically "package-name version" (updates feed)
                 parts = title.rsplit(" ", 1)
                 if len(parts) == 2:
                     package_id = parts[0].strip()

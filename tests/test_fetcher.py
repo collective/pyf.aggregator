@@ -543,8 +543,11 @@ class TestRateLimiting:
     """Test the rate limiting functionality."""
 
     @responses.activate
-    def test_applies_rate_limit_delay(self, sample_pypi_json_plone, sample_pypi_json_non_plone):
+    def test_applies_rate_limit_delay(self, sample_pypi_json_plone, sample_pypi_json_non_plone, monkeypatch):
         """Test that rate limiting delay is applied between requests."""
+        # Patch the rate limit delay to a testable value
+        monkeypatch.setattr("pyf.aggregator.fetcher.PYPI_RATE_LIMIT_DELAY", 0.1)
+
         responses.add(
             responses.GET,
             re.compile(r"https://pypi\.org/+pypi/plone\.api/json"),
@@ -568,7 +571,6 @@ class TestRateLimiting:
         elapsed = time.time() - start_time
 
         # Should have waited at least the rate limit delay between requests
-        # Default is 0.1 seconds
         assert elapsed >= 0.1
 
 
