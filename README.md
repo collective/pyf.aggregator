@@ -1,7 +1,8 @@
 # Python Package Filter Aggregator
 
 The Python Package Filter Aggregator (`pyf.aggregator`) aggregates the meta
-information of all Python packages in the PyPI and enhances it with data from GitHub.
+information of all Python packages in the PyPI and enhances it with data from GitHub
+and download statistics from pypistats.org.
 
 
 ## Requirements
@@ -63,8 +64,17 @@ PYPI_MAX_WORKERS=20
 # Batch size for memory-efficient fetching (default 500)
 PYPI_BATCH_SIZE=500
 
+# PyPI Stats Configuration (for download enrichment)
+# pypistats.org rate limits: ~30 req/min, default 2.0s delay
+PYPISTATS_RATE_LIMIT_DELAY=2.0
+PYPISTATS_MAX_RETRIES=3
+PYPISTATS_RETRY_BACKOFF=2.0
+
 # Redis Configuration (for Celery task queue)
 REDIS_HOST=localhost:6379
+
+# Celery Task Configuration
+TYPESENSE_COLLECTION=plone
 ```
 
 ### Profile Configuration
@@ -131,12 +141,14 @@ pyfaggregator [options]
 |--------|-------------|
 | `-f`, `--first` | First/full fetch from PyPI (fetches all packages) |
 | `-i`, `--incremental` | Incremental fetch (only packages updated since last run) |
+| `--refresh-from-pypi` | Refresh indexed packages data from PyPI (updates existing packages, removes 404s) |
 | `-s`, `--sincefile` | File to store timestamp of last run (default: `.pyaggregator.since`) |
 | `-l`, `--limit` | Limit the number of packages to process |
 | `-fn`, `--filter-name` | Filter packages by name (substring match) |
-| `-ft`, `--filter-troove` | Filter by trove classifier (can be used multiple times) |
+| `-ft`, `--filter-troove` | Filter by trove classifier (can be used multiple times). Deprecated: use profiles instead |
 | `-p`, `--profile` | Use a predefined profile (loads classifiers and sets collection name) |
 | `-t`, `--target` | Target Typesense collection name (auto-set from profile if not specified) |
+| `--no-plone-filter` | Disable automatic Plone classifier filtering (process all packages) |
 
 **Examples:**
 
@@ -155,6 +167,12 @@ pyfaggregator -f -p flask
 
 # Incremental update for Django profile
 pyfaggregator -i -p django
+
+# Refresh existing indexed packages from PyPI (updates data, removes packages no longer on PyPI)
+pyfaggregator --refresh-from-pypi -p plone
+
+# Refresh with limit for testing
+pyfaggregator --refresh-from-pypi -p plone -l 100
 
 # Fetch with limit for testing
 pyfaggregator -f -p plone -l 100
@@ -223,6 +241,7 @@ pyfupdater [options]
 | `--migrate` | Migrate data from source to target collection |
 | `--add-alias` | Add a collection alias |
 | `--add-search-only-apikey` | Create a search-only API key |
+| `--delete-apikey` | Delete an API key by its ID |
 | `-p`, `--profile` | Use a profile (auto-sets target collection name) |
 | `-s`, `--source` | Source collection name (for migrate/alias) |
 | `-t`, `--target` | Target collection name (auto-set from profile if not specified) |
@@ -256,7 +275,49 @@ pyfupdater --add-search-only-apikey -t packages -key your_custom_key
 pyfupdater --add-search-only-apikey -p django
 pyfupdater --add-alias -s django -t django-v2
 pyfupdater --add-search-only-apikey -t packages -key your_custom_key
+
+# Delete an API key by ID
+pyfupdater --delete-apikey 123
 ```
+
+### pyfdownloads
+
+Enriches indexed packages with download statistics from pypistats.org.
+
+```shell
+pyfdownloads [options]
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `-p`, `--profile` | Use a profile (auto-sets target collection name) |
+| `-t`, `--target` | Target Typesense collection name (auto-set from profile if not specified) |
+| `-l`, `--limit` | Limit number of packages to process (useful for testing) |
+
+**Examples:**
+
+```shell
+# Enrich using profile (recommended)
+pyfdownloads -p plone
+
+# Enrich Django packages
+pyfdownloads -p django
+
+# Enrich a specific collection (manual)
+pyfdownloads -t packages1
+
+# Test with limited packages
+pyfdownloads -p plone -l 100
+```
+
+This adds the following fields to each package:
+- `download_last_day` - Downloads in the last day
+- `download_last_week` - Downloads in the last week
+- `download_last_month` - Downloads in the last month
+- `download_total` - Total downloads (if available)
+- `download_updated` - Timestamp when stats were updated
 
 
 ## Quickstart
@@ -292,7 +353,19 @@ pyfupdater --add-search-only-apikey -t packages -key your_custom_key
    pyfgithub -p flask
    ```
 
-4. Create a search-only API key for clients:
+4. Enrich with download statistics:
+   ```shell
+   # For Plone
+   pyfdownloads -p plone
+
+   # For Django
+   pyfdownloads -p django
+
+   # For Flask
+   pyfdownloads -p flask
+   ```
+
+5. Create a search-only API key for clients:
    ```shell
    # For Plone
    pyfupdater --add-search-only-apikey -p plone
@@ -318,12 +391,17 @@ pyfupdater --add-search-only-apikey -t packages -key your_custom_key
    pyfgithub -t packages1
    ```
 
-4. Create a collection alias (required for client access):
+4. Enrich with download statistics:
+   ```shell
+   pyfdownloads -t packages1
+   ```
+
+5. Create a collection alias (required for client access):
    ```shell
    pyfupdater --add-alias -s packages -t packages1
    ```
 
-5. Create a search-only API key for clients:
+6. Create a search-only API key for clients:
    ```shell
    pyfupdater --add-search-only-apikey -t packages
    ```
@@ -394,26 +472,93 @@ pyfaggregator -f -ft "Framework :: Django" -ft "Framework :: Django :: 5.0" -t d
 
 ## Architecture
 
-### Queue-Based Processing (Planned)
+### Queue-Based Processing
 
-The project is being refactored to use a queue-based architecture with Celery for improved scalability and reliability:
+The project uses a queue-based architecture with Celery for improved scalability and reliability:
 
 - **Redis** serves as the message broker
 - **Celery workers** process tasks asynchronously
-- **Periodic tasks** monitor PyPI RSS feeds for new packages and releases
+- **Periodic tasks** handle automated updates on various schedules
 
-Planned Celery tasks:
-- `inspect_project` - Fetch and inspect a project from PyPI
-- `update_project` - Process package release data
-- `update_github` - Update GitHub metadata for a package
-- `read_rss_new_projects_and_queue` - Monitor RSS for new projects
-- `read_rss_new_releases_and_queue` - Monitor RSS for new releases
-- `queue_all_github_updates` - Queue GitHub updates for all packages
+**Celery Tasks:**
 
-To run a Celery worker (once fully implemented):
+| Task | Description |
+|------|-------------|
+| `inspect_project` | Fetch and inspect a project from PyPI, index if it matches classifiers |
+| `update_project` | Re-index a known package from PyPI |
+| `update_github` | Fetch GitHub repository data and update package in Typesense |
+| `read_rss_new_projects_and_queue` | Monitor RSS for new projects and queue inspection |
+| `read_rss_new_releases_and_queue` | Monitor RSS for new releases and queue inspection |
+| `refresh_all_indexed_packages` | Refresh all indexed packages from PyPI, remove packages returning 404 |
+| `full_fetch_all_packages` | Full fetch of all packages (equivalent to `pyfaggregator -f -p <profile>`) |
+
+**Periodic Task Schedules:**
+
+| Task | Schedule | Description |
+|------|----------|-------------|
+| RSS new projects | Every minute | Monitor PyPI RSS feed for new packages |
+| RSS new releases | Every minute | Monitor PyPI RSS feed for package updates |
+| Weekly refresh | Sunday 2:00 AM UTC | Refresh all indexed packages from PyPI |
+| Monthly full fetch | 1st of month, 3:00 AM UTC | Complete re-fetch from PyPI |
+
+To run a Celery worker:
 ```shell
-celery -A pyf.aggregator.queue worker --loglevel=info
+uv run celery -A pyf.aggregator.queue worker --loglevel=info
 ```
+
+To run Celery beat for periodic tasks:
+```shell
+uv run celery -A pyf.aggregator.queue beat --loglevel=info
+```
+
+**Manually Triggering Tasks:**
+
+You can manually trigger refresh tasks from Python:
+```python
+from pyf.aggregator.queue import refresh_all_indexed_packages, full_fetch_all_packages
+
+# Refresh all indexed packages
+refresh_all_indexed_packages.delay()
+
+# Full fetch with specific profile and collection
+full_fetch_all_packages.delay(collection_name="plone", profile_name="plone")
+```
+
+
+## Development
+
+### Using Dev Container (Recommended)
+
+The project includes a devcontainer configuration for VS Code / GitHub Codespaces:
+
+1. Open the project in VS Code
+2. When prompted, click "Reopen in Container" (or use Command Palette: "Dev Containers: Reopen in Container")
+3. The container will automatically install all dependencies including test requirements
+
+### Manual Setup
+
+Install the project with test dependencies using uv:
+
+```shell
+uv sync --extra test
+```
+
+### Running Tests
+
+Use the project's virtual environment pytest (not global uv tools):
+
+```shell
+# Run all tests
+.venv/bin/pytest
+
+# Run specific test file
+.venv/bin/pytest tests/test_fetcher.py -v
+
+# Run without coverage
+.venv/bin/pytest --no-cov
+```
+
+**Note:** Do not use globally installed pytest (via `uv tool install pytest`) as it runs in an isolated environment without access to the project's dependencies.
 
 
 ## License

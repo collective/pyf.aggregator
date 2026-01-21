@@ -13,6 +13,145 @@ import sys
 COLLECTION_NAME = "packages1"
 
 
+def run_refresh_mode(settings):
+    """Refresh indexed packages data from PyPi.
+
+    Lists all unique package names from Typesense, fetches fresh data from PyPI,
+    and removes packages that return 404 or no longer have the required classifiers.
+    """
+    from .db import TypesenceConnection, TypesensePackagesCollection
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import os
+
+    class RefreshHelper(TypesenceConnection, TypesensePackagesCollection):
+        pass
+
+    helper = RefreshHelper()
+    indexer = Indexer()
+
+    # Verify collection exists
+    if not indexer.collection_exists(name=settings["target"]):
+        logger.error(f"Collection '{settings['target']}' does not exist. Cannot refresh.")
+        sys.exit(1)
+
+    # Get all unique package names
+    logger.info(f"Fetching unique package names from collection '{settings['target']}'...")
+    package_names = helper.get_unique_package_names(settings["target"])
+    total = len(package_names)
+    logger.info(f"Found {total} unique packages to refresh")
+
+    # Apply limit if specified
+    if settings["limit"] and settings["limit"] > 0:
+        package_names = list(package_names)[:settings["limit"]]
+        logger.info(f"Limiting to {len(package_names)} packages")
+
+    # Apply name filter if specified
+    if settings["filter_name"]:
+        package_names = [p for p in package_names if settings["filter_name"] in p]
+        logger.info(f"Filtered to {len(package_names)} packages matching '{settings['filter_name']}'")
+
+    # Create aggregator for PyPI fetching (reuse existing methods)
+    agg = Aggregator(
+        mode="first",
+        filter_troove=settings["filter_troove"],
+    )
+
+    stats = {"updated": 0, "deleted": 0, "failed": 0, "skipped": 0}
+    packages_to_delete = []
+
+    max_workers = int(os.getenv("PYPI_MAX_WORKERS", 20))
+
+    def process_package(package_name):
+        """Process a single package - fetch from PyPI and return result."""
+        try:
+            package_json = agg._get_pypi_json(package_name)
+
+            if package_json is None:
+                return {"status": "delete", "package": package_name, "reason": "not_found"}
+
+            # Check classifier filter if specified
+            if settings["filter_troove"]:
+                if not agg.has_classifiers(package_json, settings["filter_troove"]):
+                    return {"status": "delete", "package": package_name, "reason": "no_classifier"}
+
+            # Extract and prepare data for indexing
+            data = package_json.get("info")
+            if not data:
+                return {"status": "skip", "package": package_name, "reason": "no_info"}
+
+            data["urls"] = package_json.get("urls", [])
+
+            # Clean up unwanted fields
+            if "downloads" in data:
+                del data["downloads"]
+            for url in data.get("urls", []):
+                if "downloads" in url:
+                    del url["downloads"]
+                if "md5_digest" in url:
+                    del url["md5_digest"]
+
+            # Set identifiers
+            version = data.get("version", "")
+            identifier = f"{package_name}-{version}" if version else package_name
+            data["id"] = identifier
+            data["identifier"] = identifier
+            data["name_sortable"] = data.get("name", package_name)
+
+            # Apply plugins
+            for plugin in PLUGINS:
+                plugin(identifier, data)
+
+            return {"status": "update", "package": package_name, "identifier": identifier, "data": data}
+
+        except Exception as e:
+            return {"status": "error", "package": package_name, "error": str(e)}
+
+    # Process packages in parallel
+    logger.info(f"Processing packages with {max_workers} workers...")
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(process_package, pkg): pkg for pkg in package_names}
+
+        for i, future in enumerate(as_completed(futures), 1):
+            result = future.result()
+            package_name = result["package"]
+
+            if result["status"] == "update":
+                try:
+                    cleaned_data = indexer.clean_data(result["data"])
+                    helper.client.collections[settings["target"]].documents.upsert(cleaned_data)
+                    stats["updated"] += 1
+                    logger.info(f"[{i}/{len(package_names)}] Updated: {result['identifier']}")
+                except Exception as e:
+                    stats["failed"] += 1
+                    logger.error(f"[{i}/{len(package_names)}] Failed to index {package_name}: {e}")
+
+            elif result["status"] == "delete":
+                packages_to_delete.append(package_name)
+                logger.info(f"[{i}/{len(package_names)}] Marked for deletion: {package_name} ({result['reason']})")
+
+            elif result["status"] == "skip":
+                stats["skipped"] += 1
+                logger.warning(f"[{i}/{len(package_names)}] Skipped: {package_name} ({result['reason']})")
+
+            elif result["status"] == "error":
+                stats["failed"] += 1
+                logger.error(f"[{i}/{len(package_names)}] Error processing {package_name}: {result['error']}")
+
+    # Delete packages that are no longer valid
+    if packages_to_delete:
+        logger.info(f"Deleting {len(packages_to_delete)} packages from index...")
+        for package_name in packages_to_delete:
+            try:
+                helper.delete_package_by_name(settings["target"], package_name)
+                stats["deleted"] += 1
+                logger.info(f"Deleted: {package_name}")
+            except Exception as e:
+                stats["failed"] += 1
+                logger.error(f"Failed to delete {package_name}: {e}")
+
+    logger.info(f"Refresh complete: {stats}")
+
+
 parser = ArgumentParser(
     description="Aggregate PyPI packages with Framework :: Plone classifier into Typesense. "
     "Use -f for full download or -i for incremental updates via RSS feeds."
@@ -72,23 +211,30 @@ parser.add_argument(
     nargs="?",
     type=str
 )
+parser.add_argument(
+    "--refresh-from-pypi",
+    help="Refresh indexed packages data from PyPi",
+    action="store_true"
+)
 
 
 def main():
     args = parser.parse_args()
 
-    # Validate mode flags - must specify exactly one of -f or -i
-    if args.first and args.incremental:
-        logger.error("Cannot specify both -f (--first) and -i (--incremental). Choose one.")
-        sys.exit(1)
-
-    if not args.first and not args.incremental:
-        logger.error("Must specify either -f (--first) for full download or -i (--incremental) for updates.")
+    # Validate mode flags - must specify exactly one of -f, -i, or --refresh-from-pypi
+    modes = [args.first, args.incremental, args.refresh_from_pypi]
+    if sum(modes) != 1:
+        logger.error("Must specify exactly one of -f (full), -i (incremental), or --refresh-from-pypi")
         parser.print_help()
         sys.exit(1)
 
     # Determine mode
-    mode = "incremental" if args.incremental else "first"
+    if args.refresh_from_pypi:
+        mode = "refresh"
+    elif args.incremental:
+        mode = "incremental"
+    else:
+        mode = "first"
 
     # Build filter_troove list
     # If profile is specified, load classifiers from profile
@@ -148,6 +294,11 @@ def main():
         logger.info(f"Filtering by name: {settings['filter_name']}")
 
     register_plugins(PLUGINS, settings)
+
+    # Handle refresh mode separately
+    if mode == "refresh":
+        run_refresh_mode(settings)
+        return
 
     agg = Aggregator(
         mode,

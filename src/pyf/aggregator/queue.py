@@ -21,6 +21,10 @@ TYPESENSE_COLLECTION = os.getenv("TYPESENSE_COLLECTION", "packages1")
 # GitHub configuration
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
+# Task rate limiting - format: "tasks/period" e.g., "10/m", "100/h", "1/s"
+# See: https://docs.celeryq.dev/en/stable/userguide/tasks.html#Task.rate_limit
+CELERY_TASK_RATE_LIMIT = os.getenv("CELERY_TASK_RATE_LIMIT", None)
+
 # GitHub URL regex pattern
 github_regex = re.compile(r"^(http[s]{0,1}:\/\/|www\.)github\.com/(.+/.+)")
 
@@ -76,7 +80,7 @@ class PackageIndexer(TypesenceConnection, TypesensePackagesCollection):
             raise
 
 
-@app.task(bind=True, max_retries=3, default_retry_delay=60)
+@app.task(bind=True, max_retries=3, default_retry_delay=60, rate_limit=CELERY_TASK_RATE_LIMIT)
 def inspect_project(self, package_data):
     """
     Inspect a project and insert if it has the Framework :: Plone classifier.
@@ -163,7 +167,7 @@ def inspect_project(self, package_data):
             logger.error(f"Max retries exceeded for package {package_id}")
             return {"status": "failed", "reason": str(e), "package_id": package_id}
 
-@app.task(bind=True, max_retries=3, default_retry_delay=60)
+@app.task(bind=True, max_retries=3, default_retry_delay=60, rate_limit=CELERY_TASK_RATE_LIMIT)
 def update_project(self, package_id):
     """
     Update/re-index a known Plone package from PyPI.
@@ -237,7 +241,7 @@ def update_project(self, package_id):
             logger.error(f"Max retries exceeded for package {package_id}")
             return {"status": "failed", "reason": str(e), "package_id": package_id}
 
-@app.task(bind=True, max_retries=3, default_retry_delay=60)
+@app.task(bind=True, max_retries=3, default_retry_delay=60, rate_limit=CELERY_TASK_RATE_LIMIT)
 def update_github(self, package_id):
     """
     Fetch GitHub repository data and update package in Typesense.
@@ -489,6 +493,240 @@ def queue_all_github_updates():
     # TODO
     pass
 
+
+@app.task(bind=True, max_retries=2, default_retry_delay=300)
+def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
+    """
+    Weekly task: Refresh all indexed packages from PyPI.
+
+    Lists all unique package names from the collection, fetches fresh data
+    from PyPI for each, and removes packages that return 404 or no longer
+    have the required classifiers.
+
+    Args:
+        collection_name: Target collection (defaults to TYPESENSE_COLLECTION)
+        profile_name: Profile for classifier filtering (defaults to "plone")
+
+    Returns:
+        dict: Summary statistics of the refresh operation
+    """
+    from pyf.aggregator.profiles import ProfileManager
+    from pyf.aggregator.fetcher import PLUGINS
+    from pyf.aggregator.plugins import register_plugins
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    collection = collection_name or TYPESENSE_COLLECTION
+    profile = profile_name or "plone"
+
+    logger.info(f"Starting weekly refresh task for collection '{collection}' with profile '{profile}'")
+
+    try:
+        # Load profile classifiers
+        filter_troove = None
+        if profile:
+            profile_manager = ProfileManager()
+            profile_config = profile_manager.get_profile(profile)
+            if profile_config:
+                filter_troove = profile_config.get("classifiers", [])
+                logger.info(f"Using {len(filter_troove)} classifiers from profile '{profile}'")
+
+        # Setup settings and register plugins
+        settings = {"filter_troove": filter_troove}
+        register_plugins(PLUGINS, settings)
+
+        # Get helper and aggregator
+        indexer = PackageIndexer()
+        aggregator = Aggregator(mode="first", filter_troove=filter_troove)
+
+        # Get all unique package names
+        logger.info(f"Fetching unique package names from collection '{collection}'...")
+        package_names = indexer.get_unique_package_names(collection)
+        total = len(package_names)
+        logger.info(f"Found {total} unique packages to refresh")
+
+        stats = {"total": total, "updated": 0, "deleted": 0, "failed": 0, "skipped": 0}
+        packages_to_delete = []
+
+        max_workers = int(os.getenv("PYPI_MAX_WORKERS", 20))
+
+        def process_package(package_name):
+            """Process a single package - fetch from PyPI and return result."""
+            try:
+                package_json = aggregator._get_pypi_json(package_name)
+
+                if package_json is None:
+                    return {"status": "delete", "package": package_name, "reason": "not_found"}
+
+                # Check classifier filter if specified
+                if filter_troove:
+                    if not aggregator.has_classifiers(package_json, filter_troove):
+                        return {"status": "delete", "package": package_name, "reason": "no_classifier"}
+
+                # Extract and prepare data for indexing
+                data = package_json.get("info")
+                if not data:
+                    return {"status": "skip", "package": package_name, "reason": "no_info"}
+
+                data["urls"] = package_json.get("urls", [])
+
+                # Clean up unwanted fields
+                if "downloads" in data:
+                    del data["downloads"]
+                for url in data.get("urls", []):
+                    if "downloads" in url:
+                        del url["downloads"]
+                    if "md5_digest" in url:
+                        del url["md5_digest"]
+
+                # Set identifiers
+                version = data.get("version", "")
+                identifier = f"{package_name}-{version}" if version else package_name
+                data["id"] = identifier
+                data["identifier"] = identifier
+                data["name_sortable"] = data.get("name", package_name)
+
+                # Apply plugins
+                for plugin in PLUGINS:
+                    plugin(identifier, data)
+
+                return {"status": "update", "package": package_name, "identifier": identifier, "data": data}
+
+            except Exception as e:
+                return {"status": "error", "package": package_name, "error": str(e)}
+
+        # Process packages in parallel
+        logger.info(f"Processing packages with {max_workers} workers...")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(process_package, pkg): pkg for pkg in package_names}
+
+            for i, future in enumerate(as_completed(futures), 1):
+                result = future.result()
+                package_name = result["package"]
+
+                if result["status"] == "update":
+                    try:
+                        cleaned_data = indexer.clean_data(result["data"])
+                        indexer.client.collections[collection].documents.upsert(cleaned_data)
+                        stats["updated"] += 1
+                        if i % 100 == 0:
+                            logger.info(f"[{i}/{total}] Progress: {stats}")
+                    except Exception as e:
+                        stats["failed"] += 1
+                        logger.error(f"Failed to index {package_name}: {e}")
+
+                elif result["status"] == "delete":
+                    packages_to_delete.append(package_name)
+
+                elif result["status"] == "skip":
+                    stats["skipped"] += 1
+
+                elif result["status"] == "error":
+                    stats["failed"] += 1
+                    logger.error(f"Error processing {package_name}: {result['error']}")
+
+        # Delete packages that are no longer valid
+        if packages_to_delete:
+            logger.info(f"Deleting {len(packages_to_delete)} packages from index...")
+            for package_name in packages_to_delete:
+                try:
+                    indexer.delete_package_by_name(collection, package_name)
+                    stats["deleted"] += 1
+                except Exception as e:
+                    stats["failed"] += 1
+                    logger.error(f"Failed to delete {package_name}: {e}")
+
+        logger.info(f"Weekly refresh complete: {stats}")
+        return {"status": "completed", "stats": stats}
+
+    except Exception as e:
+        logger.error(f"Error in weekly refresh task: {e}")
+        try:
+            raise self.retry(exc=e)
+        except self.MaxRetriesExceededError:
+            logger.error("Max retries exceeded for weekly refresh task")
+            return {"status": "failed", "reason": str(e)}
+
+
+@app.task(bind=True, max_retries=2, default_retry_delay=600)
+def full_fetch_all_packages(self, collection_name=None, profile_name=None):
+    """
+    Monthly task: Full fetch of all packages matching the profile.
+
+    This performs a complete re-fetch from PyPI, similar to running
+    `pyfaggregator -f -p plone` but as a Celery task.
+
+    Args:
+        collection_name: Target collection (defaults to profile name)
+        profile_name: Profile for classifier filtering (defaults to "plone")
+
+    Returns:
+        dict: Summary of the full fetch operation
+    """
+    from pyf.aggregator.profiles import ProfileManager
+    from pyf.aggregator.fetcher import PLUGINS
+    from pyf.aggregator.plugins import register_plugins
+    from pyf.aggregator.indexer import Indexer
+
+    profile = profile_name or "plone"
+    collection = collection_name or profile
+
+    logger.info(f"Starting monthly full fetch for collection '{collection}' with profile '{profile}'")
+
+    try:
+        # Load profile
+        profile_manager = ProfileManager()
+        profile_config = profile_manager.get_profile(profile)
+
+        if not profile_config:
+            logger.error(f"Profile '{profile}' not found")
+            return {"status": "failed", "reason": f"profile_not_found: {profile}"}
+
+        filter_troove = profile_config.get("classifiers", [])
+        logger.info(f"Using {len(filter_troove)} classifiers from profile '{profile}'")
+
+        # Setup settings
+        settings = {
+            "mode": "first",
+            "sincefile": ".pyfaggregator.monthly",
+            "filter_name": "",
+            "filter_troove": filter_troove,
+            "limit": 0,
+            "target": collection,
+        }
+
+        # Register plugins
+        register_plugins(PLUGINS, settings)
+
+        # Create aggregator
+        agg = Aggregator(
+            mode="first",
+            sincefile=settings["sincefile"],
+            filter_name=settings["filter_name"],
+            filter_troove=settings["filter_troove"],
+            limit=settings["limit"],
+        )
+
+        # Create/verify collection
+        indexer = Indexer()
+        if not indexer.collection_exists(name=collection):
+            logger.info(f"Creating collection '{collection}'")
+            indexer.create_collection(name=collection)
+
+        # Execute aggregation
+        indexer(agg, collection)
+
+        logger.info(f"Monthly full fetch complete for collection '{collection}'")
+        return {"status": "completed", "collection": collection, "profile": profile}
+
+    except Exception as e:
+        logger.error(f"Error in monthly full fetch task: {e}")
+        try:
+            raise self.retry(exc=e)
+        except self.MaxRetriesExceededError:
+            logger.error("Max retries exceeded for monthly full fetch task")
+            return {"status": "failed", "reason": str(e)}
+
+
 ####  Celery periodic tasks
 
 @app.on_after_configure.connect
@@ -496,6 +734,7 @@ def setup_periodic_tasks(sender, **kw):
     """
     Setup periodic tasks for the Celery app.
     """
+    # Every minute: Read RSS feeds for new packages and releases
     sender.add_periodic_task(
         crontab(minute="*/1", hour="*"),
         read_rss_new_projects_and_queue.s(),
@@ -506,4 +745,17 @@ def setup_periodic_tasks(sender, **kw):
         read_rss_new_releases_and_queue.s(),
         name='read RSS new releases and add to queue'
     )
-    pass
+
+    # Weekly: Refresh all indexed packages from PyPI (Sunday 2:00 AM UTC)
+    sender.add_periodic_task(
+        crontab(minute=0, hour=2, day_of_week=0),
+        refresh_all_indexed_packages.s(),
+        name='weekly refresh all indexed packages'
+    )
+
+    # Monthly: Full fetch all packages (1st of month, 3:00 AM UTC)
+    sender.add_periodic_task(
+        crontab(minute=0, hour=3, day_of_month=1),
+        full_fetch_all_packages.s(),
+        name='monthly full fetch all packages'
+    )

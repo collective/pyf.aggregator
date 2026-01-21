@@ -25,6 +25,8 @@ from pyf.aggregator.queue import (
     read_rss_new_releases_and_queue,
     update_github,
     queue_all_github_updates,
+    refresh_all_indexed_packages,
+    full_fetch_all_packages,
     setup_periodic_tasks,
     TYPESENSE_COLLECTION,
 )
@@ -983,8 +985,8 @@ class TestPeriodicTaskSetup:
 
         setup_periodic_tasks(mock_sender)
 
-        # Should have added 2 periodic tasks
-        assert mock_sender.add_periodic_task.call_count == 2
+        # Should have added 4 periodic tasks (2 RSS + weekly refresh + monthly full fetch)
+        assert mock_sender.add_periodic_task.call_count == 4
 
         # Check task names
         call_args_list = mock_sender.add_periodic_task.call_args_list
@@ -992,6 +994,8 @@ class TestPeriodicTaskSetup:
 
         assert 'read RSS new projects and add to queue' in task_names
         assert 'read RSS new releases and add to queue' in task_names
+        assert 'weekly refresh all indexed packages' in task_names
+        assert 'monthly full fetch all packages' in task_names
 
 
 # ============================================================================
@@ -1169,3 +1173,68 @@ class TestEdgeCases:
             })
 
             assert indexed_data["upload_timestamp"] == "1686700000.0"
+
+
+# ============================================================================
+# Refresh All Indexed Packages Task Tests
+# ============================================================================
+
+class TestRefreshAllIndexedPackagesTask:
+    """Test the refresh_all_indexed_packages Celery task."""
+
+    def test_task_is_registered(self):
+        """Test that task is registered with Celery."""
+        assert "pyf.aggregator.queue.refresh_all_indexed_packages" in app.tasks
+
+    def test_task_has_retry_config(self):
+        """Test that task has retry configuration."""
+        task = app.tasks["pyf.aggregator.queue.refresh_all_indexed_packages"]
+        assert task.max_retries == 2
+        assert task.default_retry_delay == 300
+
+    def test_task_handles_empty_collection(self, celery_eager_mode):
+        """Test task handles empty collection gracefully."""
+        with patch("pyf.aggregator.queue.PackageIndexer") as mock_indexer_class:
+            mock_indexer = MagicMock()
+            mock_indexer.get_unique_package_names.return_value = set()
+            mock_indexer_class.return_value = mock_indexer
+
+            with patch("pyf.aggregator.profiles.ProfileManager") as mock_profile_manager:
+                mock_pm = MagicMock()
+                mock_pm.get_profile.return_value = {"classifiers": ["Framework :: Plone"]}
+                mock_profile_manager.return_value = mock_pm
+
+                result = refresh_all_indexed_packages("test_collection", "plone")
+
+                assert result["status"] == "completed"
+                assert result["stats"]["total"] == 0
+
+
+# ============================================================================
+# Full Fetch All Packages Task Tests
+# ============================================================================
+
+class TestFullFetchAllPackagesTask:
+    """Test the full_fetch_all_packages Celery task."""
+
+    def test_task_is_registered(self):
+        """Test that task is registered with Celery."""
+        assert "pyf.aggregator.queue.full_fetch_all_packages" in app.tasks
+
+    def test_task_has_retry_config(self):
+        """Test that task has retry configuration."""
+        task = app.tasks["pyf.aggregator.queue.full_fetch_all_packages"]
+        assert task.max_retries == 2
+        assert task.default_retry_delay == 600
+
+    def test_task_fails_for_missing_profile(self, celery_eager_mode):
+        """Test task fails when profile is not found."""
+        with patch("pyf.aggregator.profiles.ProfileManager") as mock_profile_manager:
+            mock_pm = MagicMock()
+            mock_pm.get_profile.return_value = None
+            mock_profile_manager.return_value = mock_pm
+
+            result = full_fetch_all_packages("test_collection", "nonexistent_profile")
+
+            assert result["status"] == "failed"
+            assert "profile_not_found" in result["reason"]

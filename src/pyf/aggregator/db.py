@@ -41,6 +41,9 @@ class TypesenceConnection:
     def get_search_only_apikeys(self):
         return self.client.keys.retrieve()
 
+    def delete_apikey(self, key_id):
+        return self.client.keys[key_id].delete()
+
     def get_aliases(self):
         return self.client.aliases.retrieve()
 
@@ -129,7 +132,7 @@ class TypesensePackagesCollection:
                 {"name": "download_last_week", "type": "auto", "facet": True},
                 {"name": "download_last_month", "type": "auto", "facet": True},
                 {"name": "download_total", "type": "auto", "facet": True},
-                {"name": "download_updated", "type": "auto", "sort": True},
+                {"name": "download_updated", "type": "float", "sort": True, "optional": True},
                 {
                     "name": "yanked_reason",
                     "type": "string",
@@ -141,3 +144,38 @@ class TypesensePackagesCollection:
             "default_sorting_field": "name_sortable",
         }
         self.client.collections.create(schema)
+
+    def get_unique_package_names(self, collection_name):
+        """Get all unique package names from a collection using grouped search."""
+        unique_names = set()
+        page = 1
+        per_page = 250
+
+        while True:
+            result = self.client.collections[collection_name].documents.search({
+                "q": "*",
+                "query_by": "name",
+                "include_fields": "name",
+                "per_page": per_page,
+                "page": page,
+                "group_by": "name",
+                "group_limit": 1,
+            })
+
+            for group in result.get("grouped_hits", []):
+                for hit in group.get("hits", []):
+                    name = hit.get("document", {}).get("name")
+                    if name:
+                        unique_names.add(name)
+
+            if len(result.get("grouped_hits", [])) < per_page:
+                break
+            page += 1
+
+        return unique_names
+
+    def delete_package_by_name(self, collection_name, package_name):
+        """Delete all versions of a package by name."""
+        return self.client.collections[collection_name].documents.delete(
+            {'filter_by': f'name:={package_name}'}
+        )
