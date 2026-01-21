@@ -31,6 +31,7 @@ CELERY_SCHEDULE_RSS_PROJECTS = os.getenv("CELERY_SCHEDULE_RSS_PROJECTS", "*/1 * 
 CELERY_SCHEDULE_RSS_RELEASES = os.getenv("CELERY_SCHEDULE_RSS_RELEASES", "*/1 * * * *")
 CELERY_SCHEDULE_WEEKLY_REFRESH = os.getenv("CELERY_SCHEDULE_WEEKLY_REFRESH", "0 2 * * 0")
 CELERY_SCHEDULE_MONTHLY_FETCH = os.getenv("CELERY_SCHEDULE_MONTHLY_FETCH", "0 3 1 * *")
+CELERY_SCHEDULE_WEEKLY_DOWNLOADS = os.getenv("CELERY_SCHEDULE_WEEKLY_DOWNLOADS", "0 4 * * 0")
 
 # GitHub URL regex pattern
 github_regex = re.compile(r"^(http[s]{0,1}:\/\/|www\.)github\.com/(.+/.+)")
@@ -734,6 +735,31 @@ def full_fetch_all_packages(self, collection_name=None, profile_name=None):
             return {"status": "failed", "reason": str(e)}
 
 
+@app.task(bind=True, max_retries=3, default_retry_delay=60)
+def enrich_downloads_all_packages(self):
+    """Enrich all indexed packages with download statistics from pypistats.org."""
+    from pyf.aggregator.enrichers.downloads import Enricher
+    from pyf.aggregator.profiles import ProfileManager
+
+    logger.info("Starting weekly download stats enrichment")
+
+    profile_manager = ProfileManager()
+    profiles = profile_manager.list_profiles()
+
+    results = {}
+    for profile_name in profiles:
+        try:
+            enricher = Enricher()
+            enricher.run(target=profile_name)
+            results[profile_name] = "completed"
+            logger.info(f"Download enrichment complete for profile '{profile_name}'")
+        except Exception as e:
+            logger.error(f"Error enriching downloads for profile '{profile_name}': {e}")
+            results[profile_name] = f"failed: {e}"
+
+    return {"status": "completed", "profiles": results}
+
+
 ####  Celery periodic tasks
 
 
@@ -807,3 +833,14 @@ def setup_periodic_tasks(sender, **kw):
         )
     else:
         logger.info("Monthly full fetch task disabled")
+
+    # Weekly download stats enrichment
+    schedule = parse_crontab(CELERY_SCHEDULE_WEEKLY_DOWNLOADS)
+    if schedule:
+        sender.add_periodic_task(
+            schedule,
+            enrich_downloads_all_packages.s(),
+            name='weekly download stats enrichment'
+        )
+    else:
+        logger.info("Weekly download stats enrichment task disabled")

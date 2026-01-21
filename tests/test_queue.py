@@ -27,6 +27,7 @@ from pyf.aggregator.queue import (
     queue_all_github_updates,
     refresh_all_indexed_packages,
     full_fetch_all_packages,
+    enrich_downloads_all_packages,
     setup_periodic_tasks,
     parse_crontab,
     TYPESENSE_COLLECTION,
@@ -1025,8 +1026,8 @@ class TestPeriodicTaskSetup:
 
         setup_periodic_tasks(mock_sender)
 
-        # Should have added 4 periodic tasks (2 RSS + weekly refresh + monthly full fetch)
-        assert mock_sender.add_periodic_task.call_count == 4
+        # Should have added 5 periodic tasks (2 RSS + weekly refresh + monthly full fetch + weekly downloads)
+        assert mock_sender.add_periodic_task.call_count == 5
 
         # Check task names
         call_args_list = mock_sender.add_periodic_task.call_args_list
@@ -1036,6 +1037,7 @@ class TestPeriodicTaskSetup:
         assert 'read RSS new releases and add to queue' in task_names
         assert 'weekly refresh all indexed packages' in task_names
         assert 'monthly full fetch all packages' in task_names
+        assert 'weekly download stats enrichment' in task_names
 
     def test_periodic_task_disabled_with_empty_string(self):
         """Test that tasks can be disabled by setting schedule to empty string."""
@@ -1044,8 +1046,8 @@ class TestPeriodicTaskSetup:
         with patch('pyf.aggregator.queue.CELERY_SCHEDULE_MONTHLY_FETCH', ''):
             setup_periodic_tasks(mock_sender)
 
-        # Should have added only 3 periodic tasks (monthly disabled)
-        assert mock_sender.add_periodic_task.call_count == 3
+        # Should have added only 4 periodic tasks (monthly disabled)
+        assert mock_sender.add_periodic_task.call_count == 4
 
         # Check that monthly task is not in the list
         call_args_list = mock_sender.add_periodic_task.call_args_list
@@ -1061,8 +1063,8 @@ class TestPeriodicTaskSetup:
         with patch('pyf.aggregator.queue.CELERY_SCHEDULE_RSS_PROJECTS', '*/5 * * * *'):
             setup_periodic_tasks(mock_sender)
 
-        # Should still have 4 tasks
-        assert mock_sender.add_periodic_task.call_count == 4
+        # Should still have 5 tasks
+        assert mock_sender.add_periodic_task.call_count == 5
 
 
 # ============================================================================
@@ -1305,3 +1307,56 @@ class TestFullFetchAllPackagesTask:
 
             assert result["status"] == "failed"
             assert "profile_not_found" in result["reason"]
+
+
+# ============================================================================
+# Enrich Downloads All Packages Task Tests
+# ============================================================================
+
+class TestEnrichDownloadsAllPackagesTask:
+    """Test the enrich_downloads_all_packages Celery task."""
+
+    def test_task_is_registered(self):
+        """Test that task is registered with Celery."""
+        assert "pyf.aggregator.queue.enrich_downloads_all_packages" in app.tasks
+
+    def test_task_has_retry_config(self):
+        """Test that task has retry configuration."""
+        task = app.tasks["pyf.aggregator.queue.enrich_downloads_all_packages"]
+        assert task.max_retries == 3
+        assert task.default_retry_delay == 60
+
+    def test_task_enriches_all_profiles(self, celery_eager_mode):
+        """Test that task enriches all profiles."""
+        with patch("pyf.aggregator.profiles.ProfileManager") as mock_profile_manager:
+            mock_pm = MagicMock()
+            mock_pm.list_profiles.return_value = ["plone", "django"]
+            mock_profile_manager.return_value = mock_pm
+
+            with patch("pyf.aggregator.enrichers.downloads.Enricher") as mock_enricher_class:
+                mock_enricher = MagicMock()
+                mock_enricher_class.return_value = mock_enricher
+
+                result = enrich_downloads_all_packages()
+
+                assert result["status"] == "completed"
+                assert "plone" in result["profiles"]
+                assert "django" in result["profiles"]
+                assert mock_enricher.run.call_count == 2
+
+    def test_task_handles_enricher_error(self, celery_eager_mode):
+        """Test that task handles errors from enricher gracefully."""
+        with patch("pyf.aggregator.profiles.ProfileManager") as mock_profile_manager:
+            mock_pm = MagicMock()
+            mock_pm.list_profiles.return_value = ["plone"]
+            mock_profile_manager.return_value = mock_pm
+
+            with patch("pyf.aggregator.enrichers.downloads.Enricher") as mock_enricher_class:
+                mock_enricher = MagicMock()
+                mock_enricher.run.side_effect = Exception("API error")
+                mock_enricher_class.return_value = mock_enricher
+
+                result = enrich_downloads_all_packages()
+
+                assert result["status"] == "completed"
+                assert "failed" in result["profiles"]["plone"]

@@ -126,12 +126,14 @@ Background tasks in `queue.py`:
 - `read_rss_new_releases_and_queue` - Monitor PyPI RSS for new releases
 - `refresh_all_indexed_packages` - Refresh all indexed packages from PyPI, remove 404s
 - `full_fetch_all_packages` - Full fetch equivalent to `pyfaggregator -f -p <profile>`
+- `enrich_downloads_all_packages` - Enrich all packages with download stats from pypistats.org
 
 **Periodic Schedules:**
 | Schedule | Task | Description |
 |----------|------|-------------|
 | Every minute | RSS tasks | Monitor PyPI for new packages/releases |
 | Sunday 2:00 AM UTC | `refresh_all_indexed_packages` | Weekly refresh of all indexed packages |
+| Sunday 4:00 AM UTC | `enrich_downloads_all_packages` | Weekly download stats from pypistats.org |
 | 1st of month, 3:00 AM UTC | `full_fetch_all_packages` | Monthly complete re-fetch |
 
 ### Database Schema

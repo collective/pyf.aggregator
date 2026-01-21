@@ -81,6 +81,7 @@ TYPESENSE_COLLECTION=plone
 CELERY_SCHEDULE_RSS_PROJECTS=*/1 * * * *    # Check for new projects
 CELERY_SCHEDULE_RSS_RELEASES=*/1 * * * *    # Check for new releases
 CELERY_SCHEDULE_WEEKLY_REFRESH=0 2 * * 0    # Sunday 2:00 AM UTC
+CELERY_SCHEDULE_WEEKLY_DOWNLOADS=0 4 * * 0  # Sunday 4:00 AM UTC
 CELERY_SCHEDULE_MONTHLY_FETCH=0 3 1 * *     # 1st of month, 3:00 AM UTC
 ```
 
@@ -514,6 +515,7 @@ The project uses a queue-based architecture with Celery for improved scalability
 | `read_rss_new_releases_and_queue` | Monitor RSS for new releases and queue inspection |
 | `refresh_all_indexed_packages` | Refresh all indexed packages from PyPI, remove packages returning 404 |
 | `full_fetch_all_packages` | Full fetch of all packages (equivalent to `pyfaggregator -f -p <profile>`) |
+| `enrich_downloads_all_packages` | Enrich all packages with download stats from pypistats.org |
 
 **Periodic Task Schedules:**
 
@@ -522,6 +524,7 @@ The project uses a queue-based architecture with Celery for improved scalability
 | RSS new projects | Every minute | Monitor PyPI RSS feed for new packages |
 | RSS new releases | Every minute | Monitor PyPI RSS feed for package updates |
 | Weekly refresh | Sunday 2:00 AM UTC | Refresh all indexed packages from PyPI |
+| Weekly downloads | Sunday 4:00 AM UTC | Enrich with download stats from pypistats.org |
 | Monthly full fetch | 1st of month, 3:00 AM UTC | Complete re-fetch from PyPI |
 
 To run a Celery worker:
