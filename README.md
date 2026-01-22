@@ -274,11 +274,13 @@ uv run pyfupdater [options]
 | `--add-alias` | Add a collection alias |
 | `--add-search-only-apikey` | Create a search-only API key |
 | `--delete-apikey` | Delete an API key by its ID |
+| `--delete-collection` | Delete a collection by name (requires confirmation) |
+| `-f`, `--force` | Skip confirmation prompts for destructive operations |
 | `-p`, `--profile` | Use a profile (auto-sets target collection name) |
 | `-s`, `--source` | Source collection name (for migrate/alias) |
 | `-t`, `--target` | Target collection name (auto-set from profile if not specified) |
 | `-key`, `--key` | Custom API key value (optional, auto-generated if not provided) |
-| `--recreate-collection` | Zero-downtime collection recreation with alias switching (requires -t) |
+| `--recreate-collection` | Zero-downtime collection recreation with alias switching (requires -p/-t) |
 | `--purge-queue` | Purge all pending tasks from the Celery queue |
 | `--queue-stats` | Show Celery queue statistics (pending tasks, workers) |
 
@@ -327,6 +329,13 @@ uv run pyfupdater --queue-stats
 
 # Purge all pending tasks from queue
 uv run pyfupdater --purge-queue
+
+# Delete a collection (with confirmation prompt)
+uv run pyfupdater --delete-collection plone-old
+
+# Delete a collection without confirmation (force)
+uv run pyfupdater --delete-collection plone-old --force
+uv run pyfupdater --delete-collection plone-old -f
 ```
 
 ### pyfdownloads

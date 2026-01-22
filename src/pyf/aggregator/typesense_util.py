@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import os
 import redis
 import sys
+import typesense
 
 
 parser = ArgumentParser(
@@ -69,6 +70,17 @@ parser.add_argument(
 parser.add_argument(
     "--recreate-collection",
     help="Delete and recreate a collection with current schema (requires -t)",
+    action="store_true",
+)
+parser.add_argument(
+    "--delete-collection",
+    help="Delete a collection by name (requires confirmation)",
+    type=str,
+    metavar="COLLECTION_NAME",
+)
+parser.add_argument(
+    "-f", "--force",
+    help="Skip confirmation prompts for destructive operations",
     action="store_true",
 )
 
@@ -217,12 +229,13 @@ def main():
         and not args.purge_queue
         and not args.queue_stats
         and not args.recreate_collection
+        and args.delete_collection is None
     ):
         logger.info(
             f" No action provided, provide at least one action: "
             f"--migrate, --add_alias, --list-aliases, --list-collections, "
             f"--list-collection-names, --add-search-only-apikey, --delete-apikey, "
-            f"--purge-queue, --queue-stats, --recreate-collection"
+            f"--purge-queue, --queue-stats, --recreate-collection, --delete-collection"
         )
     if args.list_search_only_apikeys:
         keys = ts_util.get_search_only_apikeys()
@@ -305,3 +318,51 @@ def main():
             logger.error("Target collection name is required. Use -t <collection_name>")
             sys.exit(1)
         ts_util.recreate_collection(name=args.target)
+
+    if args.delete_collection:
+        collection_name = args.delete_collection
+
+        # Check if collection exists
+        if not ts_util.collection_exists(collection_name):
+            # Check if it's an alias
+            alias_target = ts_util.get_alias(collection_name)
+            if alias_target:
+                logger.error(
+                    f"'{collection_name}' is an alias pointing to '{alias_target}'. "
+                    f"Use --delete-collection {alias_target} to delete the actual collection."
+                )
+            else:
+                logger.error(f"Collection '{collection_name}' does not exist")
+            sys.exit(1)
+
+        # Warn about aliases pointing to this collection
+        aliases = ts_util.get_aliases()
+        pointing_aliases = [
+            alias.get("name")
+            for alias in aliases.get("aliases", [])
+            if alias.get("collection_name") == collection_name
+        ]
+        if pointing_aliases:
+            logger.warning(
+                f"The following aliases point to '{collection_name}': {', '.join(pointing_aliases)}"
+            )
+            logger.warning("These aliases will become orphaned after deletion.")
+
+        # Confirmation (unless --force)
+        if not args.force:
+            confirm = input(f"Are you sure you want to delete collection '{collection_name}'? (y/N): ")
+            if confirm.lower() != 'y':
+                logger.info("Delete operation cancelled")
+                sys.exit(0)
+
+        # Perform deletion
+        try:
+            result = ts_util.delete_collection(collection_name)
+            logger.info(f"Successfully deleted collection '{collection_name}'")
+            pprint(result)
+        except typesense.exceptions.ObjectNotFound:
+            logger.error(f"Collection '{collection_name}' not found")
+            sys.exit(1)
+        except Exception as e:
+            logger.error(f"Failed to delete collection '{collection_name}': {e}")
+            sys.exit(1)
