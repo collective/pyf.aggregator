@@ -159,7 +159,7 @@ uv run pyfaggregator [options]
 | `--no-plone-filter` | Disable automatic Plone classifier filtering (process all packages) |
 | `--show PACKAGE_NAME` | Show indexed data for a package by name (for debugging, shows newest version) |
 | `--all-versions` | Show all versions when using --show (default: only newest) |
-| `--recreate-collection` | Delete and recreate the target collection with current schema (use with -f for full reindex) |
+| `--recreate-collection` | Zero-downtime collection recreation with alias switching (creates versioned collections like `name-1`, `name-2`) |
 
 **Examples:**
 
@@ -198,11 +198,12 @@ uv run pyfaggregator --show Django -p django
 # Show all versions of a package
 uv run pyfaggregator --show plone -p plone --all-versions
 
-# Recreate collection with updated schema and full reindex
+# Zero-downtime collection recreation with full reindex
+# Creates versioned collection (plone-1) with alias (plone)
 uv run pyfaggregator -f -p plone --recreate-collection
 
-# Recreate collection with custom target name
-uv run pyfaggregator -f -t my-collection --recreate-collection
+# Subsequent runs create new version, migrate data, switch alias, delete old
+# plone-1 → plone-2 → plone-3, etc.
 ```
 
 ### pyfgithub
@@ -277,7 +278,7 @@ uv run pyfupdater [options]
 | `-s`, `--source` | Source collection name (for migrate/alias) |
 | `-t`, `--target` | Target collection name (auto-set from profile if not specified) |
 | `-key`, `--key` | Custom API key value (optional, auto-generated if not provided) |
-| `--recreate-collection` | Delete and recreate a collection with current schema (requires -t) |
+| `--recreate-collection` | Zero-downtime collection recreation with alias switching (requires -t) |
 | `--purge-queue` | Purge all pending tasks from the Celery queue |
 | `--queue-stats` | Show Celery queue statistics (pending tasks, workers) |
 
@@ -313,8 +314,13 @@ uv run pyfupdater --add-search-only-apikey -t packages -key your_custom_key
 # Delete an API key by ID
 uv run pyfupdater --delete-apikey 123
 
-# Recreate collection with current schema (useful after schema changes)
+# Zero-downtime collection recreation (creates plone-1, plone-2, etc. with alias)
 uv run pyfupdater --recreate-collection -t plone
+# First run: creates 'plone-1' collection with alias 'plone' → 'plone-1'
+# Subsequent runs: creates 'plone-2', migrates data, switches alias, deletes old
+
+# List aliases to see versioned collections
+uv run pyfupdater -lsa  # Shows: plone → plone-1
 
 # View queue statistics
 uv run pyfupdater --queue-stats

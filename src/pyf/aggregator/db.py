@@ -14,6 +14,21 @@ TYPESENSE_API_KEY = os.getenv('TYPESENSE_API_KEY')
 TYPESENSE_TIMEOUT = os.getenv('TYPESENSE_TIMEOUT')
 
 
+def parse_versioned_name(collection_name):
+    """Parse 'name-N' into ('name', N). Returns (name, None) if no version suffix."""
+    if '-' in collection_name:
+        base, suffix = collection_name.rsplit('-', 1)
+        if suffix.isdigit():
+            return base, int(suffix)
+    return collection_name, None
+
+
+def get_next_version(base_name, current_version):
+    """Get next versioned collection name."""
+    next_version = (current_version or 0) + 1
+    return f"{base_name}-{next_version}", next_version
+
+
 class TypesenceConnection:
 
     def __init__(self):
@@ -46,6 +61,18 @@ class TypesenceConnection:
 
     def get_aliases(self):
         return self.client.aliases.retrieve()
+
+    def get_alias(self, alias_name):
+        """Get the collection name an alias points to, or None if alias doesn't exist."""
+        try:
+            alias = self.client.aliases[alias_name].retrieve()
+            return alias.get('collection_name')
+        except typesense.exceptions.ObjectNotFound:
+            return None
+
+    def delete_alias(self, alias_name):
+        """Delete an alias."""
+        return self.client.aliases[alias_name].delete()
 
     def get_collections(self):
         return self.client.collections.retrieve()

@@ -1,6 +1,6 @@
 from argparse import ArgumentParser
 from datetime import datetime
-from pyf.aggregator.db import TypesenceConnection, TypesensePackagesCollection
+from pyf.aggregator.db import TypesenceConnection, TypesensePackagesCollection, parse_versioned_name, get_next_version
 from pyf.aggregator.logger import logger
 from pyf.aggregator.profiles import ProfileManager
 from pyf.aggregator.queue import app as celery_app
@@ -129,13 +129,52 @@ class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
         return res
 
     def recreate_collection(self, name):
-        """Delete and recreate a collection with current schema."""
-        if self.collection_exists(name):
-            logger.info(f"Deleting existing collection '{name}'...")
-            self.delete_collection(name)
-        logger.info(f"Creating collection '{name}' with current schema...")
-        self.create_collection(name=name)
-        logger.info(f"Collection '{name}' recreated successfully.")
+        """
+        Zero-downtime collection recreation with alias switching.
+
+        1. If alias exists: migrate from old versioned collection to new one
+        2. If no alias: create versioned collection and alias
+        """
+        current_collection = self.get_alias(name)
+
+        if current_collection:
+            # Alias exists - do zero-downtime migration
+            base_name, current_version = parse_versioned_name(current_collection)
+            new_collection, new_version = get_next_version(base_name, current_version)
+
+            logger.info(f"Creating new collection '{new_collection}' with current schema...")
+            self.create_collection(name=new_collection)
+
+            logger.info(f"Migrating data from '{current_collection}' to '{new_collection}'...")
+            self.migrate(source=current_collection, target=new_collection)
+
+            logger.info(f"Switching alias '{name}' to '{new_collection}'...")
+            self.add_alias(source=name, target=new_collection)
+
+            logger.info(f"Deleting old collection '{current_collection}'...")
+            self.delete_collection(name=current_collection)
+
+            logger.info(f"Collection recreation complete: {name} → {new_collection}")
+        else:
+            # No alias - check if it's a direct collection
+            if self.collection_exists(name):
+                # Convert existing collection to versioned scheme
+                logger.info(f"Converting '{name}' to versioned collection scheme...")
+                new_collection = f"{name}-1"
+
+                self.create_collection(name=new_collection)
+                self.migrate(source=name, target=new_collection)
+                self.add_alias(source=name, target=new_collection)
+
+                self.delete_collection(name=name)
+                logger.info(f"Converted: alias '{name}' → '{new_collection}'")
+            else:
+                # Fresh start - create versioned collection with alias
+                new_collection = f"{name}-1"
+                logger.info(f"Creating new versioned collection '{new_collection}'...")
+                self.create_collection(name=new_collection)
+                self.add_alias(source=name, target=new_collection)
+                logger.info(f"Created: alias '{name}' → '{new_collection}'")
 
 
 def main():

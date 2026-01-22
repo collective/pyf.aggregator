@@ -375,18 +375,16 @@ def main():
 
     indexer = Indexer()
 
-    # Handle --recreate-collection: delete existing collection if it exists
+    # Handle --recreate-collection: use zero-downtime alias switching
     if args.recreate_collection:
-        if indexer.collection_exists(name=settings["target"]):
-            logger.info(f"Deleting existing collection '{settings['target']}'...")
-            indexer.delete_collection(name=settings["target"])
-        logger.info(f"Creating collection '{settings['target']}' with current schema...")
-        indexer.create_collection(name=settings["target"])
-    elif not indexer.collection_exists(name=settings["target"]):
-        logger.info(
-            f"Target collection '{settings['target']}' not found, creating it."
-        )
-        indexer.create_collection(name=settings["target"])
+        from pyf.aggregator.typesense_util import TypesenceUtil
+        ts_util = TypesenceUtil()
+        ts_util.recreate_collection(name=settings["target"])
+    elif not indexer.collection_exists(name=settings["target"]) and not indexer.get_alias(settings["target"]):
+        # Create versioned collection with alias for fresh start
+        from pyf.aggregator.typesense_util import TypesenceUtil
+        ts_util = TypesenceUtil()
+        ts_util.recreate_collection(name=settings["target"])
 
     # Execute the aggregation flow
     indexer(agg, settings['target'])
