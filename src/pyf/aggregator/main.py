@@ -262,6 +262,11 @@ parser.add_argument(
     help="Show all versions when using --show (default: only newest)",
     action="store_true"
 )
+parser.add_argument(
+    "--recreate-collection",
+    help="Delete and recreate the target collection with current schema (use with -f)",
+    action="store_true"
+)
 
 
 def main():
@@ -369,7 +374,15 @@ def main():
     )
 
     indexer = Indexer()
-    if not indexer.collection_exists(name=settings["target"]):
+
+    # Handle --recreate-collection: delete existing collection if it exists
+    if args.recreate_collection:
+        if indexer.collection_exists(name=settings["target"]):
+            logger.info(f"Deleting existing collection '{settings['target']}'...")
+            indexer.delete_collection(name=settings["target"])
+        logger.info(f"Creating collection '{settings['target']}' with current schema...")
+        indexer.create_collection(name=settings["target"])
+    elif not indexer.collection_exists(name=settings["target"]):
         logger.info(
             f"Target collection '{settings['target']}' not found, creating it."
         )

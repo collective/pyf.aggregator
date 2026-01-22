@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from pyf.aggregator.db import TypesenceConnection, TypesensePackagesCollection
 from pyf.aggregator.logger import logger
@@ -5,7 +6,17 @@ from pyf.aggregator.logger import logger
 
 class Indexer(TypesenceConnection, TypesensePackagesCollection):
     def clean_data(self, data):
-        list_fields = ["requires_dist", "classifiers"]
+        list_fields = ["requires_dist", "classifiers", "keywords"]
+
+        # Parse keywords: handle both list and string formats
+        keywords = data.get("keywords")
+        if keywords:
+            if isinstance(keywords, str):
+                # Split by comma and whitespace, strip, filter empty
+                data["keywords"] = [k.strip() for k in re.split(r'[,\s]+', keywords) if k.strip()]
+            elif isinstance(keywords, list):
+                data["keywords"] = [k.strip() for k in keywords if k and k.strip()]
+
         for key, value in data.items():
             if key in list_fields and value == None:
                 data[key] = []

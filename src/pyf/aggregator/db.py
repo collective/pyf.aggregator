@@ -81,7 +81,7 @@ class TypesensePackagesCollection:
                     "index": False,
                     "optional": True,
                 },
-                {"name": "keywords", "type": "string"},
+                {"name": "keywords", "type": "string[]", "facet": True},
                 {"name": "license", "type": "string"},
                 {"name": "maintainer", "type": "string"},
                 {"name": "maintainer_email", "type": "string"},
@@ -144,6 +144,10 @@ class TypesensePackagesCollection:
             "default_sorting_field": "name_sortable",
         }
         self.client.collections.create(schema)
+
+    def delete_collection(self, name):
+        """Delete a collection by name."""
+        return self.client.collections[name].delete()
 
     def get_unique_package_names(self, collection_name):
         """Get all unique package names from a collection using grouped search."""

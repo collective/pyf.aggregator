@@ -66,6 +66,11 @@ parser.add_argument(
     help="Show Celery queue statistics (pending tasks, workers)",
     action="store_true",
 )
+parser.add_argument(
+    "--recreate-collection",
+    help="Delete and recreate a collection with current schema (requires -t)",
+    action="store_true",
+)
 
 class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
     """
@@ -123,6 +128,15 @@ class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
         logger.info(f"Deleted API key with ID: {key_id}")
         return res
 
+    def recreate_collection(self, name):
+        """Delete and recreate a collection with current schema."""
+        if self.collection_exists(name):
+            logger.info(f"Deleting existing collection '{name}'...")
+            self.delete_collection(name)
+        logger.info(f"Creating collection '{name}' with current schema...")
+        self.create_collection(name=name)
+        logger.info(f"Collection '{name}' recreated successfully.")
+
 
 def main():
     args = parser.parse_args()
@@ -163,12 +177,13 @@ def main():
         and args.delete_apikey is None
         and not args.purge_queue
         and not args.queue_stats
+        and not args.recreate_collection
     ):
         logger.info(
             f" No action provided, provide at least one action: "
             f"--migrate, --add_alias, --list-aliases, --list-collections, "
             f"--list-collection-names, --add-search-only-apikey, --delete-apikey, "
-            f"--purge-queue, --queue-stats"
+            f"--purge-queue, --queue-stats, --recreate-collection"
         )
     if args.list_search_only_apikeys:
         keys = ts_util.get_search_only_apikeys()
@@ -246,3 +261,8 @@ def main():
             logger.info(f"Purged {num_purged} pending tasks from queue")
         else:
             logger.info("Purge cancelled")
+    if args.recreate_collection:
+        if not args.target:
+            logger.error("Target collection name is required. Use -t <collection_name>")
+            sys.exit(1)
+        ts_util.recreate_collection(name=args.target)

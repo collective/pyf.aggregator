@@ -159,6 +159,7 @@ uv run pyfaggregator [options]
 | `--no-plone-filter` | Disable automatic Plone classifier filtering (process all packages) |
 | `--show PACKAGE_NAME` | Show indexed data for a package by name (for debugging, shows newest version) |
 | `--all-versions` | Show all versions when using --show (default: only newest) |
+| `--recreate-collection` | Delete and recreate the target collection with current schema (use with -f for full reindex) |
 
 **Examples:**
 
@@ -196,6 +197,12 @@ uv run pyfaggregator --show Django -p django
 
 # Show all versions of a package
 uv run pyfaggregator --show plone -p plone --all-versions
+
+# Recreate collection with updated schema and full reindex
+uv run pyfaggregator -f -p plone --recreate-collection
+
+# Recreate collection with custom target name
+uv run pyfaggregator -f -t my-collection --recreate-collection
 ```
 
 ### pyfgithub
@@ -270,6 +277,9 @@ uv run pyfupdater [options]
 | `-s`, `--source` | Source collection name (for migrate/alias) |
 | `-t`, `--target` | Target collection name (auto-set from profile if not specified) |
 | `-key`, `--key` | Custom API key value (optional, auto-generated if not provided) |
+| `--recreate-collection` | Delete and recreate a collection with current schema (requires -t) |
+| `--purge-queue` | Purge all pending tasks from the Celery queue |
+| `--queue-stats` | Show Celery queue statistics (pending tasks, workers) |
 
 **Examples:**
 
@@ -302,6 +312,15 @@ uv run pyfupdater --add-search-only-apikey -t packages -key your_custom_key
 
 # Delete an API key by ID
 uv run pyfupdater --delete-apikey 123
+
+# Recreate collection with current schema (useful after schema changes)
+uv run pyfupdater --recreate-collection -t plone
+
+# View queue statistics
+uv run pyfupdater --queue-stats
+
+# Purge all pending tasks from queue
+uv run pyfupdater --purge-queue
 ```
 
 ### pyfdownloads
