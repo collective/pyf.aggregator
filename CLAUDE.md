@@ -162,7 +162,12 @@ TYPESENSE_API_KEY=<secret>
 TYPESENSE_TIMEOUT=120
 GITHUB_TOKEN=<github_token>
 REDIS_HOST=localhost:6379
+
+# Optional: Default profile for all CLI commands
+DEFAULT_PROFILE=plone
 ```
+
+When `DEFAULT_PROFILE` is set, all CLI commands (`pyfaggregator`, `pyfgithub`, `pyfdownloads`, `pyfupdater`) will use it as the default profile. The `-p` CLI argument overrides this environment variable.
 
 ## Critical Rules
 
@@ -170,4 +175,4 @@ REDIS_HOST=localhost:6379
 - Package uses namespace: `pyf.aggregator`
 - always write tests first, TDD
 - All CLI commands must be run with `uv run` prefix (e.g., `uv run pyfgithub -p plone`)
-
+- run tests in a subagent

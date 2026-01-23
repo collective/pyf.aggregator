@@ -541,6 +541,29 @@ uv run pyfaggregator -f -ft "Framework :: Django" -ft "Framework :: Django :: 5.
 
 ## Architecture
 
+### Database Schema
+
+The Typesense collection schema includes the following field categories:
+
+**Package Metadata:**
+- `name`, `version`, `author`, `description`, `summary`, `license`
+- `classifiers`, `keywords`, `requires_dist`, `requires_python`
+- `home_page`, `docs_url`, `project_urls`
+- `upload_timestamp` - Unix timestamp (int64) of the last release. Packages without a timestamp use `0`, which naturally sorts to the bottom when sorting by "last modified" descending.
+
+**Computed Fields:**
+- `version_major`, `version_minor`, `version_bugfix` - Parsed version components
+- `health_score` - Package health metric (0-100)
+- `health_score_breakdown` - Detailed scoring factors (recency, documentation, metadata)
+
+**GitHub Enrichment:**
+- `github_stars`, `github_watchers`, `github_open_issues`
+- `github_url`, `github_updated`
+
+**Download Statistics:**
+- `download_last_day`, `download_last_week`, `download_last_month`
+- `download_total`, `download_updated`
+
 ### Queue-Based Processing
 
 The project uses a queue-based architecture with Celery for improved scalability and reliability:
