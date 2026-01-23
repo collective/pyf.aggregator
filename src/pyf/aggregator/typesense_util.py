@@ -116,9 +116,16 @@ class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
         logger.info(
             f"[{datetime.now()}] importing data into typesense collection '{collection_name}' ..."
         )
-        self.client.collections[collection_name].documents.import_(
-            data.encode("utf-8"), {"action": "create"}
+        response = self.client.collections[collection_name].documents.import_(
+            data, {"action": "upsert"}
         )
+        # Check for import errors
+        if isinstance(response, list):
+            errors = [r for r in response if not r.get("success", True)]
+            if errors:
+                logger.warning(f"Import had {len(errors)} failed documents")
+                for err in errors[:5]:  # Log first 5 errors
+                    logger.warning(f"  - {err}")
         logger.info(f"[{datetime.now()}] done.")
 
     def add_alias(self, source=None, target=None):
