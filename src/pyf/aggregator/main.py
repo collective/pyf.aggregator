@@ -273,6 +273,11 @@ parser.add_argument(
     help="Delete and recreate the target collection with current schema (use with -f)",
     action="store_true"
 )
+parser.add_argument(
+    "--force",
+    help="Skip confirmation prompts for destructive operations",
+    action="store_true"
+)
 
 
 def main():
@@ -387,6 +392,16 @@ def main():
 
     # Handle --recreate-collection: use zero-downtime alias switching
     if args.recreate_collection:
+        # Confirmation (unless --force)
+        if not args.force:
+            confirm = input(
+                f"Are you sure you want to recreate collection '{settings['target']}'? "
+                "This will create a new versioned collection and migrate data. (y/N): "
+            )
+            if confirm.lower() != 'y':
+                logger.info("Recreate operation cancelled")
+                sys.exit(0)
+
         from pyf.aggregator.typesense_util import TypesenceUtil
         ts_util = TypesenceUtil()
         ts_util.recreate_collection(name=settings["target"])

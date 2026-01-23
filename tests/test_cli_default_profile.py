@@ -211,8 +211,8 @@ class TestTypesenseUtilDefaultProfile:
                 mock_util_instance = MagicMock()
                 mock_util.return_value = mock_util_instance
 
-                # Simulate CLI with --recreate-collection but no -p or -t
-                with patch.object(sys, 'argv', ['pyfupdater', '--recreate-collection']):
+                # Simulate CLI with --recreate-collection but no -p or -t (use --force to skip prompt)
+                with patch.object(sys, 'argv', ['pyfupdater', '--recreate-collection', '--force']):
                     typesense_util_module.main()
 
                 # Verify profile was loaded from env var
@@ -237,8 +237,8 @@ class TestTypesenseUtilDefaultProfile:
                 mock_util_instance = MagicMock()
                 mock_util.return_value = mock_util_instance
 
-                # Simulate CLI with -p django and --recreate-collection
-                with patch.object(sys, 'argv', ['pyfupdater', '-p', 'django', '--recreate-collection']):
+                # Simulate CLI with -p django and --recreate-collection (use --force to skip prompt)
+                with patch.object(sys, 'argv', ['pyfupdater', '-p', 'django', '--recreate-collection', '--force']):
                     typesense_util_module.main()
 
                 # Verify django was used, not plone from env
@@ -326,3 +326,227 @@ class TestProfileSourceLogging:
                     # Check log mentions source
                     info_calls = [str(call) for call in mock_logger.info.call_args_list]
                     assert any("from CLI" in call for call in info_calls)
+
+
+# ============================================================================
+# Test --recreate-collection confirmation prompts (typesense_util.py)
+# ============================================================================
+
+class TestRecreateCollectionConfirmationTypesenseUtil:
+    """Test user confirmation prompts for --recreate-collection in pyfupdater."""
+
+    def test_confirmation_prompt_shown_and_cancelled_on_no(self, monkeypatch):
+        """Test that confirmation prompt is shown and operation cancelled on 'n'."""
+        monkeypatch.setenv("DEFAULT_PROFILE", "plone")
+
+        import importlib
+        import pyf.aggregator.typesense_util as typesense_util_module
+        importlib.reload(typesense_util_module)
+
+        with patch.object(typesense_util_module, 'ProfileManager') as mock_pm:
+            mock_profile_manager = MagicMock()
+            mock_profile_manager.get_profile.return_value = {"classifiers": ["Framework :: Plone"]}
+            mock_profile_manager.validate_profile.return_value = True
+            mock_pm.return_value = mock_profile_manager
+
+            with patch.object(typesense_util_module, 'TypesenceUtil') as mock_util:
+                mock_util_instance = MagicMock()
+                mock_util.return_value = mock_util_instance
+
+                with patch.object(typesense_util_module, 'logger') as mock_logger:
+                    # Mock input to return 'n' (cancel)
+                    with patch('builtins.input', return_value='n'):
+                        with patch.object(sys, 'argv', ['pyfupdater', '--recreate-collection']):
+                            with pytest.raises(SystemExit) as exc_info:
+                                typesense_util_module.main()
+
+                            # Should exit with code 0 (cancelled)
+                            assert exc_info.value.code == 0
+
+                # Verify recreate_collection was NOT called
+                mock_util_instance.recreate_collection.assert_not_called()
+
+    def test_confirmation_prompt_proceeds_on_yes(self, monkeypatch):
+        """Test that operation proceeds when user confirms with 'y'."""
+        monkeypatch.setenv("DEFAULT_PROFILE", "plone")
+
+        import importlib
+        import pyf.aggregator.typesense_util as typesense_util_module
+        importlib.reload(typesense_util_module)
+
+        with patch.object(typesense_util_module, 'ProfileManager') as mock_pm:
+            mock_profile_manager = MagicMock()
+            mock_profile_manager.get_profile.return_value = {"classifiers": ["Framework :: Plone"]}
+            mock_profile_manager.validate_profile.return_value = True
+            mock_pm.return_value = mock_profile_manager
+
+            with patch.object(typesense_util_module, 'TypesenceUtil') as mock_util:
+                mock_util_instance = MagicMock()
+                mock_util.return_value = mock_util_instance
+
+                # Mock input to return 'y' (confirm)
+                with patch('builtins.input', return_value='y'):
+                    with patch.object(sys, 'argv', ['pyfupdater', '--recreate-collection']):
+                        typesense_util_module.main()
+
+                # Verify recreate_collection WAS called
+                mock_util_instance.recreate_collection.assert_called_once_with(name="plone")
+
+    def test_force_flag_skips_confirmation(self, monkeypatch):
+        """Test that --force flag skips the confirmation prompt."""
+        monkeypatch.setenv("DEFAULT_PROFILE", "plone")
+
+        import importlib
+        import pyf.aggregator.typesense_util as typesense_util_module
+        importlib.reload(typesense_util_module)
+
+        with patch.object(typesense_util_module, 'ProfileManager') as mock_pm:
+            mock_profile_manager = MagicMock()
+            mock_profile_manager.get_profile.return_value = {"classifiers": ["Framework :: Plone"]}
+            mock_profile_manager.validate_profile.return_value = True
+            mock_pm.return_value = mock_profile_manager
+
+            with patch.object(typesense_util_module, 'TypesenceUtil') as mock_util:
+                mock_util_instance = MagicMock()
+                mock_util.return_value = mock_util_instance
+
+                # Mock input - should NOT be called
+                with patch('builtins.input') as mock_input:
+                    with patch.object(sys, 'argv', ['pyfupdater', '--recreate-collection', '--force']):
+                        typesense_util_module.main()
+
+                    # Verify input was NOT called (prompt skipped)
+                    mock_input.assert_not_called()
+
+                # Verify recreate_collection WAS called
+                mock_util_instance.recreate_collection.assert_called_once_with(name="plone")
+
+
+# ============================================================================
+# Test --recreate-collection confirmation prompts (main.py)
+# ============================================================================
+
+class TestRecreateCollectionConfirmationMain:
+    """Test user confirmation prompts for --recreate-collection in pyfaggregator."""
+
+    def test_confirmation_prompt_shown_and_cancelled_on_no(self, monkeypatch):
+        """Test that confirmation prompt is shown and operation cancelled on 'n'."""
+        monkeypatch.setenv("DEFAULT_PROFILE", "plone")
+
+        import importlib
+        import pyf.aggregator.main as main_module
+        importlib.reload(main_module)
+
+        with patch.object(main_module, 'ProfileManager') as mock_pm:
+            mock_profile_manager = MagicMock()
+            mock_profile_manager.get_profile.return_value = {"classifiers": ["Framework :: Plone"]}
+            mock_profile_manager.validate_profile.return_value = True
+            mock_pm.return_value = mock_profile_manager
+
+            with patch.object(main_module, 'logger') as mock_logger:
+                # Mock input to return 'n' (cancel)
+                with patch('builtins.input', return_value='n'):
+                    with patch.object(sys, 'argv', ['pyfaggregator', '-f', '--recreate-collection']):
+                        with pytest.raises(SystemExit) as exc_info:
+                            main_module.main()
+
+                        # Should exit with code 0 (cancelled)
+                        assert exc_info.value.code == 0
+
+    def test_confirmation_prompt_proceeds_on_yes(self, monkeypatch):
+        """Test that operation proceeds when user confirms with 'y'."""
+        monkeypatch.setenv("DEFAULT_PROFILE", "plone")
+
+        import importlib
+        import pyf.aggregator.main as main_module
+        importlib.reload(main_module)
+
+        with patch.object(main_module, 'ProfileManager') as mock_pm:
+            mock_profile_manager = MagicMock()
+            mock_profile_manager.get_profile.return_value = {"classifiers": ["Framework :: Plone"]}
+            mock_profile_manager.validate_profile.return_value = True
+            mock_pm.return_value = mock_profile_manager
+
+            # Need to mock the TypesenceUtil import
+            mock_ts_util_instance = MagicMock()
+            mock_ts_util_class = MagicMock(return_value=mock_ts_util_instance)
+
+            with patch.dict('sys.modules', {'pyf.aggregator.typesense_util': MagicMock(TypesenceUtil=mock_ts_util_class)}):
+                with patch.object(main_module, 'Indexer') as mock_indexer:
+                    mock_indexer_instance = MagicMock()
+                    mock_indexer_instance.collection_exists.return_value = True
+                    mock_indexer.return_value = mock_indexer_instance
+
+                    with patch.object(main_module, 'Aggregator') as mock_aggregator:
+                        mock_agg_instance = MagicMock()
+                        mock_aggregator.return_value = mock_agg_instance
+
+                        # Mock input to return 'y' (confirm)
+                        with patch('builtins.input', return_value='y'):
+                            with patch.object(sys, 'argv', ['pyfaggregator', '-f', '--recreate-collection']):
+                                # Import TypesenceUtil inside the function will use our mock
+                                with patch('pyf.aggregator.main.TypesenceUtil', mock_ts_util_class, create=True):
+                                    # Patch the import statement
+                                    import builtins
+                                    original_import = builtins.__import__
+
+                                    def mock_import(name, *args, **kwargs):
+                                        if name == 'pyf.aggregator.typesense_util':
+                                            mock_module = MagicMock()
+                                            mock_module.TypesenceUtil = mock_ts_util_class
+                                            return mock_module
+                                        return original_import(name, *args, **kwargs)
+
+                                    with patch.object(builtins, '__import__', side_effect=mock_import):
+                                        main_module.main()
+
+                        # Verify recreate_collection WAS called
+                        mock_ts_util_instance.recreate_collection.assert_called_once_with(name="plone")
+
+    def test_force_flag_skips_confirmation(self, monkeypatch):
+        """Test that --force flag skips the confirmation prompt."""
+        monkeypatch.setenv("DEFAULT_PROFILE", "plone")
+
+        import importlib
+        import pyf.aggregator.main as main_module
+        importlib.reload(main_module)
+
+        with patch.object(main_module, 'ProfileManager') as mock_pm:
+            mock_profile_manager = MagicMock()
+            mock_profile_manager.get_profile.return_value = {"classifiers": ["Framework :: Plone"]}
+            mock_profile_manager.validate_profile.return_value = True
+            mock_pm.return_value = mock_profile_manager
+
+            mock_ts_util_instance = MagicMock()
+            mock_ts_util_class = MagicMock(return_value=mock_ts_util_instance)
+
+            with patch.object(main_module, 'Indexer') as mock_indexer:
+                mock_indexer_instance = MagicMock()
+                mock_indexer_instance.collection_exists.return_value = True
+                mock_indexer.return_value = mock_indexer_instance
+
+                with patch.object(main_module, 'Aggregator') as mock_aggregator:
+                    mock_agg_instance = MagicMock()
+                    mock_aggregator.return_value = mock_agg_instance
+
+                    # Mock input - should NOT be called
+                    with patch('builtins.input') as mock_input:
+                        with patch.object(sys, 'argv', ['pyfaggregator', '-f', '--recreate-collection', '--force']):
+                            import builtins
+                            original_import = builtins.__import__
+
+                            def mock_import(name, *args, **kwargs):
+                                if name == 'pyf.aggregator.typesense_util':
+                                    mock_module = MagicMock()
+                                    mock_module.TypesenceUtil = mock_ts_util_class
+                                    return mock_module
+                                return original_import(name, *args, **kwargs)
+
+                            with patch.object(builtins, '__import__', side_effect=mock_import):
+                                main_module.main()
+
+                        # Verify input was NOT called (prompt skipped)
+                        mock_input.assert_not_called()
+
+                    # Verify recreate_collection WAS called
+                    mock_ts_util_instance.recreate_collection.assert_called_once_with(name="plone")

@@ -328,6 +328,17 @@ def main():
                 "Use -t <collection_name>, -p <profile_name>, or set DEFAULT_PROFILE env var"
             )
             sys.exit(1)
+
+        # Confirmation (unless --force)
+        if not args.force:
+            confirm = input(
+                f"Are you sure you want to recreate collection '{args.target}'? "
+                "This will create a new versioned collection and migrate data. (y/N): "
+            )
+            if confirm.lower() != 'y':
+                logger.info("Recreate operation cancelled")
+                sys.exit(0)
+
         ts_util.recreate_collection(name=args.target)
 
     if args.delete_collection:
