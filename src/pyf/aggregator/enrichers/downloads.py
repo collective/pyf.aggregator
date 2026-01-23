@@ -13,6 +13,8 @@ import os
 
 load_dotenv()
 
+DEFAULT_PROFILE = os.getenv("DEFAULT_PROFILE")
+
 # Rate limiting configuration
 PYPISTATS_RATE_LIMIT_DELAY = float(os.getenv("PYPISTATS_RATE_LIMIT_DELAY", 2.0))
 PYPISTATS_MAX_RETRIES = int(os.getenv("PYPISTATS_MAX_RETRIES", 3))
@@ -24,7 +26,7 @@ parser = ArgumentParser(
 parser.add_argument("-t", "--target", nargs="?", type=str)
 parser.add_argument(
     "-p", "--profile",
-    help="Profile name for classifier filtering",
+    help="Profile name for classifier filtering (overrides DEFAULT_PROFILE env var)",
     nargs="?",
     type=str
 )
@@ -226,33 +228,39 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
 def main():
     args = parser.parse_args()
 
-    # Handle profile if specified
-    if args.profile:
+    # Handle profile (CLI argument or DEFAULT_PROFILE env var)
+    effective_profile = args.profile or DEFAULT_PROFILE
+    profile_source = "from CLI" if args.profile else "from DEFAULT_PROFILE"
+
+    if effective_profile:
         profile_manager = ProfileManager()
-        profile = profile_manager.get_profile(args.profile)
+        profile = profile_manager.get_profile(effective_profile)
 
         if not profile:
             available_profiles = profile_manager.list_profiles()
             logger.error(
-                f"Profile '{args.profile}' not found. "
+                f"Profile '{effective_profile}' not found. "
                 f"Available profiles: {', '.join(available_profiles)}"
             )
             sys.exit(1)
 
-        if not profile_manager.validate_profile(args.profile):
-            logger.error(f"Profile '{args.profile}' is invalid")
+        if not profile_manager.validate_profile(effective_profile):
+            logger.error(f"Profile '{effective_profile}' is invalid")
             sys.exit(1)
 
         # Auto-set collection name from profile if not specified
         if not args.target:
-            args.target = args.profile
+            args.target = effective_profile
             logger.info(f"Auto-setting target collection from profile: {args.target}")
 
-        logger.info(f"Using profile '{args.profile}' for target collection '{args.target}'")
+        logger.info(f"Using profile '{effective_profile}' ({profile_source}) for target collection '{args.target}'")
 
     # Validate target is specified
     if not args.target:
-        logger.error("Target collection name is required. Use -t <collection_name> or -p <profile_name>")
+        logger.error(
+            "Target collection name is required. "
+            "Use -t <collection_name>, -p <profile_name>, or set DEFAULT_PROFILE env var"
+        )
         sys.exit(1)
 
     enricher = Enricher(limit=args.limit)
