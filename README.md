@@ -83,6 +83,11 @@ CELERY_SCHEDULE_RSS_RELEASES=*/1 * * * *    # Check for new releases
 CELERY_SCHEDULE_WEEKLY_REFRESH=0 2 * * 0    # Sunday 2:00 AM UTC
 CELERY_SCHEDULE_WEEKLY_DOWNLOADS=0 4 * * 0  # Sunday 4:00 AM UTC
 CELERY_SCHEDULE_MONTHLY_FETCH=0 3 1 * *     # 1st of month, 3:00 AM UTC
+
+# Default profile for CLI commands (plone, django, flask)
+# When set, pyfaggregator uses this profile automatically without needing -p flag
+# CLI -p argument always takes precedence over this setting
+# DEFAULT_PROFILE=plone
 ```
 
 ### Profile Configuration
@@ -154,7 +159,7 @@ uv run pyfaggregator [options]
 | `-l`, `--limit` | Limit the number of packages to process |
 | `-fn`, `--filter-name` | Filter packages by name (substring match) |
 | `-ft`, `--filter-troove` | Filter by trove classifier (can be used multiple times). Deprecated: use profiles instead |
-| `-p`, `--profile` | Use a predefined profile (loads classifiers and sets collection name) |
+| `-p`, `--profile` | Use a predefined profile (loads classifiers and sets collection name). Overrides `DEFAULT_PROFILE` env var |
 | `-t`, `--target` | Target Typesense collection name (auto-set from profile if not specified) |
 | `--no-plone-filter` | Disable automatic Plone classifier filtering (process all packages) |
 | `--show PACKAGE_NAME` | Show indexed data for a package by name (for debugging, shows newest version) |
@@ -204,6 +209,12 @@ uv run pyfaggregator -f -p plone --recreate-collection
 
 # Subsequent runs create new version, migrate data, switch alias, delete old
 # plone-1 → plone-2 → plone-3, etc.
+
+# Using DEFAULT_PROFILE environment variable
+# When DEFAULT_PROFILE=plone is set in .env, these are equivalent:
+uv run pyfaggregator -f              # Uses plone profile from DEFAULT_PROFILE
+uv run pyfaggregator -f -p plone     # Explicit profile (same result)
+uv run pyfaggregator -f -p django    # CLI -p overrides DEFAULT_PROFILE
 ```
 
 ### pyfgithub
