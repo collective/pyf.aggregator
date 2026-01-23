@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from dotenv import load_dotenv
 from itertools import islice
 from lxml import html
@@ -79,7 +80,15 @@ class Aggregator:
             data = self._get_pypi(package_id, release_id)
             if not data:
                 continue
-            data["upload_timestamp"] = ts
+            # Convert ISO timestamp to Unix timestamp (int64)
+            if ts:
+                try:
+                    dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                    data["upload_timestamp"] = int(dt.timestamp())
+                except (ValueError, TypeError):
+                    data["upload_timestamp"] = 0
+            else:
+                data["upload_timestamp"] = 0
 
             for plugin in PLUGINS:
                 plugin(identifier, data)

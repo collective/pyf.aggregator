@@ -143,7 +143,7 @@ class TypesensePackagesCollection:
                 {"name": "summary", "type": "string"},
                 {"name": "urls", "type": "auto", "index": False, "optional": True},
                 {"name": "version", "type": "string"},
-                {"name": "upload_timestamp", "type": "string", "sort": True, "optional": True},
+                {"name": "upload_timestamp", "type": "int64", "sort": True, "optional": True},
                 {"name": "version_bugfix", "type": "int32", "sort": True},
                 {"name": "version_major", "type": "int32", "sort": True},
                 {"name": "version_minor", "type": "int32", "sort": True},

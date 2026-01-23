@@ -52,11 +52,15 @@ def calculate_recency_score(upload_timestamp):
         return 0
 
     try:
-        # Parse ISO format timestamp: "2024-01-15T10:30:00"
-        if isinstance(upload_timestamp, str):
+        if isinstance(upload_timestamp, int):
+            # Unix timestamp (int64) - 0 means missing timestamp
+            if upload_timestamp == 0:
+                return 0
+            upload_dt = datetime.fromtimestamp(upload_timestamp, tz=timezone.utc)
+        elif isinstance(upload_timestamp, str):
+            # ISO format (legacy support): "2024-01-15T10:30:00"
             upload_dt = datetime.fromisoformat(upload_timestamp.replace('Z', '+00:00'))
         else:
-            # Assume it's already a datetime or timestamp
             return 0
 
         now = datetime.now(timezone.utc)
@@ -74,7 +78,7 @@ def calculate_recency_score(upload_timestamp):
             return 5
         else:  # > 5 years
             return 0
-    except (ValueError, TypeError, AttributeError):
+    except (ValueError, TypeError, AttributeError, OSError):
         return 0
 
 

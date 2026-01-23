@@ -68,6 +68,11 @@ class PackageIndexer(TypesenceConnection, TypesensePackagesCollection):
             if key in list_fields and value is None:
                 data[key] = []
                 continue
+            if key == "upload_timestamp":
+                # Use 0 for missing timestamps (sorts to bottom in desc order)
+                if value is None or value == "":
+                    data[key] = 0
+                continue
             if value is None:
                 data[key] = ""
         return data
@@ -154,9 +159,11 @@ def inspect_project(self, package_data):
         data["identifier"] = identifier
         data["name_sortable"] = data.get("name", package_id)
 
-        # Add upload timestamp if available
+        # Add upload timestamp if available (as Unix timestamp int64)
         if timestamp:
-            data["upload_timestamp"] = str(timestamp)
+            data["upload_timestamp"] = int(timestamp)
+        else:
+            data["upload_timestamp"] = 0
 
         # Index to Typesense
         indexer = PackageIndexer()

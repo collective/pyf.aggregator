@@ -21,6 +21,11 @@ class Indexer(TypesenceConnection, TypesensePackagesCollection):
             if key in list_fields and value == None:
                 data[key] = []
                 continue
+            if key == "upload_timestamp":
+                # Use 0 for missing timestamps (sorts to bottom in desc order)
+                if value is None or value == "":
+                    data[key] = 0
+                continue
             if value is None:
                 data[key] = ""
         return data

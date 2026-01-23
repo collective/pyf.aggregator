@@ -30,11 +30,12 @@ from pyf.aggregator.enrichers.health_calculator import HealthEnricher
 
 @pytest.fixture
 def sample_package_data_complete():
-    """Sample package data with all fields for maximum score."""
+    """Sample package data with all fields for maximum score (using Unix timestamp)."""
+    import time
     return {
         "name": "plone.api",
         "version": "2.0.0",
-        "upload_timestamp": datetime.now(timezone.utc).isoformat(),
+        "upload_timestamp": int(time.time()),  # Unix timestamp (int64)
         "docs_url": "https://ploneapi.readthedocs.io/",
         "description": "A" * 150,  # >100 chars
         "project_urls": {
@@ -63,12 +64,14 @@ def sample_package_data_minimal():
 
 @pytest.fixture
 def sample_package_data_old_release():
-    """Sample package data with old release (>5 years ago)."""
-    old_date = datetime.now(timezone.utc) - timedelta(days=2000)
+    """Sample package data with old release (>5 years ago) using Unix timestamp."""
+    import time
+    # 2000 days ago in seconds
+    old_timestamp = int(time.time()) - (2000 * 86400)
     return {
         "name": "old-package",
         "version": "1.0.0",
-        "upload_timestamp": old_date.isoformat(),
+        "upload_timestamp": old_timestamp,  # Unix timestamp (int64)
         "description": "Short",
     }
 
@@ -227,9 +230,33 @@ class TestCalculateRecencyScore:
         score = calculate_recency_score(timestamp_with_z)
         assert score == 40
 
-    def test_returns_0_for_non_string_non_datetime(self):
-        """Test that non-string, non-datetime values return 0."""
-        score = calculate_recency_score(123456)
+    def test_returns_40_for_recent_unix_timestamp(self):
+        """Test that recent Unix timestamps (int64) get 40 points."""
+        import time
+        # 3 months ago (90 days in seconds)
+        recent_timestamp = int(time.time()) - (90 * 86400)
+        score = calculate_recency_score(recent_timestamp)
+        assert score == 40
+
+    def test_returns_30_for_6_to_12_month_old_unix_timestamp(self):
+        """Test that 6-12 month old Unix timestamps get 30 points."""
+        import time
+        # 9 months ago (270 days in seconds)
+        medium_old_timestamp = int(time.time()) - (270 * 86400)
+        score = calculate_recency_score(medium_old_timestamp)
+        assert score == 30
+
+    def test_returns_0_for_unix_timestamp_zero(self):
+        """Test that Unix timestamp of 0 returns 0 (missing timestamp)."""
+        score = calculate_recency_score(0)
+        assert score == 0
+
+    def test_returns_0_for_very_old_unix_timestamp(self):
+        """Test that very old Unix timestamps (> 5 years) get 0 points."""
+        import time
+        # 6 years ago (2190 days in seconds)
+        ancient_timestamp = int(time.time()) - (2190 * 86400)
+        score = calculate_recency_score(ancient_timestamp)
         assert score == 0
 
     def test_boundary_6_months_exactly(self):
@@ -494,8 +521,9 @@ class TestIntegration:
 
     def test_perfect_score_scenario(self):
         """Test a package that should get nearly perfect score."""
+        import time
         data = {
-            "upload_timestamp": datetime.now(timezone.utc).isoformat(),
+            "upload_timestamp": int(time.time()),  # Unix timestamp (int64)
             "docs_url": "https://docs.example.com",
             "description": "A" * 200,
             "project_urls": {"Documentation": "https://docs.example.com"},
@@ -531,8 +559,9 @@ class TestIntegration:
 
     def test_recent_but_poor_metadata_scenario(self):
         """Test a recent package with poor metadata."""
+        import time
         data = {
-            "upload_timestamp": datetime.now(timezone.utc).isoformat(),
+            "upload_timestamp": int(time.time()),  # Unix timestamp (int64)
             "description": "Short",
         }
         process("test-id", data)
@@ -541,6 +570,7 @@ class TestIntegration:
 
     def test_score_consistency_on_multiple_calls(self):
         """Test that calling process multiple times updates the score consistently."""
+        import time as time_module
         data = {"name": "test", "maintainer": "Team"}
 
         process("test-id", data)
@@ -548,7 +578,7 @@ class TestIntegration:
         first_timestamp = data["health_score_last_calculated"]
 
         # Wait a full second for timestamp to change (uses second precision)
-        time.sleep(1.1)
+        time_module.sleep(1.1)
         process("test-id", data)
         second_score = data["health_score"]
         second_timestamp = data["health_score_last_calculated"]
@@ -567,11 +597,14 @@ class TestHealthScoreIntegration:
     """Integration tests for the full health scoring pipeline."""
 
     def test_real_world_plone_package_simulation(self):
-        """Test realistic Plone package with typical PyPI data."""
+        """Test realistic Plone package with typical PyPI data (using Unix timestamp)."""
+        import time as time_module
+        # 30 days ago in seconds
+        recent_timestamp = int(time_module.time()) - (30 * 86400)
         data = {
             "name": "plone.api",
             "version": "2.0.3",
-            "upload_timestamp": (datetime.now(timezone.utc) - timedelta(days=30)).isoformat(),
+            "upload_timestamp": recent_timestamp,  # Unix timestamp (int64)
             "docs_url": "https://ploneapi.readthedocs.io/en/latest/",
             "description": (
                 "plone.api is an elegant and simple API for Plone. "
@@ -616,12 +649,14 @@ class TestHealthScoreIntegration:
         assert data["health_score"] == 100
 
     def test_legacy_package_with_minimal_metadata(self):
-        """Test old package with minimal metadata (common for legacy packages)."""
-        old_date = datetime.now(timezone.utc) - timedelta(days=1500)
+        """Test old package with minimal metadata (common for legacy packages, using Unix timestamp)."""
+        import time as time_module
+        # 1500 days ago in seconds (approx 4.1 years)
+        old_timestamp = int(time_module.time()) - (1500 * 86400)
         data = {
             "name": "Products.PloneFormGen",
             "version": "1.8.0",
-            "upload_timestamp": old_date.isoformat(),
+            "upload_timestamp": old_timestamp,  # Unix timestamp (int64)
             "description": "A form generator for Plone",
             "author": "Plone Community",
             "classifiers": [
@@ -640,11 +675,12 @@ class TestHealthScoreIntegration:
         assert data["health_score"] == 15
 
     def test_brand_new_package_with_incomplete_setup(self):
-        """Test newly released package with incomplete metadata."""
+        """Test newly released package with incomplete metadata (using Unix timestamp)."""
+        import time as time_module
         data = {
             "name": "experimental.plone.feature",
             "version": "0.1.0",
-            "upload_timestamp": datetime.now(timezone.utc).isoformat(),
+            "upload_timestamp": int(time_module.time()),  # Unix timestamp (int64)
             "description": "Experimental feature",
             "author": "Developer",
         }
@@ -660,12 +696,14 @@ class TestHealthScoreIntegration:
         assert data["health_score"] == 50
 
     def test_well_documented_but_old_package(self):
-        """Test package with excellent documentation but old release."""
-        old_date = datetime.now(timezone.utc) - timedelta(days=729)
+        """Test package with excellent documentation but old release (using Unix timestamp)."""
+        import time as time_module
+        # 729 days ago in seconds (just under 2 years)
+        old_timestamp = int(time_module.time()) - (729 * 86400)
         data = {
             "name": "collective.easyform",
             "version": "3.1.0",
-            "upload_timestamp": old_date.isoformat(),
+            "upload_timestamp": old_timestamp,  # Unix timestamp (int64)
             "docs_url": "https://collectiveeasyform.readthedocs.io/",
             "description": (
                 "collective.easyform enables creation of custom forms through-the-web. "
@@ -697,18 +735,22 @@ class TestHealthScoreIntegration:
         assert data["health_score"] == 80
 
     def test_multiple_packages_processed_independently(self):
-        """Test that multiple packages can be scored independently."""
+        """Test that multiple packages can be scored independently (using Unix timestamps)."""
+        import time as time_module
+        # 400 days ago in seconds
+        old_timestamp = int(time_module.time()) - (400 * 86400)
+
         package1 = {
             "name": "package-one",
             "version": "1.0.0",
-            "upload_timestamp": datetime.now(timezone.utc).isoformat(),
+            "upload_timestamp": int(time_module.time()),  # Unix timestamp (int64)
             "maintainer": "Team One",
         }
 
         package2 = {
             "name": "package-two",
             "version": "2.0.0",
-            "upload_timestamp": (datetime.now(timezone.utc) - timedelta(days=400)).isoformat(),
+            "upload_timestamp": old_timestamp,  # Unix timestamp (int64)
             "docs_url": "https://docs.example.com",
             "description": "A" * 150,
             "maintainer": "Team Two",
@@ -729,14 +771,15 @@ class TestHealthScoreIntegration:
         assert package2["name"] == "package-two"
 
     def test_pipeline_with_plugin_load_function(self):
-        """Test the full pipeline using the load function."""
+        """Test the full pipeline using the load function (using Unix timestamp)."""
+        import time as time_module
         # Get the processor through load function
         processor = load({})
 
         data = {
             "name": "test.package",
             "version": "1.0.0",
-            "upload_timestamp": datetime.now(timezone.utc).isoformat(),
+            "upload_timestamp": int(time_module.time()),  # Unix timestamp (int64)
             "docs_url": "https://docs.test.com",
             "description": "A" * 120,
             "project_urls": {"Documentation": "https://docs.test.com"},
@@ -755,11 +798,12 @@ class TestHealthScoreIntegration:
         assert data["health_score"] == 100
 
     def test_pipeline_preserves_original_package_data(self):
-        """Test that pipeline doesn't modify original package fields."""
+        """Test that pipeline doesn't modify original package fields (using Unix timestamp)."""
+        import time as time_module
         original_data = {
             "name": "preserve.test",
             "version": "1.0.0",
-            "upload_timestamp": datetime.now(timezone.utc).isoformat(),
+            "upload_timestamp": int(time_module.time()),  # Unix timestamp (int64)
             "description": "Original description",
             "maintainer": "Original Maintainer",
             "license": "GPL",
@@ -786,11 +830,14 @@ class TestHealthScoreIntegration:
         assert "health_score_last_calculated" in data
 
     def test_pipeline_handles_mixed_data_quality(self):
-        """Test pipeline with package having some good and some missing data."""
+        """Test pipeline with package having some good and some missing data (using Unix timestamp)."""
+        import time as time_module
+        # 200 days ago in seconds
+        old_timestamp = int(time_module.time()) - (200 * 86400)
         data = {
             "name": "mixed.quality",
             "version": "1.5.0",
-            "upload_timestamp": (datetime.now(timezone.utc) - timedelta(days=200)).isoformat(),
+            "upload_timestamp": old_timestamp,  # Unix timestamp (int64)
             "docs_url": "https://docs.example.com",  # Good
             "description": "Short desc",  # Too short
             "project_urls": None,  # Missing
@@ -839,12 +886,13 @@ class TestHealthScoreIntegration:
         assert data3["health_score_breakdown"]["recency"] == 0
 
     def test_pipeline_scoring_boundaries(self):
-        """Test pipeline with boundary cases for each scoring category."""
-        # Exactly 6 months old (boundary between 40 and 30 points)
-        exactly_6_months = datetime.now(timezone.utc) - timedelta(days=180)
+        """Test pipeline with boundary cases for each scoring category (using Unix timestamp)."""
+        import time as time_module
+        # Exactly 180 days ago in seconds (boundary between 40 and 30 points)
+        exactly_6_months_timestamp = int(time_module.time()) - (180 * 86400)
         data = {
             "name": "boundary.test",
-            "upload_timestamp": exactly_6_months.isoformat(),
+            "upload_timestamp": exactly_6_months_timestamp,  # Unix timestamp (int64)
             "description": "A" * 100,  # Exactly 100 chars (boundary)
             "classifiers": ["A", "B"],  # Exactly 2 (boundary)
         }
@@ -882,11 +930,12 @@ class TestHealthScoreIntegration:
         assert data["health_score_breakdown"]["metadata"] == 0
 
     def test_pipeline_performance_with_large_data(self):
-        """Test pipeline performance with large metadata."""
+        """Test pipeline performance with large metadata (using Unix timestamp)."""
+        import time as time_module
         data = {
             "name": "large.package",
             "version": "1.0.0",
-            "upload_timestamp": datetime.now(timezone.utc).isoformat(),
+            "upload_timestamp": int(time_module.time()),  # Unix timestamp (int64)
             "docs_url": "https://docs.example.com",
             "description": "A" * 10000,  # Very long description
             "project_urls": {
@@ -899,9 +948,9 @@ class TestHealthScoreIntegration:
         }
 
         # Should complete quickly
-        start = time.time()
+        start = time_module.time()
         process("large.package", data)
-        duration = time.time() - start
+        duration = time_module.time() - start
 
         # Should complete in under 1 second even with large data
         assert duration < 1.0
@@ -910,11 +959,12 @@ class TestHealthScoreIntegration:
         assert data["health_score"] == 100
 
     def test_pipeline_idempotency(self):
-        """Test that running pipeline multiple times produces consistent results."""
+        """Test that running pipeline multiple times produces consistent results (using Unix timestamp)."""
+        import time as time_module
         data = {
             "name": "idempotent.test",
             "version": "1.0.0",
-            "upload_timestamp": datetime.now(timezone.utc).isoformat(),
+            "upload_timestamp": int(time_module.time()),  # Unix timestamp (int64)
             "maintainer": "Team",
             "license": "MIT",
             "classifiers": ["A", "B", "C"],
@@ -925,12 +975,12 @@ class TestHealthScoreIntegration:
         score1 = data["health_score"]
         breakdown1 = data["health_score_breakdown"].copy()
 
-        time.sleep(0.1)
+        time_module.sleep(0.1)
         process("test-id", data)
         score2 = data["health_score"]
         breakdown2 = data["health_score_breakdown"].copy()
 
-        time.sleep(0.1)
+        time_module.sleep(0.1)
         process("test-id", data)
         score3 = data["health_score"]
         breakdown3 = data["health_score_breakdown"].copy()
@@ -1095,11 +1145,12 @@ class TestHealthCalculatorEnricher:
 
     def test_calculate_enhanced_health_score_with_github_data(self, enricher_instance):
         """Test enhanced score calculation with GitHub bonuses."""
+        import time as time_module
         data = {
             "health_score": 60,
             "health_score_breakdown": {"recency": 30, "docs": 20, "metadata": 10},
             "github_stars": 500,  # +7 bonus
-            "github_updated": time.time() - (20 * 86400),  # 20 days ago = +10 bonus
+            "github_updated": time_module.time() - (20 * 86400),  # 20 days ago = +10 bonus
             "github_open_issues": 10,  # 10/500 = 0.02 ratio = +10 bonus
         }
 
@@ -1114,11 +1165,12 @@ class TestHealthCalculatorEnricher:
 
     def test_calculate_enhanced_health_score_capped_at_100(self, enricher_instance):
         """Test that final score is capped at 100."""
+        import time as time_module
         data = {
             "health_score": 95,
             "health_score_breakdown": {},
             "github_stars": 2000,  # +10 bonus
-            "github_updated": time.time() - (10 * 86400),  # +10 bonus
+            "github_updated": time_module.time() - (10 * 86400),  # +10 bonus
             "github_open_issues": 5,  # 5/2000 = 0.0025 ratio = +10 bonus
         }
 

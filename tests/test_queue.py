@@ -1241,7 +1241,8 @@ class TestEdgeCases:
                 "timestamp": 1686700000.0,
             })
 
-            assert indexed_data["upload_timestamp"] == "1686700000.0"
+            # upload_timestamp should be an int64 Unix timestamp
+            assert indexed_data["upload_timestamp"] == 1686700000
 
 
 # ============================================================================
