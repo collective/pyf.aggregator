@@ -392,19 +392,26 @@ def main():
 
     # Handle --recreate-collection: use zero-downtime alias switching
     if args.recreate_collection:
-        # Confirmation (unless --force)
-        if not args.force:
-            confirm = input(
-                f"Are you sure you want to recreate collection '{settings['target']}'? "
-                "This will create a new versioned collection and migrate data. (y/N): "
-            )
-            if confirm.lower() != 'y':
-                logger.info("Recreate operation cancelled")
-                sys.exit(0)
-
         from pyf.aggregator.typesense_util import TypesenceUtil
         ts_util = TypesenceUtil()
-        ts_util.recreate_collection(name=settings["target"])
+
+        # Run migration first (no confirmation needed), then ask about deletion
+        result = ts_util.recreate_collection(name=settings["target"], delete_old=False)
+
+        # Confirmation for deletion (unless --force)
+        if result.get("old_collection"):
+            if args.force:
+                ts_util.delete_collection(name=result["old_collection"])
+                logger.info(f"Deleted old collection '{result['old_collection']}'")
+            else:
+                confirm = input(
+                    f"Delete old collection '{result['old_collection']}'? (Y/n): "
+                )
+                if confirm.lower() != 'n':  # Default is Yes
+                    ts_util.delete_collection(name=result["old_collection"])
+                    logger.info(f"Deleted old collection '{result['old_collection']}'")
+                else:
+                    logger.info(f"Kept old collection '{result['old_collection']}'")
     elif not indexer.collection_exists(name=settings["target"]) and not indexer.get_alias(settings["target"]):
         # Create versioned collection with alias for fresh start
         from pyf.aggregator.typesense_util import TypesenceUtil

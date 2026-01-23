@@ -209,6 +209,8 @@ class TestTypesenseUtilDefaultProfile:
 
             with patch.object(typesense_util_module, 'TypesenceUtil') as mock_util:
                 mock_util_instance = MagicMock()
+                # Return value with old_collection to test deletion flow
+                mock_util_instance.recreate_collection.return_value = {"old_collection": "plone-1", "new_collection": "plone-2"}
                 mock_util.return_value = mock_util_instance
 
                 # Simulate CLI with --recreate-collection but no -p or -t (use --force to skip prompt)
@@ -217,7 +219,10 @@ class TestTypesenseUtilDefaultProfile:
 
                 # Verify profile was loaded from env var
                 mock_profile_manager.get_profile.assert_called_with("plone")
-                mock_util_instance.recreate_collection.assert_called_once_with(name="plone")
+                # Now calls with delete_old=False, deletion handled after
+                mock_util_instance.recreate_collection.assert_called_once_with(name="plone", delete_old=False)
+                # With --force, old collection should be deleted
+                mock_util_instance.delete_collection.assert_called_once_with(name="plone-1")
 
     def test_cli_p_arg_overrides_default_profile_env(self, monkeypatch):
         """Test that -p argument overrides DEFAULT_PROFILE env var."""
@@ -235,6 +240,8 @@ class TestTypesenseUtilDefaultProfile:
 
             with patch.object(typesense_util_module, 'TypesenceUtil') as mock_util:
                 mock_util_instance = MagicMock()
+                # Return value with old_collection to test deletion flow
+                mock_util_instance.recreate_collection.return_value = {"old_collection": "django-1", "new_collection": "django-2"}
                 mock_util.return_value = mock_util_instance
 
                 # Simulate CLI with -p django and --recreate-collection (use --force to skip prompt)
@@ -243,7 +250,10 @@ class TestTypesenseUtilDefaultProfile:
 
                 # Verify django was used, not plone from env
                 mock_profile_manager.get_profile.assert_called_with("django")
-                mock_util_instance.recreate_collection.assert_called_once_with(name="django")
+                # Now calls with delete_old=False, deletion handled after
+                mock_util_instance.recreate_collection.assert_called_once_with(name="django", delete_old=False)
+                # With --force, old collection should be deleted
+                mock_util_instance.delete_collection.assert_called_once_with(name="django-1")
 
     def test_error_message_mentions_default_profile(self, monkeypatch):
         """Test that error message mentions DEFAULT_PROFILE option for --recreate-collection."""
@@ -333,10 +343,14 @@ class TestProfileSourceLogging:
 # ============================================================================
 
 class TestRecreateCollectionConfirmationTypesenseUtil:
-    """Test user confirmation prompts for --recreate-collection in pyfupdater."""
+    """Test user confirmation prompts for --recreate-collection in pyfupdater.
 
-    def test_confirmation_prompt_shown_and_cancelled_on_no(self, monkeypatch):
-        """Test that confirmation prompt is shown and operation cancelled on 'n'."""
+    New behavior: Migration happens first, then user is asked about deleting old collection.
+    Default is Yes (delete), 'n' keeps the old collection.
+    """
+
+    def test_confirmation_n_keeps_old_collection(self, monkeypatch):
+        """Test that 'n' keeps old collection after migration (doesn't cancel)."""
         monkeypatch.setenv("DEFAULT_PROFILE", "plone")
 
         import importlib
@@ -351,23 +365,23 @@ class TestRecreateCollectionConfirmationTypesenseUtil:
 
             with patch.object(typesense_util_module, 'TypesenceUtil') as mock_util:
                 mock_util_instance = MagicMock()
+                mock_util_instance.recreate_collection.return_value = {"old_collection": "plone-1", "new_collection": "plone-2"}
                 mock_util.return_value = mock_util_instance
 
                 with patch.object(typesense_util_module, 'logger') as mock_logger:
-                    # Mock input to return 'n' (cancel)
+                    # Mock input to return 'n' (keep old collection)
                     with patch('builtins.input', return_value='n'):
                         with patch.object(sys, 'argv', ['pyfupdater', '--recreate-collection']):
-                            with pytest.raises(SystemExit) as exc_info:
-                                typesense_util_module.main()
+                            # Should NOT exit, migration happens
+                            typesense_util_module.main()
 
-                            # Should exit with code 0 (cancelled)
-                            assert exc_info.value.code == 0
+                # Verify recreate_collection WAS called (migration happens first)
+                mock_util_instance.recreate_collection.assert_called_once_with(name="plone", delete_old=False)
+                # Verify delete_collection was NOT called (user said 'n')
+                mock_util_instance.delete_collection.assert_not_called()
 
-                # Verify recreate_collection was NOT called
-                mock_util_instance.recreate_collection.assert_not_called()
-
-    def test_confirmation_prompt_proceeds_on_yes(self, monkeypatch):
-        """Test that operation proceeds when user confirms with 'y'."""
+    def test_confirmation_prompt_deletes_on_yes(self, monkeypatch):
+        """Test that 'y' deletes old collection after migration."""
         monkeypatch.setenv("DEFAULT_PROFILE", "plone")
 
         import importlib
@@ -382,18 +396,21 @@ class TestRecreateCollectionConfirmationTypesenseUtil:
 
             with patch.object(typesense_util_module, 'TypesenceUtil') as mock_util:
                 mock_util_instance = MagicMock()
+                mock_util_instance.recreate_collection.return_value = {"old_collection": "plone-1", "new_collection": "plone-2"}
                 mock_util.return_value = mock_util_instance
 
-                # Mock input to return 'y' (confirm)
+                # Mock input to return 'y' (delete old collection)
                 with patch('builtins.input', return_value='y'):
                     with patch.object(sys, 'argv', ['pyfupdater', '--recreate-collection']):
                         typesense_util_module.main()
 
                 # Verify recreate_collection WAS called
-                mock_util_instance.recreate_collection.assert_called_once_with(name="plone")
+                mock_util_instance.recreate_collection.assert_called_once_with(name="plone", delete_old=False)
+                # Verify delete_collection WAS called (user said 'y')
+                mock_util_instance.delete_collection.assert_called_once_with(name="plone-1")
 
-    def test_force_flag_skips_confirmation(self, monkeypatch):
-        """Test that --force flag skips the confirmation prompt."""
+    def test_confirmation_empty_deletes_by_default(self, monkeypatch):
+        """Test that empty input (Enter) deletes old collection (default is Yes)."""
         monkeypatch.setenv("DEFAULT_PROFILE", "plone")
 
         import importlib
@@ -408,6 +425,36 @@ class TestRecreateCollectionConfirmationTypesenseUtil:
 
             with patch.object(typesense_util_module, 'TypesenceUtil') as mock_util:
                 mock_util_instance = MagicMock()
+                mock_util_instance.recreate_collection.return_value = {"old_collection": "plone-1", "new_collection": "plone-2"}
+                mock_util.return_value = mock_util_instance
+
+                # Mock input to return '' (just press Enter - default Yes)
+                with patch('builtins.input', return_value=''):
+                    with patch.object(sys, 'argv', ['pyfupdater', '--recreate-collection']):
+                        typesense_util_module.main()
+
+                # Verify recreate_collection WAS called
+                mock_util_instance.recreate_collection.assert_called_once_with(name="plone", delete_old=False)
+                # Verify delete_collection WAS called (default is Yes)
+                mock_util_instance.delete_collection.assert_called_once_with(name="plone-1")
+
+    def test_force_flag_skips_confirmation_and_deletes(self, monkeypatch):
+        """Test that --force flag skips the confirmation prompt and deletes old collection."""
+        monkeypatch.setenv("DEFAULT_PROFILE", "plone")
+
+        import importlib
+        import pyf.aggregator.typesense_util as typesense_util_module
+        importlib.reload(typesense_util_module)
+
+        with patch.object(typesense_util_module, 'ProfileManager') as mock_pm:
+            mock_profile_manager = MagicMock()
+            mock_profile_manager.get_profile.return_value = {"classifiers": ["Framework :: Plone"]}
+            mock_profile_manager.validate_profile.return_value = True
+            mock_pm.return_value = mock_profile_manager
+
+            with patch.object(typesense_util_module, 'TypesenceUtil') as mock_util:
+                mock_util_instance = MagicMock()
+                mock_util_instance.recreate_collection.return_value = {"old_collection": "plone-1", "new_collection": "plone-2"}
                 mock_util.return_value = mock_util_instance
 
                 # Mock input - should NOT be called
@@ -419,7 +466,9 @@ class TestRecreateCollectionConfirmationTypesenseUtil:
                     mock_input.assert_not_called()
 
                 # Verify recreate_collection WAS called
-                mock_util_instance.recreate_collection.assert_called_once_with(name="plone")
+                mock_util_instance.recreate_collection.assert_called_once_with(name="plone", delete_old=False)
+                # Verify delete_collection WAS called (force deletes)
+                mock_util_instance.delete_collection.assert_called_once_with(name="plone-1")
 
 
 # ============================================================================
@@ -427,10 +476,14 @@ class TestRecreateCollectionConfirmationTypesenseUtil:
 # ============================================================================
 
 class TestRecreateCollectionConfirmationMain:
-    """Test user confirmation prompts for --recreate-collection in pyfaggregator."""
+    """Test user confirmation prompts for --recreate-collection in pyfaggregator.
 
-    def test_confirmation_prompt_shown_and_cancelled_on_no(self, monkeypatch):
-        """Test that confirmation prompt is shown and operation cancelled on 'n'."""
+    New behavior: Migration happens first, then user is asked about deleting old collection.
+    Default is Yes (delete), 'n' keeps the old collection.
+    """
+
+    def test_confirmation_n_keeps_old_collection(self, monkeypatch):
+        """Test that 'n' keeps old collection after migration (doesn't cancel)."""
         monkeypatch.setenv("DEFAULT_PROFILE", "plone")
 
         import importlib
@@ -443,68 +496,43 @@ class TestRecreateCollectionConfirmationMain:
             mock_profile_manager.validate_profile.return_value = True
             mock_pm.return_value = mock_profile_manager
 
-            with patch.object(main_module, 'logger') as mock_logger:
-                # Mock input to return 'n' (cancel)
-                with patch('builtins.input', return_value='n'):
-                    with patch.object(sys, 'argv', ['pyfaggregator', '-f', '--recreate-collection']):
-                        with pytest.raises(SystemExit) as exc_info:
-                            main_module.main()
-
-                        # Should exit with code 0 (cancelled)
-                        assert exc_info.value.code == 0
-
-    def test_confirmation_prompt_proceeds_on_yes(self, monkeypatch):
-        """Test that operation proceeds when user confirms with 'y'."""
-        monkeypatch.setenv("DEFAULT_PROFILE", "plone")
-
-        import importlib
-        import pyf.aggregator.main as main_module
-        importlib.reload(main_module)
-
-        with patch.object(main_module, 'ProfileManager') as mock_pm:
-            mock_profile_manager = MagicMock()
-            mock_profile_manager.get_profile.return_value = {"classifiers": ["Framework :: Plone"]}
-            mock_profile_manager.validate_profile.return_value = True
-            mock_pm.return_value = mock_profile_manager
-
-            # Need to mock the TypesenceUtil import
             mock_ts_util_instance = MagicMock()
+            mock_ts_util_instance.recreate_collection.return_value = {"old_collection": "plone-1", "new_collection": "plone-2"}
             mock_ts_util_class = MagicMock(return_value=mock_ts_util_instance)
 
-            with patch.dict('sys.modules', {'pyf.aggregator.typesense_util': MagicMock(TypesenceUtil=mock_ts_util_class)}):
-                with patch.object(main_module, 'Indexer') as mock_indexer:
-                    mock_indexer_instance = MagicMock()
-                    mock_indexer_instance.collection_exists.return_value = True
-                    mock_indexer.return_value = mock_indexer_instance
+            with patch.object(main_module, 'Indexer') as mock_indexer:
+                mock_indexer_instance = MagicMock()
+                mock_indexer_instance.collection_exists.return_value = True
+                mock_indexer.return_value = mock_indexer_instance
 
-                    with patch.object(main_module, 'Aggregator') as mock_aggregator:
-                        mock_agg_instance = MagicMock()
-                        mock_aggregator.return_value = mock_agg_instance
+                with patch.object(main_module, 'Aggregator') as mock_aggregator:
+                    mock_agg_instance = MagicMock()
+                    mock_aggregator.return_value = mock_agg_instance
 
-                        # Mock input to return 'y' (confirm)
-                        with patch('builtins.input', return_value='y'):
-                            with patch.object(sys, 'argv', ['pyfaggregator', '-f', '--recreate-collection']):
-                                # Import TypesenceUtil inside the function will use our mock
-                                with patch('pyf.aggregator.main.TypesenceUtil', mock_ts_util_class, create=True):
-                                    # Patch the import statement
-                                    import builtins
-                                    original_import = builtins.__import__
+                    # Mock input to return 'n' (keep old collection)
+                    with patch('builtins.input', return_value='n'):
+                        with patch.object(sys, 'argv', ['pyfaggregator', '-f', '--recreate-collection']):
+                            import builtins
+                            original_import = builtins.__import__
 
-                                    def mock_import(name, *args, **kwargs):
-                                        if name == 'pyf.aggregator.typesense_util':
-                                            mock_module = MagicMock()
-                                            mock_module.TypesenceUtil = mock_ts_util_class
-                                            return mock_module
-                                        return original_import(name, *args, **kwargs)
+                            def mock_import(name, *args, **kwargs):
+                                if name == 'pyf.aggregator.typesense_util':
+                                    mock_module = MagicMock()
+                                    mock_module.TypesenceUtil = mock_ts_util_class
+                                    return mock_module
+                                return original_import(name, *args, **kwargs)
 
-                                    with patch.object(builtins, '__import__', side_effect=mock_import):
-                                        main_module.main()
+                            with patch.object(builtins, '__import__', side_effect=mock_import):
+                                # Should NOT exit, migration happens
+                                main_module.main()
 
-                        # Verify recreate_collection WAS called
-                        mock_ts_util_instance.recreate_collection.assert_called_once_with(name="plone")
+                    # Verify recreate_collection WAS called (migration happens first)
+                    mock_ts_util_instance.recreate_collection.assert_called_once_with(name="plone", delete_old=False)
+                    # Verify delete_collection was NOT called (user said 'n')
+                    mock_ts_util_instance.delete_collection.assert_not_called()
 
-    def test_force_flag_skips_confirmation(self, monkeypatch):
-        """Test that --force flag skips the confirmation prompt."""
+    def test_confirmation_prompt_deletes_on_yes(self, monkeypatch):
+        """Test that 'y' deletes old collection after migration."""
         monkeypatch.setenv("DEFAULT_PROFILE", "plone")
 
         import importlib
@@ -518,6 +546,55 @@ class TestRecreateCollectionConfirmationMain:
             mock_pm.return_value = mock_profile_manager
 
             mock_ts_util_instance = MagicMock()
+            mock_ts_util_instance.recreate_collection.return_value = {"old_collection": "plone-1", "new_collection": "plone-2"}
+            mock_ts_util_class = MagicMock(return_value=mock_ts_util_instance)
+
+            with patch.object(main_module, 'Indexer') as mock_indexer:
+                mock_indexer_instance = MagicMock()
+                mock_indexer_instance.collection_exists.return_value = True
+                mock_indexer.return_value = mock_indexer_instance
+
+                with patch.object(main_module, 'Aggregator') as mock_aggregator:
+                    mock_agg_instance = MagicMock()
+                    mock_aggregator.return_value = mock_agg_instance
+
+                    # Mock input to return 'y' (delete old collection)
+                    with patch('builtins.input', return_value='y'):
+                        with patch.object(sys, 'argv', ['pyfaggregator', '-f', '--recreate-collection']):
+                            import builtins
+                            original_import = builtins.__import__
+
+                            def mock_import(name, *args, **kwargs):
+                                if name == 'pyf.aggregator.typesense_util':
+                                    mock_module = MagicMock()
+                                    mock_module.TypesenceUtil = mock_ts_util_class
+                                    return mock_module
+                                return original_import(name, *args, **kwargs)
+
+                            with patch.object(builtins, '__import__', side_effect=mock_import):
+                                main_module.main()
+
+                    # Verify recreate_collection WAS called
+                    mock_ts_util_instance.recreate_collection.assert_called_once_with(name="plone", delete_old=False)
+                    # Verify delete_collection WAS called (user said 'y')
+                    mock_ts_util_instance.delete_collection.assert_called_once_with(name="plone-1")
+
+    def test_force_flag_skips_confirmation_and_deletes(self, monkeypatch):
+        """Test that --force flag skips the confirmation prompt and deletes old collection."""
+        monkeypatch.setenv("DEFAULT_PROFILE", "plone")
+
+        import importlib
+        import pyf.aggregator.main as main_module
+        importlib.reload(main_module)
+
+        with patch.object(main_module, 'ProfileManager') as mock_pm:
+            mock_profile_manager = MagicMock()
+            mock_profile_manager.get_profile.return_value = {"classifiers": ["Framework :: Plone"]}
+            mock_profile_manager.validate_profile.return_value = True
+            mock_pm.return_value = mock_profile_manager
+
+            mock_ts_util_instance = MagicMock()
+            mock_ts_util_instance.recreate_collection.return_value = {"old_collection": "plone-1", "new_collection": "plone-2"}
             mock_ts_util_class = MagicMock(return_value=mock_ts_util_instance)
 
             with patch.object(main_module, 'Indexer') as mock_indexer:
@@ -549,4 +626,6 @@ class TestRecreateCollectionConfirmationMain:
                         mock_input.assert_not_called()
 
                     # Verify recreate_collection WAS called
-                    mock_ts_util_instance.recreate_collection.assert_called_once_with(name="plone")
+                    mock_ts_util_instance.recreate_collection.assert_called_once_with(name="plone", delete_old=False)
+                    # Verify delete_collection WAS called (force deletes)
+                    mock_ts_util_instance.delete_collection.assert_called_once_with(name="plone-1")

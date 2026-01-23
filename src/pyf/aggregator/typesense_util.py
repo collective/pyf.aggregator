@@ -152,12 +152,21 @@ class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
         logger.info(f"Deleted API key with ID: {key_id}")
         return res
 
-    def recreate_collection(self, name):
+    def recreate_collection(self, name, delete_old=True):
         """
         Zero-downtime collection recreation with alias switching.
 
         1. If alias exists: migrate from old versioned collection to new one
         2. If no alias: create versioned collection and alias
+
+        Args:
+            name: The collection name (or alias name)
+            delete_old: If True, delete the old collection after migration.
+                        If False, keep it for manual deletion later.
+
+        Returns:
+            dict with 'old_collection' (name of old collection or None) and
+            'new_collection' (name of newly created collection)
         """
         current_collection = self.get_alias(name)
 
@@ -175,10 +184,14 @@ class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
             logger.info(f"Switching alias '{name}' to '{new_collection}'...")
             self.add_alias(source=name, target=new_collection)
 
-            logger.info(f"Deleting old collection '{current_collection}'...")
-            self.delete_collection(name=current_collection)
+            if delete_old:
+                logger.info(f"Deleting old collection '{current_collection}'...")
+                self.delete_collection(name=current_collection)
+                logger.info(f"Collection recreation complete: {name} → {new_collection}")
+            else:
+                logger.info(f"Collection migration complete: {name} → {new_collection} (old collection kept)")
 
-            logger.info(f"Collection recreation complete: {name} → {new_collection}")
+            return {"old_collection": current_collection, "new_collection": new_collection}
         else:
             # No alias - check if it's a direct collection
             if self.collection_exists(name):
@@ -190,8 +203,13 @@ class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
                 self.migrate(source=name, target=new_collection)
                 self.add_alias(source=name, target=new_collection)
 
-                self.delete_collection(name=name)
-                logger.info(f"Converted: alias '{name}' → '{new_collection}'")
+                if delete_old:
+                    self.delete_collection(name=name)
+                    logger.info(f"Converted: alias '{name}' → '{new_collection}'")
+                else:
+                    logger.info(f"Converted: alias '{name}' → '{new_collection}' (old collection kept)")
+
+                return {"old_collection": name, "new_collection": new_collection}
             else:
                 # Fresh start - create versioned collection with alias
                 new_collection = f"{name}-1"
@@ -199,6 +217,8 @@ class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
                 self.create_collection(name=new_collection)
                 self.add_alias(source=name, target=new_collection)
                 logger.info(f"Created: alias '{name}' → '{new_collection}'")
+
+                return {"old_collection": None, "new_collection": new_collection}
 
 
 def main():
@@ -336,17 +356,23 @@ def main():
             )
             sys.exit(1)
 
-        # Confirmation (unless --force)
-        if not args.force:
-            confirm = input(
-                f"Are you sure you want to recreate collection '{args.target}'? "
-                "This will create a new versioned collection and migrate data. (y/N): "
-            )
-            if confirm.lower() != 'y':
-                logger.info("Recreate operation cancelled")
-                sys.exit(0)
+        # Run migration first (no confirmation needed), then ask about deletion
+        result = ts_util.recreate_collection(name=args.target, delete_old=False)
 
-        ts_util.recreate_collection(name=args.target)
+        # Confirmation for deletion (unless --force)
+        if result.get("old_collection"):
+            if args.force:
+                ts_util.delete_collection(name=result["old_collection"])
+                logger.info(f"Deleted old collection '{result['old_collection']}'")
+            else:
+                confirm = input(
+                    f"Delete old collection '{result['old_collection']}'? (Y/n): "
+                )
+                if confirm.lower() != 'n':  # Default is Yes
+                    ts_util.delete_collection(name=result["old_collection"])
+                    logger.info(f"Deleted old collection '{result['old_collection']}'")
+                else:
+                    logger.info(f"Kept old collection '{result['old_collection']}'")
 
     if args.delete_collection:
         collection_name = args.delete_collection
