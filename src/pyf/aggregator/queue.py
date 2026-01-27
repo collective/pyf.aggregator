@@ -50,6 +50,7 @@ app = Celery(
     "pyf-aggregator",
     broker=os.getenv('REDIS_HOST'),
     broker_connection_retry_on_startup=True,
+    broker_channel_error_retry=True,
 )
 
 
