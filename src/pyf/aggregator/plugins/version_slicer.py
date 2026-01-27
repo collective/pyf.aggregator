@@ -14,7 +14,7 @@ def process(identifier, data):
     data["version_minor"] = 0
     data["version_bugfix"] = 0
     data["version_postfix"] = ""
-    data["version_sortable"] = "0.0.0.0.0"
+    data["version_sortable"] = "0000.0000.0000.0000.0000"
     try:
         version = parse_version(data["version"])
     except (TypeError, InvalidVersion):
@@ -39,29 +39,32 @@ def process(identifier, data):
         return
 
 def make_version_sortable(groups):
-    """ return a sortable string out of major, minor, bugfix and postfix1/2
+    """Return a zero-padded sortable string from version components.
+
+    Format: MAJOR.MINOR.BUGFIX.PRERELEASE_TYPE.PRERELEASE_NUM
+    - PRERELEASE_TYPE: 0000=alpha, 0001=beta, 0002=stable
+    - Each segment is zero-padded to 4 digits for correct lexicographic sort.
     """
     postfix = groups.get('postfix1') or groups.get('postfix2') or ""
-    sortable_version = "0.0.0.0.0"
-    sortable_postfix = None
+    major = groups.get('major', '0') or '0'
+    minor = groups.get('minor', '0') or '0'
+    bugfix = groups.get('bugfix', '0') or '0'
+
+    # Map pre-release type to sortable number
     if postfix.startswith("a"):
-        sortable_postfix = postfix.replace('a', '0.')
-    if postfix and postfix.startswith("b"):
-        sortable_postfix = postfix.replace('b', '1.')
-    if not postfix:
-        sortable_postfix = '2.0'
-    sortable_version = ""
-    major = groups.get('major')
-    minor = groups.get('minor', '0')
-    bugfix = groups.get('bugfix', '0')
-    sortable_version += major
-    if minor:
-        sortable_version += f".{minor}"
-    if bugfix:
-        sortable_version += f".{bugfix}"
-    if sortable_postfix:
-        sortable_version += f".{sortable_postfix}"
-    return sortable_version
+        pre_type = "0000"
+        pre_num = ''.join(c for c in postfix if c.isdigit()) or '0'
+    elif postfix.startswith("b"):
+        pre_type = "0001"
+        pre_num = ''.join(c for c in postfix if c.isdigit()) or '0'
+    else:
+        pre_type = "0002"
+        pre_num = "0"
+
+    return (
+        f"{major.zfill(4)}.{minor.zfill(4)}.{bugfix.zfill(4)}"
+        f".{pre_type}.{pre_num.zfill(4)}"
+    )
 
 
 def load(settings):
