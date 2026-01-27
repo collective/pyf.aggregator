@@ -558,6 +558,21 @@ def mock_pypi_rss_feeds(mocked_responses, sample_rss_feed_xml):
 
 
 # ============================================================================
+# Deduplication Fixtures
+# ============================================================================
+
+@pytest.fixture(autouse=True)
+def disable_rss_dedup():
+    """Disable RSS deduplication in all tests by default.
+
+    This ensures existing tests pass unchanged. Tests that need to verify
+    dedup behavior should patch is_package_recently_queued explicitly.
+    """
+    with patch("pyf.aggregator.queue.is_package_recently_queued", return_value=False):
+        yield
+
+
+# ============================================================================
 # Cleanup Fixtures
 # ============================================================================
 

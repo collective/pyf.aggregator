@@ -12,6 +12,7 @@ from pyf.aggregator.logger import logger
 import os
 import re
 import time
+from urllib.parse import urlparse
 
 
 load_dotenv()
@@ -33,6 +34,9 @@ CELERY_SCHEDULE_RSS_RELEASES = os.getenv("CELERY_SCHEDULE_RSS_RELEASES", "*/1 * 
 CELERY_SCHEDULE_WEEKLY_REFRESH = os.getenv("CELERY_SCHEDULE_WEEKLY_REFRESH", "0 2 * * 0")
 CELERY_SCHEDULE_MONTHLY_FETCH = os.getenv("CELERY_SCHEDULE_MONTHLY_FETCH", "0 3 1 * *")
 CELERY_SCHEDULE_WEEKLY_DOWNLOADS = os.getenv("CELERY_SCHEDULE_WEEKLY_DOWNLOADS", "0 4 * * 0")
+
+# RSS deduplication TTL in seconds (0 to disable)
+RSS_DEDUP_TTL = int(os.getenv("RSS_DEDUP_TTL", 600))
 
 # Worker pool and concurrency
 CELERY_WORKER_POOL = os.getenv("CELERY_WORKER_POOL", "threads")
@@ -414,6 +418,77 @@ def _get_github_data(repo_identifier):
                 data["github"][key] = getattr(repo, key_github)
             return data
 
+#### RSS deduplication helpers
+
+_dedup_redis_client = None
+
+
+def get_dedup_redis():
+    """Return a Redis client for RSS dedup, or None if unavailable.
+
+    Uses a lazy singleton pattern. The client is created on first call
+    and reused on subsequent calls. Returns None if Redis is unreachable
+    (fail-open: dedup is skipped when Redis is down).
+    """
+    global _dedup_redis_client
+
+    if _dedup_redis_client is not None:
+        return _dedup_redis_client
+
+    try:
+        import redis
+
+        redis_url = os.getenv("REDIS_HOST", "redis://localhost:6379")
+        parsed = urlparse(redis_url)
+        client = redis.Redis(
+            host=parsed.hostname or "localhost",
+            port=parsed.port or 6379,
+            db=0,
+        )
+        client.ping()
+        _dedup_redis_client = client
+        return client
+    except Exception:
+        logger.debug("Redis unavailable for RSS deduplication, proceeding without dedup")
+        return None
+
+
+def is_package_recently_queued(package_id, ttl=None):
+    """Check if a package was recently queued and mark it if not.
+
+    Uses Redis SET NX EX for atomic check-and-set. Returns True if the
+    package was already queued within the TTL window (duplicate), False
+    if it's new. Fails open: returns False on any error so no packages
+    are missed.
+
+    Args:
+        package_id: The package name to check.
+        ttl: TTL in seconds. Defaults to RSS_DEDUP_TTL. Set to 0 to disable.
+
+    Returns:
+        True if duplicate (skip), False if new (proceed).
+    """
+    if ttl is None:
+        ttl = RSS_DEDUP_TTL
+
+    if ttl == 0:
+        return False
+
+    try:
+        client = get_dedup_redis()
+        if client is None:
+            return False
+
+        key = f"pyf:dedup:{package_id}"
+        # SET NX EX: set only if key doesn't exist, with expiry
+        # Returns True if key was set (new), False if key already existed (duplicate)
+        was_set = client.set(key, "1", nx=True, ex=ttl)
+        return not was_set
+    except Exception:
+        logger.debug(f"Redis dedup error for {package_id}, allowing queue")
+        return False
+
+
 @app.task(bind=True, max_retries=3, default_retry_delay=120)
 def read_rss_new_projects_and_queue(self):
     """
@@ -442,9 +517,15 @@ def read_rss_new_projects_and_queue(self):
             return {"status": "completed", "packages_queued": 0}
 
         queued_count = 0
+        skipped_count = 0
         for entry in entries:
             package_id = entry.get("package_id")
             if not package_id:
+                continue
+
+            if is_package_recently_queued(package_id):
+                skipped_count += 1
+                logger.debug(f"Skipping duplicate package: {package_id}")
                 continue
 
             # Queue inspect_project task for this package
@@ -457,8 +538,8 @@ def read_rss_new_projects_and_queue(self):
             queued_count += 1
             logger.debug(f"Queued inspect_project for new package: {package_id}")
 
-        logger.info(f"RSS new projects scan complete: {queued_count} packages queued")
-        return {"status": "completed", "packages_queued": queued_count}
+        logger.info(f"RSS new projects scan complete: {queued_count} queued, {skipped_count} skipped (dedup)")
+        return {"status": "completed", "packages_queued": queued_count, "packages_skipped": skipped_count}
 
     except Exception as e:
         logger.error(f"Error reading RSS new projects feed: {e}")
@@ -496,9 +577,15 @@ def read_rss_new_releases_and_queue(self):
             return {"status": "completed", "packages_queued": 0}
 
         queued_count = 0
+        skipped_count = 0
         for entry in entries:
             package_id = entry.get("package_id")
             if not package_id:
+                continue
+
+            if is_package_recently_queued(package_id):
+                skipped_count += 1
+                logger.debug(f"Skipping duplicate release: {package_id}")
                 continue
 
             # Queue inspect_project task for this package
@@ -511,8 +598,8 @@ def read_rss_new_releases_and_queue(self):
             queued_count += 1
             logger.debug(f"Queued inspect_project for release: {package_id}")
 
-        logger.info(f"RSS new releases scan complete: {queued_count} packages queued")
-        return {"status": "completed", "packages_queued": queued_count}
+        logger.info(f"RSS new releases scan complete: {queued_count} queued, {skipped_count} skipped (dedup)")
+        return {"status": "completed", "packages_queued": queued_count, "packages_skipped": skipped_count}
 
     except Exception as e:
         logger.error(f"Error reading RSS new releases feed: {e}")

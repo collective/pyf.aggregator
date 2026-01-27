@@ -30,6 +30,9 @@ from pyf.aggregator.queue import (
     enrich_downloads_all_packages,
     setup_periodic_tasks,
     parse_crontab,
+    get_dedup_redis,
+    is_package_recently_queued,
+    RSS_DEDUP_TTL,
     TYPESENSE_COLLECTION,
     CELERY_WORKER_POOL,
     CELERY_WORKER_CONCURRENCY,
@@ -470,6 +473,92 @@ class TestReadRssNewProjectsAndQueue:
                 assert call_args["package_id"] == "test-package"
                 assert call_args["release_id"] == "1.0.0"
 
+    def test_skips_duplicate_packages(self, celery_eager_mode):
+        """Test that dedup skips recently queued packages."""
+        with patch('feedparser.parse') as mock_parse:
+            mock_feed = MagicMock()
+            mock_feed.bozo = False
+            mock_feed.bozo_exception = None
+            mock_feed.entries = [
+                FeedParserEntry({
+                    "title": "dup-package 1.0.0",
+                    "link": "https://pypi.org/project/dup-package/1.0.0/",
+                    "summary": "",
+                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                }),
+                FeedParserEntry({
+                    "title": "new-package 1.0.0",
+                    "link": "https://pypi.org/project/new-package/1.0.0/",
+                    "summary": "",
+                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                }),
+            ]
+            mock_parse.return_value = mock_feed
+
+            with patch("pyf.aggregator.queue.inspect_project.delay") as mock_delay:
+                with patch("pyf.aggregator.queue.is_package_recently_queued") as mock_dedup:
+                    # First package is a duplicate, second is new
+                    mock_dedup.side_effect = [True, False]
+
+                    result = read_rss_new_projects_and_queue()
+
+                    assert result["packages_queued"] == 1
+                    assert result["packages_skipped"] == 1
+                    assert mock_delay.call_count == 1
+
+    def test_returns_skipped_count_in_result(self, celery_eager_mode):
+        """Test that result includes packages_skipped count."""
+        with patch('feedparser.parse') as mock_parse:
+            mock_feed = MagicMock()
+            mock_feed.bozo = False
+            mock_feed.bozo_exception = None
+            mock_feed.entries = [
+                FeedParserEntry({
+                    "title": "dup1 1.0.0",
+                    "link": "https://pypi.org/project/dup1/1.0.0/",
+                    "summary": "",
+                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                }),
+                FeedParserEntry({
+                    "title": "dup2 1.0.0",
+                    "link": "https://pypi.org/project/dup2/1.0.0/",
+                    "summary": "",
+                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                }),
+            ]
+            mock_parse.return_value = mock_feed
+
+            with patch("pyf.aggregator.queue.inspect_project.delay"):
+                with patch("pyf.aggregator.queue.is_package_recently_queued", return_value=True):
+                    result = read_rss_new_projects_and_queue()
+
+                    assert result["packages_skipped"] == 2
+                    assert result["packages_queued"] == 0
+
+    def test_dedup_failure_allows_queueing(self, celery_eager_mode):
+        """Test that Redis failure during dedup doesn't block queueing."""
+        with patch('feedparser.parse') as mock_parse:
+            mock_feed = MagicMock()
+            mock_feed.bozo = False
+            mock_feed.bozo_exception = None
+            mock_feed.entries = [
+                FeedParserEntry({
+                    "title": "pkg1 1.0.0",
+                    "link": "https://pypi.org/project/pkg1/1.0.0/",
+                    "summary": "",
+                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                }),
+            ]
+            mock_parse.return_value = mock_feed
+
+            with patch("pyf.aggregator.queue.inspect_project.delay") as mock_delay:
+                # is_package_recently_queued returns False on error (fail-open)
+                with patch("pyf.aggregator.queue.is_package_recently_queued", return_value=False):
+                    result = read_rss_new_projects_and_queue()
+
+                    assert result["packages_queued"] == 1
+                    assert mock_delay.call_count == 1
+
 
 # ============================================================================
 # read_rss_new_releases_and_queue Task Tests
@@ -518,6 +607,84 @@ class TestReadRssNewReleasesAndQueue:
 
             assert result["status"] == "completed"
             assert result["packages_queued"] == 0
+
+    def test_skips_duplicate_releases(self, celery_eager_mode):
+        """Test that dedup skips recently queued releases."""
+        with patch('feedparser.parse') as mock_parse:
+            mock_feed = MagicMock()
+            mock_feed.bozo = False
+            mock_feed.bozo_exception = None
+            mock_feed.entries = [
+                FeedParserEntry({
+                    "title": "dup-release 2.0.0",
+                    "link": "https://pypi.org/project/dup-release/2.0.0/",
+                    "summary": "",
+                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                }),
+                FeedParserEntry({
+                    "title": "new-release 1.0.0",
+                    "link": "https://pypi.org/project/new-release/1.0.0/",
+                    "summary": "",
+                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                }),
+            ]
+            mock_parse.return_value = mock_feed
+
+            with patch("pyf.aggregator.queue.inspect_project.delay") as mock_delay:
+                with patch("pyf.aggregator.queue.is_package_recently_queued") as mock_dedup:
+                    mock_dedup.side_effect = [True, False]
+
+                    result = read_rss_new_releases_and_queue()
+
+                    assert result["packages_queued"] == 1
+                    assert result["packages_skipped"] == 1
+                    assert mock_delay.call_count == 1
+
+    def test_returns_skipped_count_in_result(self, celery_eager_mode):
+        """Test that result includes packages_skipped count."""
+        with patch('feedparser.parse') as mock_parse:
+            mock_feed = MagicMock()
+            mock_feed.bozo = False
+            mock_feed.bozo_exception = None
+            mock_feed.entries = [
+                FeedParserEntry({
+                    "title": "dup-pkg 1.0.0",
+                    "link": "https://pypi.org/project/dup-pkg/1.0.0/",
+                    "summary": "",
+                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                }),
+            ]
+            mock_parse.return_value = mock_feed
+
+            with patch("pyf.aggregator.queue.inspect_project.delay"):
+                with patch("pyf.aggregator.queue.is_package_recently_queued", return_value=True):
+                    result = read_rss_new_releases_and_queue()
+
+                    assert result["packages_skipped"] == 1
+                    assert result["packages_queued"] == 0
+
+    def test_dedup_failure_allows_queueing(self, celery_eager_mode):
+        """Test that Redis failure during dedup doesn't block queueing."""
+        with patch('feedparser.parse') as mock_parse:
+            mock_feed = MagicMock()
+            mock_feed.bozo = False
+            mock_feed.bozo_exception = None
+            mock_feed.entries = [
+                FeedParserEntry({
+                    "title": "pkg1 1.0.0",
+                    "link": "https://pypi.org/project/pkg1/1.0.0/",
+                    "summary": "",
+                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                }),
+            ]
+            mock_parse.return_value = mock_feed
+
+            with patch("pyf.aggregator.queue.inspect_project.delay") as mock_delay:
+                with patch("pyf.aggregator.queue.is_package_recently_queued", return_value=False):
+                    result = read_rss_new_releases_and_queue()
+
+                    assert result["packages_queued"] == 1
+                    assert mock_delay.call_count == 1
 
 
 # ============================================================================
@@ -1125,6 +1292,131 @@ class TestTaskRetryConfiguration:
         task = app.tasks["pyf.aggregator.queue.read_rss_new_releases_and_queue"]
         assert task.max_retries == 3
         assert task.default_retry_delay == 120
+
+
+# ============================================================================
+# RSS Deduplication Tests
+# ============================================================================
+
+class TestRSSDeduplication:
+    """Test the is_package_recently_queued deduplication function."""
+
+    def test_first_check_returns_false(self):
+        """Test that a new package returns False (not a duplicate)."""
+        mock_redis = MagicMock()
+        mock_redis.set.return_value = True  # SET NX succeeded = key was new
+
+        with patch("pyf.aggregator.queue.get_dedup_redis", return_value=mock_redis):
+            result = is_package_recently_queued("new-package")
+
+            assert result is False
+            mock_redis.set.assert_called_once_with(
+                "pyf:dedup:new-package", "1", nx=True, ex=RSS_DEDUP_TTL
+            )
+
+    def test_duplicate_check_returns_true(self):
+        """Test that a recently queued package returns True."""
+        mock_redis = MagicMock()
+        mock_redis.set.return_value = False  # SET NX failed = key already existed
+
+        with patch("pyf.aggregator.queue.get_dedup_redis", return_value=mock_redis):
+            result = is_package_recently_queued("existing-package")
+
+            assert result is True
+
+    def test_redis_unavailable_returns_false(self):
+        """Test fail-open when Redis is unavailable (get_dedup_redis returns None)."""
+        with patch("pyf.aggregator.queue.get_dedup_redis", return_value=None):
+            result = is_package_recently_queued("any-package")
+
+            assert result is False
+
+    def test_redis_error_returns_false(self):
+        """Test fail-open on Redis errors."""
+        import redis as redis_lib
+
+        mock_redis = MagicMock()
+        mock_redis.set.side_effect = redis_lib.RedisError("Connection lost")
+
+        with patch("pyf.aggregator.queue.get_dedup_redis", return_value=mock_redis):
+            result = is_package_recently_queued("any-package")
+
+            assert result is False
+
+    def test_custom_ttl_is_used(self):
+        """Test that a custom TTL is passed to Redis."""
+        mock_redis = MagicMock()
+        mock_redis.set.return_value = True
+
+        with patch("pyf.aggregator.queue.get_dedup_redis", return_value=mock_redis):
+            is_package_recently_queued("pkg", ttl=120)
+
+            mock_redis.set.assert_called_once_with(
+                "pyf:dedup:pkg", "1", nx=True, ex=120
+            )
+
+    def test_ttl_zero_disables_dedup(self):
+        """Test that TTL=0 disables dedup entirely (always returns False)."""
+        mock_redis = MagicMock()
+
+        with patch("pyf.aggregator.queue.get_dedup_redis", return_value=mock_redis):
+            result = is_package_recently_queued("any-package", ttl=0)
+
+            assert result is False
+            mock_redis.set.assert_not_called()
+
+    def test_dedup_key_format(self):
+        """Test that the Redis key uses the correct format."""
+        mock_redis = MagicMock()
+        mock_redis.set.return_value = True
+
+        with patch("pyf.aggregator.queue.get_dedup_redis", return_value=mock_redis):
+            is_package_recently_queued("plone.api")
+
+            call_args = mock_redis.set.call_args
+            assert call_args[0][0] == "pyf:dedup:plone.api"
+
+
+class TestGetDedupRedis:
+    """Test the get_dedup_redis helper function."""
+
+    def test_creates_redis_client(self):
+        """Test that a Redis client is created and pinged on first call."""
+        import redis as redis_lib
+
+        mock_client = MagicMock()
+        mock_client.ping.return_value = True
+
+        with patch("pyf.aggregator.queue._dedup_redis_client", None):
+            with patch("redis.Redis", return_value=mock_client) as mock_redis_cls:
+                result = get_dedup_redis()
+
+                assert result is mock_client
+                mock_redis_cls.assert_called_once()
+                mock_client.ping.assert_called_once()
+
+    def test_returns_cached_client_on_second_call(self):
+        """Test that the singleton client is reused."""
+        mock_client = MagicMock()
+        mock_client.ping.return_value = True
+
+        with patch("pyf.aggregator.queue._dedup_redis_client", mock_client):
+            result = get_dedup_redis()
+
+            assert result is mock_client
+
+    def test_returns_none_on_connection_error(self):
+        """Test graceful failure when Redis is unreachable."""
+        import redis as redis_lib
+
+        mock_client = MagicMock()
+        mock_client.ping.side_effect = redis_lib.ConnectionError("Connection refused")
+
+        with patch("pyf.aggregator.queue._dedup_redis_client", None):
+            with patch("redis.Redis", return_value=mock_client):
+                result = get_dedup_redis()
+
+                assert result is None
 
 
 # ============================================================================

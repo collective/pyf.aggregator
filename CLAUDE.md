@@ -93,6 +93,8 @@ PyPI API  ->  Aggregator/Fetcher  ->  Plugins  ->  Indexer  ->  Typesense
 | `enrichers/github.py` | GitHub data enricher (`pyfgithub`) |
 | `enrichers/downloads.py` | Download statistics enricher (`pyfdownloads`) |
 
+`queue.py` also exposes `get_dedup_redis()` (lazy singleton Redis client for dedup) and `is_package_recently_queued(package_id, ttl)` (atomic SET NX EX check, fail-open).
+
 ### Plugin System
 
 Plugins are registered in `plugins/__init__.py` and called for each package during aggregation:

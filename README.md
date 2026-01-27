@@ -84,6 +84,9 @@ CELERY_SCHEDULE_WEEKLY_REFRESH=0 2 * * 0    # Sunday 2:00 AM UTC
 CELERY_SCHEDULE_WEEKLY_DOWNLOADS=0 4 * * 0  # Sunday 4:00 AM UTC
 CELERY_SCHEDULE_MONTHLY_FETCH=0 3 1 * *     # 1st of month, 3:00 AM UTC
 
+# RSS Deduplication
+RSS_DEDUP_TTL=600                          # Seconds to suppress re-queueing (0 = disabled)
+
 # Celery Worker Pool and Concurrency
 CELERY_WORKER_POOL=threads             # Worker pool type (threads for I/O-bound tasks)
 CELERY_WORKER_CONCURRENCY=20           # Number of concurrent threads
@@ -615,6 +618,10 @@ The Celery worker uses a thread pool by default since all tasks are I/O-bound (H
 | `CELERY_TASK_TIME_LIMIT` | `600` | Hard time limit (seconds) - kills the task |
 
 Long-running tasks (`refresh_all_indexed_packages`, `full_fetch_all_packages`, `enrich_downloads_all_packages`) have extended time limits and handle `SoftTimeLimitExceeded` to return partial results gracefully. Additionally, `task_acks_late` is enabled to prevent task loss on worker crashes.
+
+**RSS Deduplication:**
+
+The RSS tasks run every minute, but the feeds change slowly. To avoid re-queueing the same packages repeatedly, both RSS tasks use Redis-based deduplication. Before queueing an `inspect_project` task, a Redis `SET NX EX` check is performed with a configurable TTL (`RSS_DEDUP_TTL`, default 600 seconds). If the package was already queued within the TTL window, it is skipped. Both RSS tasks share the same key namespace (`pyf:dedup:<package_name>`), so cross-task deduplication works automatically. The mechanism is fail-open: if Redis is unavailable, all packages proceed normally.
 
 To run a Celery worker:
 ```shell
