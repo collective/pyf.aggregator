@@ -31,6 +31,11 @@ from pyf.aggregator.queue import (
     setup_periodic_tasks,
     parse_crontab,
     TYPESENSE_COLLECTION,
+    CELERY_WORKER_POOL,
+    CELERY_WORKER_CONCURRENCY,
+    CELERY_WORKER_PREFETCH_MULTIPLIER,
+    CELERY_TASK_SOFT_TIME_LIMIT,
+    CELERY_TASK_TIME_LIMIT,
 )
 
 
@@ -1361,3 +1366,54 @@ class TestEnrichDownloadsAllPackagesTask:
 
                 assert result["status"] == "completed"
                 assert "failed" in result["profiles"]["plone"]
+
+
+# ============================================================================
+# Worker Pool Configuration Tests
+# ============================================================================
+
+class TestWorkerPoolConfiguration:
+    """Test Celery worker pool and concurrency configuration."""
+
+    def test_celery_app_has_gevent_pool(self):
+        """Test that Celery app is configured with gevent worker pool."""
+        assert app.conf.worker_pool == CELERY_WORKER_POOL
+        assert CELERY_WORKER_POOL == "gevent"
+
+    def test_celery_app_has_concurrency(self):
+        """Test that Celery app has worker concurrency configured."""
+        assert app.conf.worker_concurrency == CELERY_WORKER_CONCURRENCY
+        assert CELERY_WORKER_CONCURRENCY > 0
+
+    def test_celery_app_has_prefetch_multiplier(self):
+        """Test that Celery app has prefetch multiplier configured."""
+        assert app.conf.worker_prefetch_multiplier == CELERY_WORKER_PREFETCH_MULTIPLIER
+        assert CELERY_WORKER_PREFETCH_MULTIPLIER > 0
+
+    def test_celery_app_has_time_limits(self):
+        """Test that soft time limit is less than hard time limit."""
+        assert app.conf.task_soft_time_limit == CELERY_TASK_SOFT_TIME_LIMIT
+        assert app.conf.task_time_limit == CELERY_TASK_TIME_LIMIT
+        assert CELERY_TASK_SOFT_TIME_LIMIT < CELERY_TASK_TIME_LIMIT
+
+    def test_celery_app_has_acks_late(self):
+        """Test that task_acks_late is enabled."""
+        assert app.conf.task_acks_late is True
+
+    def test_celery_app_has_broker_pool_limit(self):
+        """Test that broker_pool_limit is configured relative to concurrency."""
+        assert app.conf.broker_pool_limit == CELERY_WORKER_CONCURRENCY + 10
+
+    def test_long_running_tasks_have_extended_time_limits(self):
+        """Test that refresh and full-fetch tasks override default time limits."""
+        refresh_task = app.tasks["pyf.aggregator.queue.refresh_all_indexed_packages"]
+        assert refresh_task.soft_time_limit == 3600
+        assert refresh_task.time_limit == 3900
+
+        full_fetch_task = app.tasks["pyf.aggregator.queue.full_fetch_all_packages"]
+        assert full_fetch_task.soft_time_limit == 7200
+        assert full_fetch_task.time_limit == 7500
+
+        downloads_task = app.tasks["pyf.aggregator.queue.enrich_downloads_all_packages"]
+        assert downloads_task.soft_time_limit == 3600
+        assert downloads_task.time_limit == 3900

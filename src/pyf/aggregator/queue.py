@@ -1,4 +1,5 @@
 from celery import Celery
+from celery.exceptions import SoftTimeLimitExceeded
 from celery.schedules import crontab
 from dotenv import load_dotenv
 from github import Github
@@ -33,6 +34,13 @@ CELERY_SCHEDULE_WEEKLY_REFRESH = os.getenv("CELERY_SCHEDULE_WEEKLY_REFRESH", "0 
 CELERY_SCHEDULE_MONTHLY_FETCH = os.getenv("CELERY_SCHEDULE_MONTHLY_FETCH", "0 3 1 * *")
 CELERY_SCHEDULE_WEEKLY_DOWNLOADS = os.getenv("CELERY_SCHEDULE_WEEKLY_DOWNLOADS", "0 4 * * 0")
 
+# Worker pool and concurrency
+CELERY_WORKER_POOL = os.getenv("CELERY_WORKER_POOL", "gevent")
+CELERY_WORKER_CONCURRENCY = int(os.getenv("CELERY_WORKER_CONCURRENCY", 100))
+CELERY_WORKER_PREFETCH_MULTIPLIER = int(os.getenv("CELERY_WORKER_PREFETCH_MULTIPLIER", 4))
+CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", 300))
+CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", 600))
+
 # GitHub URL regex pattern
 github_regex = re.compile(r"^(http[s]{0,1}:\/\/|www\.)github\.com/(.+/.+)")
 
@@ -51,6 +59,16 @@ app = Celery(
     broker=os.getenv('REDIS_HOST'),
     broker_connection_retry_on_startup=True,
     broker_channel_error_retry=True,
+)
+
+app.conf.update(
+    worker_pool=CELERY_WORKER_POOL,
+    worker_concurrency=CELERY_WORKER_CONCURRENCY,
+    worker_prefetch_multiplier=CELERY_WORKER_PREFETCH_MULTIPLIER,
+    task_soft_time_limit=CELERY_TASK_SOFT_TIME_LIMIT,
+    task_time_limit=CELERY_TASK_TIME_LIMIT,
+    task_acks_late=True,
+    broker_pool_limit=CELERY_WORKER_CONCURRENCY + 10,
 )
 
 
@@ -510,7 +528,7 @@ def queue_all_github_updates():
     pass
 
 
-@app.task(bind=True, max_retries=2, default_retry_delay=300)
+@app.task(bind=True, max_retries=2, default_retry_delay=300, soft_time_limit=3600, time_limit=3900)
 def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
     """
     Weekly task: Refresh all indexed packages from PyPI.
@@ -612,33 +630,37 @@ def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
 
         # Process packages in parallel
         logger.info(f"Processing packages with {max_workers} workers...")
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(process_package, pkg): pkg for pkg in package_names}
+        try:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(process_package, pkg): pkg for pkg in package_names}
 
-            for i, future in enumerate(as_completed(futures), 1):
-                result = future.result()
-                package_name = result["package"]
+                for i, future in enumerate(as_completed(futures), 1):
+                    result = future.result()
+                    package_name = result["package"]
 
-                if result["status"] == "update":
-                    try:
-                        cleaned_data = indexer.clean_data(result["data"])
-                        indexer.client.collections[collection].documents.upsert(cleaned_data)
-                        stats["updated"] += 1
-                        if i % 100 == 0:
-                            logger.info(f"[{i}/{total}] Progress: {stats}")
-                    except Exception as e:
+                    if result["status"] == "update":
+                        try:
+                            cleaned_data = indexer.clean_data(result["data"])
+                            indexer.client.collections[collection].documents.upsert(cleaned_data)
+                            stats["updated"] += 1
+                            if i % 100 == 0:
+                                logger.info(f"[{i}/{total}] Progress: {stats}")
+                        except Exception as e:
+                            stats["failed"] += 1
+                            logger.error(f"Failed to index {package_name}: {e}")
+
+                    elif result["status"] == "delete":
+                        packages_to_delete.append(package_name)
+
+                    elif result["status"] == "skip":
+                        stats["skipped"] += 1
+
+                    elif result["status"] == "error":
                         stats["failed"] += 1
-                        logger.error(f"Failed to index {package_name}: {e}")
-
-                elif result["status"] == "delete":
-                    packages_to_delete.append(package_name)
-
-                elif result["status"] == "skip":
-                    stats["skipped"] += 1
-
-                elif result["status"] == "error":
-                    stats["failed"] += 1
-                    logger.error(f"Error processing {package_name}: {result['error']}")
+                        logger.error(f"Error processing {package_name}: {result['error']}")
+        except SoftTimeLimitExceeded:
+            logger.warning(f"Weekly refresh hit soft time limit, returning partial stats: {stats}")
+            return {"status": "partial", "stats": stats}
 
         # Delete packages that are no longer valid
         if packages_to_delete:
@@ -663,7 +685,7 @@ def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
             return {"status": "failed", "reason": str(e)}
 
 
-@app.task(bind=True, max_retries=2, default_retry_delay=600)
+@app.task(bind=True, max_retries=2, default_retry_delay=600, soft_time_limit=7200, time_limit=7500)
 def full_fetch_all_packages(self, collection_name=None, profile_name=None):
     """
     Monthly task: Full fetch of all packages matching the profile.
@@ -729,7 +751,11 @@ def full_fetch_all_packages(self, collection_name=None, profile_name=None):
             indexer.create_collection(name=collection)
 
         # Execute aggregation
-        indexer(agg, collection)
+        try:
+            indexer(agg, collection)
+        except SoftTimeLimitExceeded:
+            logger.warning(f"Monthly full fetch hit soft time limit for collection '{collection}'")
+            return {"status": "partial", "collection": collection, "profile": profile}
 
         logger.info(f"Monthly full fetch complete for collection '{collection}'")
         return {"status": "completed", "collection": collection, "profile": profile}
@@ -743,7 +769,7 @@ def full_fetch_all_packages(self, collection_name=None, profile_name=None):
             return {"status": "failed", "reason": str(e)}
 
 
-@app.task(bind=True, max_retries=3, default_retry_delay=60)
+@app.task(bind=True, max_retries=3, default_retry_delay=60, soft_time_limit=3600, time_limit=3900)
 def enrich_downloads_all_packages(self):
     """Enrich all indexed packages with download statistics from pypistats.org."""
     from pyf.aggregator.enrichers.downloads import Enricher
