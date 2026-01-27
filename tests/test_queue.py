@@ -32,7 +32,8 @@ from pyf.aggregator.queue import (
     parse_crontab,
     get_dedup_redis,
     is_package_recently_queued,
-    RSS_DEDUP_TTL,
+    RSS_DEDUP_TTL_NEW,
+    RSS_DEDUP_TTL_UPDATE,
     TYPESENSE_COLLECTION,
     CELERY_WORKER_POOL,
     CELERY_WORKER_CONCURRENCY,
@@ -559,6 +560,28 @@ class TestReadRssNewProjectsAndQueue:
                     assert result["packages_queued"] == 1
                     assert mock_delay.call_count == 1
 
+    def test_passes_feed_type_new_to_dedup(self, celery_eager_mode):
+        """Test that the new projects task passes feed_type='new' to dedup."""
+        with patch('feedparser.parse') as mock_parse:
+            mock_feed = MagicMock()
+            mock_feed.bozo = False
+            mock_feed.bozo_exception = None
+            mock_feed.entries = [
+                FeedParserEntry({
+                    "title": "my-package 1.0.0",
+                    "link": "https://pypi.org/project/my-package/1.0.0/",
+                    "summary": "",
+                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                }),
+            ]
+            mock_parse.return_value = mock_feed
+
+            with patch("pyf.aggregator.queue.inspect_project.delay"):
+                with patch("pyf.aggregator.queue.is_package_recently_queued", return_value=False) as mock_dedup:
+                    read_rss_new_projects_and_queue()
+
+                    mock_dedup.assert_called_once_with("my-package", feed_type="new")
+
 
 # ============================================================================
 # read_rss_new_releases_and_queue Task Tests
@@ -685,6 +708,30 @@ class TestReadRssNewReleasesAndQueue:
 
                     assert result["packages_queued"] == 1
                     assert mock_delay.call_count == 1
+
+    def test_passes_release_id_to_dedup(self, celery_eager_mode):
+        """Test that the releases task passes release_id and feed_type='update' to dedup."""
+        with patch('feedparser.parse') as mock_parse:
+            mock_feed = MagicMock()
+            mock_feed.bozo = False
+            mock_feed.bozo_exception = None
+            mock_feed.entries = [
+                FeedParserEntry({
+                    "title": "my-package 2.0.0",
+                    "link": "https://pypi.org/project/my-package/2.0.0/",
+                    "summary": "",
+                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                }),
+            ]
+            mock_parse.return_value = mock_feed
+
+            with patch("pyf.aggregator.queue.inspect_project.delay"):
+                with patch("pyf.aggregator.queue.is_package_recently_queued", return_value=False) as mock_dedup:
+                    read_rss_new_releases_and_queue()
+
+                    mock_dedup.assert_called_once_with(
+                        "my-package", release_id="2.0.0", feed_type="update"
+                    )
 
 
 # ============================================================================
@@ -1311,7 +1358,7 @@ class TestRSSDeduplication:
 
             assert result is False
             mock_redis.set.assert_called_once_with(
-                "pyf:dedup:new-package", "1", nx=True, ex=RSS_DEDUP_TTL
+                "pyf:dedup:new:new-package", "1", nx=True, ex=RSS_DEDUP_TTL_NEW
             )
 
     def test_duplicate_check_returns_true(self):
@@ -1352,7 +1399,7 @@ class TestRSSDeduplication:
             is_package_recently_queued("pkg", ttl=120)
 
             mock_redis.set.assert_called_once_with(
-                "pyf:dedup:pkg", "1", nx=True, ex=120
+                "pyf:dedup:new:pkg", "1", nx=True, ex=120
             )
 
     def test_ttl_zero_disables_dedup(self):
@@ -1366,7 +1413,7 @@ class TestRSSDeduplication:
             mock_redis.set.assert_not_called()
 
     def test_dedup_key_format(self):
-        """Test that the Redis key uses the correct format."""
+        """Test that the Redis key uses the correct format for default (new) feed."""
         mock_redis = MagicMock()
         mock_redis.set.return_value = True
 
@@ -1374,7 +1421,103 @@ class TestRSSDeduplication:
             is_package_recently_queued("plone.api")
 
             call_args = mock_redis.set.call_args
-            assert call_args[0][0] == "pyf:dedup:plone.api"
+            assert call_args[0][0] == "pyf:dedup:new:plone.api"
+
+    def test_new_package_dedup_key_uses_new_prefix(self):
+        """Test that feed_type='new' produces key pyf:dedup:new:{package_id}."""
+        mock_redis = MagicMock()
+        mock_redis.set.return_value = True
+
+        with patch("pyf.aggregator.queue.get_dedup_redis", return_value=mock_redis):
+            is_package_recently_queued("my-pkg", feed_type="new")
+
+            call_args = mock_redis.set.call_args
+            assert call_args[0][0] == "pyf:dedup:new:my-pkg"
+
+    def test_update_dedup_key_includes_release_id(self):
+        """Test that feed_type='update' with release_id produces key pyf:dedup:update:{package_id}:{release_id}."""
+        mock_redis = MagicMock()
+        mock_redis.set.return_value = True
+
+        with patch("pyf.aggregator.queue.get_dedup_redis", return_value=mock_redis):
+            is_package_recently_queued("foo", release_id="2.0.0", feed_type="update")
+
+            call_args = mock_redis.set.call_args
+            assert call_args[0][0] == "pyf:dedup:update:foo:2.0.0"
+
+    def test_update_without_release_id_falls_back(self):
+        """Test that feed_type='update' without release_id produces key pyf:dedup:update:{package_id}."""
+        mock_redis = MagicMock()
+        mock_redis.set.return_value = True
+
+        with patch("pyf.aggregator.queue.get_dedup_redis", return_value=mock_redis):
+            is_package_recently_queued("foo", feed_type="update")
+
+            call_args = mock_redis.set.call_args
+            assert call_args[0][0] == "pyf:dedup:update:foo"
+
+    def test_different_versions_not_deduplicated(self):
+        """Test that v1.0 and v2.0 of the same package both proceed (not deduplicated)."""
+        mock_redis = MagicMock()
+        # First call (v1.0): key is new -> SET NX returns True
+        # Second call (v2.0): different key, also new -> SET NX returns True
+        mock_redis.set.return_value = True
+
+        with patch("pyf.aggregator.queue.get_dedup_redis", return_value=mock_redis):
+            result_v1 = is_package_recently_queued("foo", release_id="1.0", feed_type="update")
+            result_v2 = is_package_recently_queued("foo", release_id="2.0", feed_type="update")
+
+            assert result_v1 is False
+            assert result_v2 is False
+            # Verify different keys were used
+            calls = mock_redis.set.call_args_list
+            assert calls[0][0][0] == "pyf:dedup:update:foo:1.0"
+            assert calls[1][0][0] == "pyf:dedup:update:foo:2.0"
+
+    def test_default_feed_type_is_new(self):
+        """Test that the default feed_type is 'new' for backward compatibility."""
+        mock_redis = MagicMock()
+        mock_redis.set.return_value = True
+
+        with patch("pyf.aggregator.queue.get_dedup_redis", return_value=mock_redis):
+            is_package_recently_queued("some-pkg")
+
+            call_args = mock_redis.set.call_args
+            # Default should use "new" prefix
+            assert call_args[0][0] == "pyf:dedup:new:some-pkg"
+
+    def test_new_feed_uses_new_ttl(self):
+        """Test that feed_type='new' uses RSS_DEDUP_TTL_NEW as default TTL."""
+        mock_redis = MagicMock()
+        mock_redis.set.return_value = True
+
+        with patch("pyf.aggregator.queue.get_dedup_redis", return_value=mock_redis):
+            is_package_recently_queued("pkg", feed_type="new")
+
+            call_args = mock_redis.set.call_args
+            assert call_args[1]["ex"] == RSS_DEDUP_TTL_NEW
+
+    def test_update_feed_uses_update_ttl(self):
+        """Test that feed_type='update' uses RSS_DEDUP_TTL_UPDATE as default TTL."""
+        mock_redis = MagicMock()
+        mock_redis.set.return_value = True
+
+        with patch("pyf.aggregator.queue.get_dedup_redis", return_value=mock_redis):
+            is_package_recently_queued("pkg", feed_type="update")
+
+            call_args = mock_redis.set.call_args
+            assert call_args[1]["ex"] == RSS_DEDUP_TTL_UPDATE
+
+    def test_explicit_ttl_overrides_feed_type_default(self):
+        """Test that an explicit ttl parameter overrides the feed_type default."""
+        mock_redis = MagicMock()
+        mock_redis.set.return_value = True
+
+        with patch("pyf.aggregator.queue.get_dedup_redis", return_value=mock_redis):
+            is_package_recently_queued("pkg", feed_type="new", ttl=999)
+
+            call_args = mock_redis.set.call_args
+            assert call_args[1]["ex"] == 999
 
 
 class TestGetDedupRedis:

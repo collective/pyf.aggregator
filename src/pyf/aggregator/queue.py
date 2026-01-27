@@ -36,7 +36,10 @@ CELERY_SCHEDULE_MONTHLY_FETCH = os.getenv("CELERY_SCHEDULE_MONTHLY_FETCH", "0 3 
 CELERY_SCHEDULE_WEEKLY_DOWNLOADS = os.getenv("CELERY_SCHEDULE_WEEKLY_DOWNLOADS", "0 4 * * 0")
 
 # RSS deduplication TTL in seconds (0 to disable)
-RSS_DEDUP_TTL = int(os.getenv("RSS_DEDUP_TTL", 600))
+# Separate TTLs for new-package vs update feeds; legacy env var used as fallback
+_RSS_DEDUP_TTL_LEGACY = os.getenv("RSS_DEDUP_TTL")
+RSS_DEDUP_TTL_NEW = int(os.getenv("RSS_DEDUP_TTL_NEW", _RSS_DEDUP_TTL_LEGACY or 86400))
+RSS_DEDUP_TTL_UPDATE = int(os.getenv("RSS_DEDUP_TTL_UPDATE", _RSS_DEDUP_TTL_LEGACY or 86400))
 
 # Worker pool and concurrency
 CELERY_WORKER_POOL = os.getenv("CELERY_WORKER_POOL", "threads")
@@ -453,7 +456,7 @@ def get_dedup_redis():
         return None
 
 
-def is_package_recently_queued(package_id, ttl=None):
+def is_package_recently_queued(package_id, release_id=None, feed_type="new", ttl=None):
     """Check if a package was recently queued and mark it if not.
 
     Uses Redis SET NX EX for atomic check-and-set. Returns True if the
@@ -461,15 +464,24 @@ def is_package_recently_queued(package_id, ttl=None):
     if it's new. Fails open: returns False on any error so no packages
     are missed.
 
+    Key format varies by feed_type:
+    - feed_type="new"  -> pyf:dedup:new:{package_id}
+    - feed_type="update" + release_id -> pyf:dedup:update:{package_id}:{release_id}
+    - feed_type="update" without release_id -> pyf:dedup:update:{package_id}
+
     Args:
         package_id: The package name to check.
-        ttl: TTL in seconds. Defaults to RSS_DEDUP_TTL. Set to 0 to disable.
+        release_id: Optional release/version identifier. Used for update feeds
+            to allow different versions of the same package through.
+        feed_type: Either "new" or "update". Controls key prefix and default TTL.
+        ttl: TTL in seconds. Defaults to RSS_DEDUP_TTL_NEW or RSS_DEDUP_TTL_UPDATE
+            based on feed_type. Set to 0 to disable.
 
     Returns:
         True if duplicate (skip), False if new (proceed).
     """
     if ttl is None:
-        ttl = RSS_DEDUP_TTL
+        ttl = RSS_DEDUP_TTL_NEW if feed_type == "new" else RSS_DEDUP_TTL_UPDATE
 
     if ttl == 0:
         return False
@@ -479,7 +491,13 @@ def is_package_recently_queued(package_id, ttl=None):
         if client is None:
             return False
 
-        key = f"pyf:dedup:{package_id}"
+        if feed_type == "update" and release_id:
+            key = f"pyf:dedup:update:{package_id}:{release_id}"
+        elif feed_type == "update":
+            key = f"pyf:dedup:update:{package_id}"
+        else:
+            key = f"pyf:dedup:new:{package_id}"
+
         # SET NX EX: set only if key doesn't exist, with expiry
         # Returns True if key was set (new), False if key already existed (duplicate)
         was_set = client.set(key, "1", nx=True, ex=ttl)
@@ -523,7 +541,7 @@ def read_rss_new_projects_and_queue(self):
             if not package_id:
                 continue
 
-            if is_package_recently_queued(package_id):
+            if is_package_recently_queued(package_id, feed_type="new"):
                 skipped_count += 1
                 logger.debug(f"Skipping duplicate package: {package_id}")
                 continue
@@ -583,7 +601,8 @@ def read_rss_new_releases_and_queue(self):
             if not package_id:
                 continue
 
-            if is_package_recently_queued(package_id):
+            release_id = entry.get("release_id")
+            if is_package_recently_queued(package_id, release_id=release_id, feed_type="update"):
                 skipped_count += 1
                 logger.debug(f"Skipping duplicate release: {package_id}")
                 continue
@@ -591,7 +610,7 @@ def read_rss_new_releases_and_queue(self):
             # Queue inspect_project task for this package
             package_data = {
                 "package_id": package_id,
-                "release_id": entry.get("release_id"),
+                "release_id": release_id,
                 "timestamp": entry.get("timestamp"),
             }
             inspect_project.delay(package_data)

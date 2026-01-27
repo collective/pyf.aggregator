@@ -85,7 +85,10 @@ CELERY_SCHEDULE_WEEKLY_DOWNLOADS=0 4 * * 0  # Sunday 4:00 AM UTC
 CELERY_SCHEDULE_MONTHLY_FETCH=0 3 1 * *     # 1st of month, 3:00 AM UTC
 
 # RSS Deduplication
-RSS_DEDUP_TTL=600                          # Seconds to suppress re-queueing (0 = disabled)
+# Separate TTLs for new-package vs release-update feeds (default 24h)
+RSS_DEDUP_TTL_NEW=86400                    # TTL for new packages feed (0 = disabled)
+RSS_DEDUP_TTL_UPDATE=86400                 # TTL for release updates feed (0 = disabled)
+# RSS_DEDUP_TTL=86400                      # Legacy fallback for both (overridden by above)
 
 # Celery Worker Pool and Concurrency
 CELERY_WORKER_POOL=threads             # Worker pool type (threads for I/O-bound tasks)
@@ -621,7 +624,12 @@ Long-running tasks (`refresh_all_indexed_packages`, `full_fetch_all_packages`, `
 
 **RSS Deduplication:**
 
-The RSS tasks run every minute, but the feeds change slowly. To avoid re-queueing the same packages repeatedly, both RSS tasks use Redis-based deduplication. Before queueing an `inspect_project` task, a Redis `SET NX EX` check is performed with a configurable TTL (`RSS_DEDUP_TTL`, default 600 seconds). If the package was already queued within the TTL window, it is skipped. Both RSS tasks share the same key namespace (`pyf:dedup:<package_name>`), so cross-task deduplication works automatically. The mechanism is fail-open: if Redis is unavailable, all packages proceed normally.
+The RSS tasks run every minute, but the feeds change slowly. To avoid re-queueing the same packages repeatedly, both RSS tasks use Redis-based deduplication. Before queueing an `inspect_project` task, a Redis `SET NX EX` check is performed with a configurable TTL (default 24 hours). The dedup keys are namespaced by feed type:
+
+- **New packages** (`packages.xml`): key = `pyf:dedup:new:{package_name}`, TTL from `RSS_DEDUP_TTL_NEW`
+- **New releases** (`updates.xml`): key = `pyf:dedup:update:{package_name}:{version}`, TTL from `RSS_DEDUP_TTL_UPDATE`
+
+This ensures that different versions of the same package are not incorrectly deduplicated in the releases feed, while new packages are deduplicated by name only. The legacy `RSS_DEDUP_TTL` environment variable is still supported as a fallback for both TTLs. The mechanism is fail-open: if Redis is unavailable, all packages proceed normally.
 
 To run a Celery worker:
 ```shell

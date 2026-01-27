@@ -93,7 +93,7 @@ PyPI API  ->  Aggregator/Fetcher  ->  Plugins  ->  Indexer  ->  Typesense
 | `enrichers/github.py` | GitHub data enricher (`pyfgithub`) |
 | `enrichers/downloads.py` | Download statistics enricher (`pyfdownloads`) |
 
-`queue.py` also exposes `get_dedup_redis()` (lazy singleton Redis client for dedup) and `is_package_recently_queued(package_id, ttl)` (atomic SET NX EX check, fail-open).
+`queue.py` also exposes `get_dedup_redis()` (lazy singleton Redis client for dedup) and `is_package_recently_queued(package_id, release_id=None, feed_type="new", ttl=None)` (atomic SET NX EX check, fail-open). Keys are namespaced by feed type: `pyf:dedup:new:{id}` for new packages, `pyf:dedup:update:{id}:{version}` for releases.
 
 ### Plugin System
 
