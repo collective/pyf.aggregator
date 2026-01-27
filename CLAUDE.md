@@ -176,3 +176,4 @@ When `DEFAULT_PROFILE` is set, all CLI commands (`pyfaggregator`, `pyfgithub`, `
 - always write tests first, TDD
 - All CLI commands must be run with `uv run` prefix (e.g., `uv run pyfgithub -p plone`)
 - run tests in a subagent
+- always update README when things change or new features are added

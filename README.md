@@ -84,6 +84,13 @@ CELERY_SCHEDULE_WEEKLY_REFRESH=0 2 * * 0    # Sunday 2:00 AM UTC
 CELERY_SCHEDULE_WEEKLY_DOWNLOADS=0 4 * * 0  # Sunday 4:00 AM UTC
 CELERY_SCHEDULE_MONTHLY_FETCH=0 3 1 * *     # 1st of month, 3:00 AM UTC
 
+# Celery Worker Pool and Concurrency
+CELERY_WORKER_POOL=gevent              # Worker pool type (gevent for I/O-bound tasks)
+CELERY_WORKER_CONCURRENCY=100          # Number of concurrent greenlets
+CELERY_WORKER_PREFETCH_MULTIPLIER=4    # Tasks to prefetch per worker
+CELERY_TASK_SOFT_TIME_LIMIT=300        # Soft time limit in seconds (5 min)
+CELERY_TASK_TIME_LIMIT=600             # Hard time limit in seconds (10 min)
+
 # Default profile for CLI commands (plone, django, flask)
 # When set, pyfaggregator uses this profile automatically without needing -p flag
 # CLI -p argument always takes precedence over this setting
@@ -594,6 +601,20 @@ The project uses a queue-based architecture with Celery for improved scalability
 | Weekly refresh | Sunday 2:00 AM UTC | Refresh all indexed packages from PyPI |
 | Weekly downloads | Sunday 4:00 AM UTC | Enrich with download stats from pypistats.org |
 | Monthly full fetch | 1st of month, 3:00 AM UTC | Complete re-fetch from PyPI |
+
+**Worker Pool (gevent):**
+
+The Celery worker uses a [gevent](https://www.gevent.org/) pool by default since all tasks are I/O-bound (HTTP requests to PyPI, GitHub, and Typesense). Gevent greenlets yield during network I/O, allowing 100+ concurrent tasks with minimal memory overhead (~5KB per greenlet vs ~8MB per OS thread).
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `CELERY_WORKER_POOL` | `gevent` | Worker pool type |
+| `CELERY_WORKER_CONCURRENCY` | `100` | Number of concurrent greenlets |
+| `CELERY_WORKER_PREFETCH_MULTIPLIER` | `4` | Tasks prefetched per worker to keep greenlets fed during I/O waits |
+| `CELERY_TASK_SOFT_TIME_LIMIT` | `300` | Soft time limit (seconds) - raises `SoftTimeLimitExceeded` for graceful cleanup |
+| `CELERY_TASK_TIME_LIMIT` | `600` | Hard time limit (seconds) - kills the task |
+
+Long-running tasks (`refresh_all_indexed_packages`, `full_fetch_all_packages`, `enrich_downloads_all_packages`) have extended time limits and handle `SoftTimeLimitExceeded` to return partial results gracefully. Additionally, `task_acks_late` is enabled to prevent task loss on worker crashes.
 
 To run a Celery worker:
 ```shell
