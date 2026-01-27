@@ -1375,10 +1375,10 @@ class TestEnrichDownloadsAllPackagesTask:
 class TestWorkerPoolConfiguration:
     """Test Celery worker pool and concurrency configuration."""
 
-    def test_celery_app_has_gevent_pool(self):
-        """Test that Celery app is configured with gevent worker pool."""
+    def test_celery_app_has_threads_pool(self):
+        """Test that Celery app is configured with threads worker pool."""
         assert app.conf.worker_pool == CELERY_WORKER_POOL
-        assert CELERY_WORKER_POOL == "gevent"
+        assert CELERY_WORKER_POOL == "threads"
 
     def test_celery_app_has_concurrency(self):
         """Test that Celery app has worker concurrency configured."""

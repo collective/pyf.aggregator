@@ -85,8 +85,8 @@ CELERY_SCHEDULE_WEEKLY_DOWNLOADS=0 4 * * 0  # Sunday 4:00 AM UTC
 CELERY_SCHEDULE_MONTHLY_FETCH=0 3 1 * *     # 1st of month, 3:00 AM UTC
 
 # Celery Worker Pool and Concurrency
-CELERY_WORKER_POOL=gevent              # Worker pool type (gevent for I/O-bound tasks)
-CELERY_WORKER_CONCURRENCY=100          # Number of concurrent greenlets
+CELERY_WORKER_POOL=threads             # Worker pool type (threads for I/O-bound tasks)
+CELERY_WORKER_CONCURRENCY=20           # Number of concurrent threads
 CELERY_WORKER_PREFETCH_MULTIPLIER=4    # Tasks to prefetch per worker
 CELERY_TASK_SOFT_TIME_LIMIT=300        # Soft time limit in seconds (5 min)
 CELERY_TASK_TIME_LIMIT=600             # Hard time limit in seconds (10 min)
@@ -602,15 +602,15 @@ The project uses a queue-based architecture with Celery for improved scalability
 | Weekly downloads | Sunday 4:00 AM UTC | Enrich with download stats from pypistats.org |
 | Monthly full fetch | 1st of month, 3:00 AM UTC | Complete re-fetch from PyPI |
 
-**Worker Pool (gevent):**
+**Worker Pool:**
 
-The Celery worker uses a [gevent](https://www.gevent.org/) pool by default since all tasks are I/O-bound (HTTP requests to PyPI, GitHub, and Typesense). Gevent greenlets yield during network I/O, allowing 100+ concurrent tasks with minimal memory overhead (~5KB per greenlet vs ~8MB per OS thread).
+The Celery worker uses a thread pool by default since all tasks are I/O-bound (HTTP requests to PyPI, GitHub, and Typesense). Python's GIL is released during I/O operations, so threads handle HTTP-bound tasks well without requiring monkey-patching.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `CELERY_WORKER_POOL` | `gevent` | Worker pool type |
-| `CELERY_WORKER_CONCURRENCY` | `100` | Number of concurrent greenlets |
-| `CELERY_WORKER_PREFETCH_MULTIPLIER` | `4` | Tasks prefetched per worker to keep greenlets fed during I/O waits |
+| `CELERY_WORKER_POOL` | `threads` | Worker pool type |
+| `CELERY_WORKER_CONCURRENCY` | `20` | Number of concurrent threads |
+| `CELERY_WORKER_PREFETCH_MULTIPLIER` | `4` | Tasks prefetched per worker to keep threads fed during I/O waits |
 | `CELERY_TASK_SOFT_TIME_LIMIT` | `300` | Soft time limit (seconds) - raises `SoftTimeLimitExceeded` for graceful cleanup |
 | `CELERY_TASK_TIME_LIMIT` | `600` | Hard time limit (seconds) - kills the task |
 
