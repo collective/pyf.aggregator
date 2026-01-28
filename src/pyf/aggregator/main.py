@@ -55,13 +55,15 @@ def show_package(package_name, collection_name, all_versions=False):
 
 
 def run_refresh_mode(settings):
-    """Refresh indexed packages data from PyPi.
+    """Refresh indexed packages data from PyPi - fetches ALL versions.
 
-    Lists all unique package names from Typesense, fetches fresh data from PyPI,
-    and removes packages that return 404 or no longer have the required classifiers.
+    Lists all unique package names from Typesense, fetches fresh data from PyPI
+    for ALL versions of each package, and removes packages that return 404 or
+    no longer have the required classifiers.
     """
     from .db import TypesenceConnection, TypesensePackagesCollection
     from concurrent.futures import ThreadPoolExecutor, as_completed
+    from datetime import datetime
     import os
 
     class RefreshHelper(TypesenceConnection, TypesensePackagesCollection):
@@ -103,46 +105,54 @@ def run_refresh_mode(settings):
     max_workers = int(os.getenv("PYPI_MAX_WORKERS", 20))
 
     def process_package(package_name):
-        """Process a single package - fetch from PyPI and return result."""
+        """Process a single package - fetch ALL versions from PyPI."""
         try:
             package_json = agg._get_pypi_json(package_name)
 
             if package_json is None:
                 return {"status": "delete", "package": package_name, "reason": "not_found"}
 
-            # Check classifier filter if specified
+            # Check classifier filter if specified (once per package)
             if settings["filter_troove"]:
                 if not agg.has_classifiers(package_json, settings["filter_troove"]):
                     return {"status": "delete", "package": package_name, "reason": "no_classifier"}
 
-            # Extract and prepare data for indexing
-            data = package_json.get("info")
-            if not data:
-                return {"status": "skip", "package": package_name, "reason": "no_info"}
+            releases = package_json.get("releases", {})
+            if not releases:
+                return {"status": "skip", "package": package_name, "reason": "no_releases"}
 
-            data["urls"] = package_json.get("urls", [])
+            versions_data = []
+            for release_id, release_info in agg._all_package_versions(releases):
+                # Get upload timestamp from release info
+                ts = release_info[0].get("upload_time") if release_info else None
 
-            # Clean up unwanted fields
-            if "downloads" in data:
-                del data["downloads"]
-            for url in data.get("urls", []):
-                if "downloads" in url:
-                    del url["downloads"]
-                if "md5_digest" in url:
-                    del url["md5_digest"]
+                # Fetch version-specific metadata
+                version_data = agg._get_pypi(package_name, release_id)
+                if not version_data:
+                    continue
 
-            # Set identifiers
-            version = data.get("version", "")
-            identifier = f"{package_name}-{version}" if version else package_name
-            data["id"] = identifier
-            data["identifier"] = identifier
-            data["name_sortable"] = data.get("name", package_name)
+                # Set identifiers
+                identifier = f"{package_name}-{release_id}"
+                version_data["id"] = identifier
+                version_data["identifier"] = identifier
 
-            # Apply plugins
-            for plugin in PLUGINS:
-                plugin(identifier, data)
+                # Convert timestamp to Unix int64
+                if ts:
+                    try:
+                        dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                        version_data["upload_timestamp"] = int(dt.timestamp())
+                    except (ValueError, TypeError):
+                        version_data["upload_timestamp"] = 0
+                else:
+                    version_data["upload_timestamp"] = 0
 
-            return {"status": "update", "package": package_name, "identifier": identifier, "data": data}
+                # Apply plugins
+                for plugin in PLUGINS:
+                    plugin(identifier, version_data)
+
+                versions_data.append(version_data)
+
+            return {"status": "update", "package": package_name, "versions": versions_data}
 
         except Exception as e:
             return {"status": "error", "package": package_name, "error": str(e)}
@@ -157,14 +167,22 @@ def run_refresh_mode(settings):
             package_name = result["package"]
 
             if result["status"] == "update":
-                try:
-                    cleaned_data = indexer.clean_data(result["data"])
-                    helper.client.collections[settings["target"]].documents.upsert(cleaned_data)
-                    stats["updated"] += 1
-                    logger.info(f"[{i}/{len(package_names)}] Updated: {result['identifier']}")
-                except Exception as e:
-                    stats["failed"] += 1
-                    logger.error(f"[{i}/{len(package_names)}] Failed to index {package_name}: {e}")
+                versions = result.get("versions", [])
+                if versions:
+                    try:
+                        # Delete existing versions first (clean slate)
+                        helper.delete_package_by_name(settings["target"], package_name)
+
+                        # Batch upsert all versions
+                        cleaned_versions = [indexer.clean_data(v) for v in versions]
+                        helper.client.collections[settings["target"]].documents.import_(
+                            cleaned_versions, {"action": "upsert"}
+                        )
+                        stats["updated"] += len(versions)
+                        logger.info(f"[{i}/{len(package_names)}] Updated {package_name}: {len(versions)} versions")
+                    except Exception as e:
+                        stats["failed"] += 1
+                        logger.error(f"[{i}/{len(package_names)}] Failed to index {package_name}: {e}")
 
             elif result["status"] == "delete":
                 packages_to_delete.append(package_name)

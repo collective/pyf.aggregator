@@ -45,7 +45,7 @@ uv run pyfaggregator -f -p plone
 # Incremental update
 uv run pyfaggregator -i -p plone
 
-# Refresh indexed packages from PyPI (updates existing, removes 404s)
+# Refresh indexed packages from PyPI (fetches ALL versions, updates existing, removes 404s)
 uv run pyfaggregator --refresh-from-pypi -p plone
 
 # Enrich with GitHub data

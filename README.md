@@ -167,7 +167,7 @@ uv run pyfaggregator [options]
 |--------|-------------|
 | `-f`, `--first` | First/full fetch from PyPI (fetches all packages) |
 | `-i`, `--incremental` | Incremental fetch (only packages updated since last run) |
-| `--refresh-from-pypi` | Refresh indexed packages data from PyPI (updates existing packages, removes 404s) |
+| `--refresh-from-pypi` | Refresh indexed packages data from PyPI - fetches ALL versions of each package (updates existing, removes 404s) |
 | `-s`, `--sincefile` | File to store timestamp of last run (default: `.pyaggregator.since`) |
 | `-l`, `--limit` | Limit the number of packages to process |
 | `-fn`, `--filter-name` | Filter packages by name (substring match) |
@@ -197,11 +197,14 @@ uv run pyfaggregator -f -p flask
 # Incremental update for Django profile
 uv run pyfaggregator -i -p django
 
-# Refresh existing indexed packages from PyPI (updates data, removes packages no longer on PyPI)
+# Refresh existing indexed packages from PyPI (fetches ALL versions, updates data, removes 404s)
 uv run pyfaggregator --refresh-from-pypi -p plone
 
-# Refresh with limit for testing
+# Refresh with limit for testing (processes only first N packages, but all their versions)
 uv run pyfaggregator --refresh-from-pypi -p plone -l 100
+
+# Refresh a specific package (all versions)
+uv run pyfaggregator --refresh-from-pypi -p plone -fn plone.api
 
 # Fetch with limit for testing
 uv run pyfaggregator -f -p plone -l 100
