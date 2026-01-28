@@ -1,13 +1,17 @@
 #!/usr/bin/env python
 """Migration script to fix version_sortable format.
 
-After deploying commit f15d6d5, --refresh-from-pypi only updates the latest version
-of each package. Older versions in Typesense still have the old version_sortable
-format (e.g., "2.1.0.2.0") which sorts incorrectly relative to the new zero-padded
-format (e.g., "0002.0001.0003.0002.0000").
+Migrates from old 5-segment format to new 6-segment format with stable flag.
 
-This script iterates through ALL documents in a collection and recalculates
-version_sortable with the new zero-padded format.
+Old format (5 segments): MAJOR.MINOR.BUGFIX.PRETYPE.PRENUM
+  e.g., "0002.0001.0003.0002.0000" for 2.1.3
+
+New format (6 segments): STABLE.MAJOR.MINOR.BUGFIX.PRETYPE.PRENUM
+  e.g., "1.0002.0001.0003.0000.0000" for 2.1.3 (stable)
+  e.g., "0.0003.0000.0000.0001.0002" for 3.0.0a2 (pre-release)
+
+The STABLE flag (1=stable, 0=pre-release) ensures stable versions ALWAYS sort
+above pre-releases regardless of version number, matching PyPI's behavior.
 
 Usage:
     # Dry run (shows what would be updated without making changes)
@@ -39,30 +43,57 @@ VERSION_REGEX = re.compile(
 )
 
 
+def extract_digits(s: str) -> str:
+    """Extract digits from a string."""
+    return "".join(c for c in s if c.isdigit()) or "0"
+
+
 def make_version_sortable(groups):
     """Return a zero-padded sortable string from version components.
 
-    Format: MAJOR.MINOR.BUGFIX.PRERELEASE_TYPE.PRERELEASE_NUM
-    - PRERELEASE_TYPE: 0000=alpha, 0001=beta, 0002=stable
-    - Each segment is zero-padded to 4 digits for correct lexicographic sort.
+    Format: STABLE.MAJOR.MINOR.BUGFIX.PRERELEASE_TYPE.PRERELEASE_NUM
+    - STABLE: 1 for stable releases, 0 for pre-releases
+    - PRERELEASE_TYPE: 0000=dev, 0001=alpha, 0002=beta, 0003=rc (sorted newest first)
+    - Each segment (except STABLE) is zero-padded to 4 digits for correct lexicographic sort.
+
+    This ensures stable versions ALWAYS sort above pre-releases regardless of
+    version number, matching PyPI's "latest" behavior.
     """
     postfix = groups.get("postfix1") or groups.get("postfix2") or ""
     major = groups.get("major", "0") or "0"
     minor = groups.get("minor", "0") or "0"
     bugfix = groups.get("bugfix", "0") or "0"
 
-    # Map pre-release type to sortable number
-    if postfix.startswith("a"):
-        pre_type = "0000"
-        pre_num = "".join(c for c in postfix if c.isdigit()) or "0"
-    elif postfix.startswith("b"):
+    postfix_lower = postfix.lower()
+
+    # Determine if pre-release and map type
+    # Pre-release type values for descending sort: rc(0003) > beta(0002) > alpha(0001) > dev(0000)
+    if postfix_lower.startswith(("a", "alpha")):
+        stable_flag = "0"
         pre_type = "0001"
-        pre_num = "".join(c for c in postfix if c.isdigit()) or "0"
-    else:
+        pre_num = extract_digits(postfix)
+    elif postfix_lower.startswith(("b", "beta")):
+        stable_flag = "0"
         pre_type = "0002"
+        pre_num = extract_digits(postfix)
+    elif postfix_lower.startswith(("rc", "c")):
+        stable_flag = "0"
+        pre_type = "0003"
+        pre_num = extract_digits(postfix)
+    elif postfix_lower.startswith("dev"):
+        stable_flag = "0"
+        pre_type = "0000"  # dev sorts before alpha
+        pre_num = extract_digits(postfix)
+    else:
+        stable_flag = "1"
+        pre_type = "0000"
         pre_num = "0"
 
-    return f"{major.zfill(4)}.{minor.zfill(4)}.{bugfix.zfill(4)}.{pre_type}.{pre_num.zfill(4)}"
+    return (
+        f"{stable_flag}."
+        f"{major.zfill(4)}.{minor.zfill(4)}.{bugfix.zfill(4)}."
+        f"{pre_type}.{pre_num.zfill(4)}"
+    )
 
 
 def get_typesense_client():
@@ -83,14 +114,28 @@ def get_typesense_client():
 
 
 def is_old_format(version_sortable):
-    """Check if version_sortable uses the old non-padded format."""
+    """Check if version_sortable uses the old format (needs migration).
+
+    Old formats to migrate:
+    - 5 segments: "0002.0001.0003.0002.0000" (zero-padded, no stable flag)
+    - 5 segments non-padded: "2.1.0.2.0"
+    - Any other non-6-segment format
+
+    New format (6 segments): "1.0002.0001.0003.0000.0000"
+    - First segment is stable flag (1 digit: 0 or 1)
+    - Remaining 5 segments are 4 digits each
+    """
     if not version_sortable:
         return True
     parts = version_sortable.split(".")
-    # New format has 5 parts, each with 4 digits (zero-padded)
-    if len(parts) != 5:
+    # New format has exactly 6 parts
+    if len(parts) != 6:
         return True
-    return any(len(part) != 4 for part in parts)
+    # First part (stable flag) should be exactly 1 character: "0" or "1"
+    if len(parts[0]) != 1 or parts[0] not in ("0", "1"):
+        return True
+    # Remaining parts should be exactly 4 digits
+    return any(len(part) != 4 for part in parts[1:])
 
 
 def migrate_collection(collection_name, dry_run=False, verbose=False):
@@ -198,7 +243,7 @@ def migrate_collection(collection_name, dry_run=False, verbose=False):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Migrate version_sortable to new zero-padded format"
+        description="Migrate version_sortable from 5-segment to 6-segment format with stable flag"
     )
     parser.add_argument(
         "--collection",

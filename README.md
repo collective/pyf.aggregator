@@ -566,8 +566,30 @@ The Typesense collection schema includes the following field categories:
 
 **Computed Fields:**
 - `version_major`, `version_minor`, `version_bugfix` - Parsed version components
+- `version_sortable` - Sortable string for correct version ordering (see below)
 - `health_score` - Package health metric (0-100)
 - `health_score_breakdown` - Detailed scoring factors (recency, documentation, metadata)
+
+**Version Sorting:**
+
+The `version_sortable` field uses a 6-segment format that ensures stable releases sort above pre-releases, matching PyPI's definition of "latest":
+
+```
+Format: STABLE.MAJOR.MINOR.BUGFIX.PRETYPE.PRENUM
+
+Examples:
+  2.5.3 (stable)  → 1.0002.0005.0003.0000.0000
+  3.0.0a2 (alpha) → 0.0003.0000.0000.0001.0002
+
+Sorting descending: 2.5.3 > 3.0.0a2 (stable first)
+```
+
+- **STABLE**: `1` for stable releases, `0` for pre-releases
+- **PRETYPE**: `0000`=dev, `0001`=alpha, `0002`=beta, `0003`=rc (for ordering among pre-releases)
+
+This matches PyPI's behavior where `2.5.3` is considered "latest" even though `3.0.0a2` has a higher version number, because pre-releases are not considered production-ready.
+
+To query for the "newest" version of a package, sort by `version_sortable:desc`.
 
 **GitHub Enrichment:**
 - `github_stars`, `github_watchers`, `github_open_issues`
@@ -684,6 +706,12 @@ uv run pytest tests/test_fetcher.py -v
 
 # Run without coverage
 uv run pytest --no-cov
+
+# Run only integration tests (requires Typesense running)
+uv run pytest -m integration -v
+
+# Run excluding integration tests
+uv run pytest -m "not integration"
 ```
 
 
