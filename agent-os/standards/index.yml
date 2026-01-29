@@ -2,43 +2,30 @@
 
 backend:
   api:
-    description: Needs description - run /index-standards
+    description: RESTful API design, versioning, naming conventions, and HTTP status codes
   migrations:
-    description: Needs description - run /index-standards
+    description: Database migration patterns, rollback strategies, and zero-downtime deployments
   models:
-    description: Needs description - run /index-standards
+    description: Database model naming, timestamps, constraints, and relationship patterns
   queries:
-    description: Needs description - run /index-standards
-
-frontend:
-  accessibility:
-    description: Needs description - run /index-standards
-  components:
-    description: Needs description - run /index-standards
-  css-identifiers:
-    description: Needs description - run /index-standards
-  css:
-    description: Needs description - run /index-standards
-  responsive:
-    description: Needs description - run /index-standards
+    description: SQL injection prevention, N+1 queries, transactions, and query optimization
 
 global:
   changelog:
-    description: Needs description - run /index-standards
+    description: Changelog maintenance after implementation tasks
   coding-style:
-    description: Needs description - run /index-standards
+    description: Naming conventions, formatting, small functions, and DRY principle
   commenting:
-    description: Needs description - run /index-standards
+    description: Self-documenting code and minimal, evergreen comments
   conventions:
-    description: Needs description - run /index-standards
+    description: Project structure, version control, documentation, and code review
   error-handling:
-    description: Needs description - run /index-standards
+    description: User-friendly errors, fail-fast validation, and graceful degradation
   tech-stack:
-    description: Needs description - run /index-standards
+    description: Technology stack reference template for the project
   validation:
-    description: Needs description - run /index-standards
+    description: Server-side validation, input sanitization, and allowlist patterns
 
 testing:
   test-writing:
-    description: Needs description - run /index-standards
-
+    description: TDD approach, testing core flows, and mocking external dependencies
