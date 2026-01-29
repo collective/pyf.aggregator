@@ -718,6 +718,14 @@ uv run pytest -m "not integration"
 ```
 
 
+## GUI
+
+We have GUI which we use for the Plone addon gallery (PAG).
+This is a reference implemetation build with SvelteKit.
+
+https://github.com/collective/pyf-gui
+
+
 ## License
 
 The code is open-source and licensed under the Apache License 2.0.
