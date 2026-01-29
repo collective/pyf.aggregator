@@ -538,3 +538,111 @@ class TestMain:
             call_kwargs = mock_enricher.run.call_args
             assert call_kwargs[1].get('package_name') == 'plone.api' or \
                    (len(call_kwargs[0]) > 1 and call_kwargs[0][1] == 'plone.api')
+
+
+# ============================================================================
+# SQLite Validation Tests
+# ============================================================================
+
+class TestValidateSqliteDb:
+    """Test the _validate_sqlite_db method."""
+
+    def test_validates_correct_database(self, enricher, sample_pypi_data_db):
+        """Valid db with roles table returns True."""
+        result = enricher._validate_sqlite_db(str(sample_pypi_data_db))
+        assert result is True
+
+    def test_rejects_corrupted_file(self, enricher, tmp_path):
+        """Corrupted file returns False."""
+        corrupted_db = tmp_path / "corrupted.db"
+        corrupted_db.write_text("garbage data not a database")
+
+        result = enricher._validate_sqlite_db(str(corrupted_db))
+        assert result is False
+
+    def test_rejects_database_without_roles_table(self, enricher, tmp_path):
+        """Valid SQLite but missing roles table returns False."""
+        db_path = tmp_path / "no_roles.db"
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE other_table (id INTEGER PRIMARY KEY)")
+        conn.commit()
+        conn.close()
+
+        result = enricher._validate_sqlite_db(str(db_path))
+        assert result is False
+
+    def test_rejects_nonexistent_file(self, enricher, tmp_path):
+        """Missing file returns False."""
+        nonexistent = tmp_path / "nonexistent.db"
+
+        result = enricher._validate_sqlite_db(str(nonexistent))
+        assert result is False
+
+
+class TestDownloadPypiDataWithValidation:
+    """Test the _download_pypi_data method with validation."""
+
+    @responses.activate
+    def test_redownloads_corrupted_cached_database(self, enricher, tmp_path):
+        """Verify corrupted cache triggers re-download."""
+        import zipfile
+        import io
+        import pyf.aggregator.enrichers.maintainers as maintainers_module
+
+        # Create a corrupted cached database
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        corrupted_db = cache_dir / "roles.db"
+        corrupted_db.write_text("garbage data not a database")
+
+        # Create a mock valid ZIP file for the download
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            # Create a valid SQLite database with roles table
+            db_path_temp = tmp_path / "temp.db"
+            conn = sqlite3.connect(db_path_temp)
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE roles (
+                    package_name TEXT,
+                    user_name TEXT,
+                    role_name TEXT
+                )
+            """)
+            cursor.execute("INSERT INTO roles VALUES ('test', 'user', 'Owner')")
+            conn.commit()
+            conn.close()
+
+            with open(db_path_temp, 'rb') as f:
+                zf.writestr('roles.db', f.read())
+
+        responses.add(
+            responses.GET,
+            "https://github.com/pypi-data/data/releases/latest/download/roles.db.zip",
+            body=zip_buffer.getvalue(),
+            status=200,
+            content_type="application/zip",
+        )
+
+        original_cache_dir = maintainers_module.PYPI_DATA_CACHE_DIR
+        original_cache_ttl = maintainers_module.PYPI_DATA_CACHE_TTL
+
+        try:
+            maintainers_module.PYPI_DATA_CACHE_DIR = str(cache_dir)
+            maintainers_module.PYPI_DATA_CACHE_TTL = 86400  # 24 hours - cache is "fresh"
+
+            result = enricher._download_pypi_data()
+
+            # Should have re-downloaded and returned a valid path
+            assert result is not None
+            assert os.path.exists(result)
+
+            # Verify the new file is a valid database with roles table
+            assert enricher._validate_sqlite_db(result) is True
+
+            # Verify a download was made (corrupted cache was replaced)
+            assert len(responses.calls) == 1
+        finally:
+            maintainers_module.PYPI_DATA_CACHE_DIR = original_cache_dir
+            maintainers_module.PYPI_DATA_CACHE_TTL = original_cache_ttl

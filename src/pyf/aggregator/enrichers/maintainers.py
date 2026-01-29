@@ -177,6 +177,31 @@ class MaintainerEnricher(TypesenceConnection, TypesensePackagesCollection):
 
         logger.info(f"[{datetime.now()}] done - enriched {enrich_counter} packages")
 
+    def _validate_sqlite_db(self, db_path):
+        """Validate that a file is a valid SQLite database with required schema.
+
+        Args:
+            db_path: Path to the database file
+
+        Returns:
+            True if valid SQLite database with 'roles' table, False otherwise
+        """
+        if not os.path.exists(db_path):
+            return False
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='roles'"
+            )
+            result = cursor.fetchone()
+            conn.close()
+            return result is not None
+        except sqlite3.DatabaseError:
+            return False
+        except Exception:
+            return False
+
     def _download_pypi_data(self):
         """Download and cache the pypi-data SQLite database.
 
@@ -187,12 +212,21 @@ class MaintainerEnricher(TypesenceConnection, TypesensePackagesCollection):
         os.makedirs(cache_dir, exist_ok=True)
         db_path = os.path.join(cache_dir, "roles.db")
 
-        # Check if cached database is fresh
+        # Check if cached database is fresh and valid
         if os.path.exists(db_path):
             age = time.time() - os.path.getmtime(db_path)
             if age < PYPI_DATA_CACHE_TTL:
-                logger.debug(f"Using cached pypi-data database (age: {age:.0f}s)")
-                return db_path
+                if self._validate_sqlite_db(db_path):
+                    logger.debug(f"Using cached pypi-data database (age: {age:.0f}s)")
+                    return db_path
+                else:
+                    logger.warning(
+                        "Cached pypi-data database is corrupted or invalid, re-downloading"
+                    )
+                    try:
+                        os.remove(db_path)
+                    except OSError as e:
+                        logger.error(f"Failed to remove corrupted cache file: {e}")
 
         # Download fresh database
         logger.info("Downloading pypi-data database...")
