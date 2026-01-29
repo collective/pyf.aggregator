@@ -41,25 +41,24 @@ def sample_pypi_data_db(tmp_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # Create roles table (matching pypi-data schema)
+    # Create maintainers table (matching sethmlarson/pypi-data schema)
     cursor.execute("""
-        CREATE TABLE roles (
+        CREATE TABLE maintainers (
             package_name TEXT,
-            user_name TEXT,
-            role_name TEXT
+            name TEXT
         )
     """)
 
     # Insert sample data
     cursor.executemany(
-        "INSERT INTO roles (package_name, user_name, role_name) VALUES (?, ?, ?)",
+        "INSERT INTO maintainers (package_name, name) VALUES (?, ?)",
         [
-            ("plone.api", "davisagli", "Owner"),
-            ("plone.api", "tisto", "Maintainer"),
-            ("plone.api", "jensens", "Maintainer"),
-            ("plone.restapi", "tisto", "Owner"),
-            ("plone.restapi", "sneridagh", "Maintainer"),
-            ("some-other-package", "someone", "Owner"),
+            ("plone.api", "davisagli"),
+            ("plone.api", "tisto"),
+            ("plone.api", "jensens"),
+            ("plone.restapi", "tisto"),
+            ("plone.restapi", "sneridagh"),
+            ("some-other-package", "someone"),
         ]
     )
 
@@ -145,31 +144,31 @@ class TestDownloadPypiData:
     @responses.activate
     def test_downloads_and_extracts_database(self, enricher, tmp_path):
         """Test successful database download and extraction."""
-        import zipfile
+        import gzip
         import io
 
-        # Create a mock ZIP file containing a SQLite database
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-            # Create a minimal SQLite database
-            db_buffer = io.BytesIO()
-            conn = sqlite3.connect(':memory:')
-            conn.execute("CREATE TABLE roles (package_name TEXT, user_name TEXT, role_name TEXT)")
-            conn.execute("INSERT INTO roles VALUES ('test', 'user', 'Owner')")
+        # Create a valid SQLite database file first
+        db_path_temp = tmp_path / "temp.db"
+        conn = sqlite3.connect(db_path_temp)
+        conn.execute("CREATE TABLE maintainers (package_name TEXT, name TEXT)")
+        conn.execute("INSERT INTO maintainers VALUES ('test', 'user')")
+        conn.commit()
+        conn.close()
 
-            # Dump to buffer
-            for line in conn.iterdump():
-                db_buffer.write(f'{line}\n'.encode())
-            conn.close()
+        # Create GZIP file containing the SQLite database
+        with open(db_path_temp, 'rb') as f:
+            db_bytes = f.read()
 
-            zf.writestr('roles.db', db_buffer.getvalue())
+        gz_buffer = io.BytesIO()
+        with gzip.GzipFile(fileobj=gz_buffer, mode='wb') as gz:
+            gz.write(db_bytes)
 
         responses.add(
             responses.GET,
-            "https://github.com/pypi-data/data/releases/latest/download/roles.db.zip",
-            body=zip_buffer.getvalue(),
+            "https://github.com/sethmlarson/pypi-data/releases/latest/download/pypi.db.gz",
+            body=gz_buffer.getvalue(),
             status=200,
-            content_type="application/zip",
+            content_type="application/gzip",
         )
 
         with patch.dict(os.environ, {"PYPI_DATA_CACHE_DIR": str(tmp_path)}):
@@ -186,7 +185,7 @@ class TestDownloadPypiData:
 
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
-        cached_db = cache_dir / "roles.db"
+        cached_db = cache_dir / "pypi.db"
         shutil.copy(sample_pypi_data_db, cached_db)
 
         # Patch the module-level constants
@@ -216,7 +215,7 @@ class TestDownloadPypiData:
 
         responses.add(
             responses.GET,
-            "https://github.com/pypi-data/data/releases/latest/download/roles.db.zip",
+            "https://github.com/sethmlarson/pypi-data/releases/latest/download/pypi.db.gz",
             status=404,
         )
 
@@ -548,7 +547,7 @@ class TestValidateSqliteDb:
     """Test the _validate_sqlite_db method."""
 
     def test_validates_correct_database(self, enricher, sample_pypi_data_db):
-        """Valid db with roles table returns True."""
+        """Valid db with maintainers table returns True."""
         result = enricher._validate_sqlite_db(str(sample_pypi_data_db))
         assert result is True
 
@@ -560,9 +559,9 @@ class TestValidateSqliteDb:
         result = enricher._validate_sqlite_db(str(corrupted_db))
         assert result is False
 
-    def test_rejects_database_without_roles_table(self, enricher, tmp_path):
-        """Valid SQLite but missing roles table returns False."""
-        db_path = tmp_path / "no_roles.db"
+    def test_rejects_database_without_maintainers_table(self, enricher, tmp_path):
+        """Valid SQLite but missing maintainers table returns False."""
+        db_path = tmp_path / "no_maintainers.db"
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute("CREATE TABLE other_table (id INTEGER PRIMARY KEY)")
@@ -586,43 +585,44 @@ class TestDownloadPypiDataWithValidation:
     @responses.activate
     def test_redownloads_corrupted_cached_database(self, enricher, tmp_path):
         """Verify corrupted cache triggers re-download."""
-        import zipfile
+        import gzip
         import io
         import pyf.aggregator.enrichers.maintainers as maintainers_module
 
         # Create a corrupted cached database
         cache_dir = tmp_path / "cache"
         cache_dir.mkdir()
-        corrupted_db = cache_dir / "roles.db"
+        corrupted_db = cache_dir / "pypi.db"
         corrupted_db.write_text("garbage data not a database")
 
-        # Create a mock valid ZIP file for the download
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-            # Create a valid SQLite database with roles table
-            db_path_temp = tmp_path / "temp.db"
-            conn = sqlite3.connect(db_path_temp)
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE roles (
-                    package_name TEXT,
-                    user_name TEXT,
-                    role_name TEXT
-                )
-            """)
-            cursor.execute("INSERT INTO roles VALUES ('test', 'user', 'Owner')")
-            conn.commit()
-            conn.close()
+        # Create a valid SQLite database with maintainers table
+        db_path_temp = tmp_path / "temp.db"
+        conn = sqlite3.connect(db_path_temp)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE maintainers (
+                package_name TEXT,
+                name TEXT
+            )
+        """)
+        cursor.execute("INSERT INTO maintainers VALUES ('test', 'user')")
+        conn.commit()
+        conn.close()
 
-            with open(db_path_temp, 'rb') as f:
-                zf.writestr('roles.db', f.read())
+        # Create GZIP file containing the SQLite database
+        with open(db_path_temp, 'rb') as f:
+            db_bytes = f.read()
+
+        gz_buffer = io.BytesIO()
+        with gzip.GzipFile(fileobj=gz_buffer, mode='wb') as gz:
+            gz.write(db_bytes)
 
         responses.add(
             responses.GET,
-            "https://github.com/pypi-data/data/releases/latest/download/roles.db.zip",
-            body=zip_buffer.getvalue(),
+            "https://github.com/sethmlarson/pypi-data/releases/latest/download/pypi.db.gz",
+            body=gz_buffer.getvalue(),
             status=200,
-            content_type="application/zip",
+            content_type="application/gzip",
         )
 
         original_cache_dir = maintainers_module.PYPI_DATA_CACHE_DIR
@@ -638,7 +638,7 @@ class TestDownloadPypiDataWithValidation:
             assert result is not None
             assert os.path.exists(result)
 
-            # Verify the new file is a valid database with roles table
+            # Verify the new file is a valid database with maintainers table
             assert enricher._validate_sqlite_db(result) is True
 
             # Verify a download was made (corrupted cache was replaced)

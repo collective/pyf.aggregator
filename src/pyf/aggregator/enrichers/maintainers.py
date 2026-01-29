@@ -5,7 +5,7 @@ This module fetches maintainer data from the pypi-data SQLite database
 and enriches Typesense documents with maintainer usernames and avatar URLs.
 
 The pypi-data database is downloaded from:
-https://github.com/pypi-data/data/releases/latest/download/roles.db.zip
+https://github.com/sethmlarson/pypi-data/releases/latest/download/pypi.db.gz
 
 Avatar URLs are scraped from PyPI user profile pages.
 """
@@ -18,6 +18,7 @@ from pyf.aggregator.logger import logger
 from pyf.aggregator.profiles import ProfileManager
 
 import functools
+import gzip
 import os
 import re
 import requests
@@ -25,7 +26,6 @@ import sqlite3
 import sys
 import tempfile
 import time
-import zipfile
 
 
 load_dotenv()
@@ -42,7 +42,7 @@ PYPI_DATA_CACHE_DIR = os.getenv("PYPI_DATA_CACHE_DIR", tempfile.gettempdir())
 PYPI_DATA_CACHE_TTL = int(os.getenv("PYPI_DATA_CACHE_TTL", 86400))  # 24 hours
 
 # pypi-data download URL
-PYPI_DATA_URL = "https://github.com/pypi-data/data/releases/latest/download/roles.db.zip"
+PYPI_DATA_URL = "https://github.com/sethmlarson/pypi-data/releases/latest/download/pypi.db.gz"
 
 # Avatar URL regex pattern (matches PyPI's camo proxy and gravatar URLs)
 AVATAR_PATTERN = re.compile(
@@ -184,7 +184,7 @@ class MaintainerEnricher(TypesenceConnection, TypesensePackagesCollection):
             db_path: Path to the database file
 
         Returns:
-            True if valid SQLite database with 'roles' table, False otherwise
+            True if valid SQLite database with 'maintainers' table, False otherwise
         """
         if not os.path.exists(db_path):
             return False
@@ -192,7 +192,7 @@ class MaintainerEnricher(TypesenceConnection, TypesensePackagesCollection):
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='roles'"
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='maintainers'"
             )
             result = cursor.fetchone()
             conn.close()
@@ -210,7 +210,7 @@ class MaintainerEnricher(TypesenceConnection, TypesensePackagesCollection):
         """
         cache_dir = PYPI_DATA_CACHE_DIR
         os.makedirs(cache_dir, exist_ok=True)
-        db_path = os.path.join(cache_dir, "roles.db")
+        db_path = os.path.join(cache_dir, "pypi.db")
 
         # Check if cached database is fresh and valid
         if os.path.exists(db_path):
@@ -230,7 +230,7 @@ class MaintainerEnricher(TypesenceConnection, TypesensePackagesCollection):
 
         # Download fresh database
         logger.info("Downloading pypi-data database...")
-        zip_path = os.path.join(cache_dir, "roles.db.zip")
+        gz_path = os.path.join(cache_dir, "pypi.db.gz")
 
         try:
             response = requests.get(PYPI_DATA_URL, timeout=120, stream=True)
@@ -238,26 +238,18 @@ class MaintainerEnricher(TypesenceConnection, TypesensePackagesCollection):
                 logger.error(f"Failed to download pypi-data: HTTP {response.status_code}")
                 return None
 
-            # Save ZIP file
-            with open(zip_path, 'wb') as f:
+            # Save GZIP file
+            with open(gz_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
 
-            # Extract database
-            with zipfile.ZipFile(zip_path, 'r') as zf:
-                # Find the database file in the archive
-                db_names = [n for n in zf.namelist() if n.endswith('.db')]
-                if not db_names:
-                    logger.error("No .db file found in pypi-data archive")
-                    return None
+            # Extract database from GZIP
+            with gzip.open(gz_path, 'rb') as src:
+                with open(db_path, 'wb') as dst:
+                    dst.write(src.read())
 
-                # Extract the first .db file
-                with zf.open(db_names[0]) as src:
-                    with open(db_path, 'wb') as dst:
-                        dst.write(src.read())
-
-            # Clean up ZIP file
-            os.remove(zip_path)
+            # Clean up GZIP file
+            os.remove(gz_path)
 
             logger.info(f"Downloaded and extracted pypi-data database to {db_path}")
             return db_path
@@ -280,9 +272,9 @@ class MaintainerEnricher(TypesenceConnection, TypesensePackagesCollection):
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
 
-            # Query roles table for this package
+            # Query maintainers table for this package
             cursor.execute(
-                "SELECT DISTINCT user_name FROM roles WHERE package_name = ?",
+                "SELECT DISTINCT name FROM maintainers WHERE package_name = ?",
                 (package_name,)
             )
 
