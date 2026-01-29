@@ -167,12 +167,6 @@ class TypesensePackagesCollection:
                     "optional": True,
                 },
                 {
-                    "name": "maintainers",
-                    "type": "object[]",
-                    "optional": True,
-                    "index": False,
-                },
-                {
                     "name": "contributors",
                     "type": "object[]",
                     "optional": True,

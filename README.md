@@ -82,17 +82,7 @@ CELERY_SCHEDULE_RSS_PROJECTS=*/1 * * * *    # Check for new projects
 CELERY_SCHEDULE_RSS_RELEASES=*/1 * * * *    # Check for new releases
 CELERY_SCHEDULE_WEEKLY_REFRESH=0 2 * * 0    # Sunday 2:00 AM UTC
 CELERY_SCHEDULE_WEEKLY_DOWNLOADS=0 4 * * 0  # Sunday 4:00 AM UTC
-CELERY_SCHEDULE_WEEKLY_MAINTAINERS=0 5 * * 0  # Sunday 5:00 AM UTC
 CELERY_SCHEDULE_MONTHLY_FETCH=0 3 1 * *     # 1st of month, 3:00 AM UTC
-
-# Maintainer Enricher Configuration
-# Rate limit: 0.5s delay between PyPI profile requests to avoid rate limiting
-PYPI_PROFILE_RATE_LIMIT_DELAY=0.5
-PYPI_PROFILE_MAX_RETRIES=3
-# Cache directory for pypi-data SQLite database (default: system temp)
-PYPI_DATA_CACHE_DIR=/tmp/pyf-data
-# Cache TTL in seconds (default: 24 hours)
-PYPI_DATA_CACHE_TTL=86400
 
 # RSS Deduplication
 # Separate TTLs for new-package vs release-update feeds (default 24h)
@@ -415,52 +405,6 @@ This adds the following fields to each package:
 - `download_total` - Total downloads (if available)
 - `download_updated` - Timestamp when stats were updated
 
-### pyfmaintainers
-
-Enriches indexed packages with maintainer information from the pypi-data SQLite database.
-
-```shell
-uv run pyfmaintainers [options]
-```
-
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `-p`, `--profile` | Use a profile (auto-sets target collection name) |
-| `-t`, `--target` | Target Typesense collection name (auto-set from profile if not specified) |
-| `-n`, `--name` | Single package name to enrich (enriches only this package) |
-| `-v`, `--verbose` | Show detailed output |
-
-**Examples:**
-
-```shell
-# Enrich using profile (recommended)
-uv run pyfmaintainers -p plone
-
-# Enrich Django packages
-uv run pyfmaintainers -p django
-
-# Enrich a specific collection (manual)
-uv run pyfmaintainers -t packages1
-
-# Enrich a specific package
-uv run pyfmaintainers -p plone -n plone.api
-
-# Debug with verbose output
-uv run pyfmaintainers -p plone -n plone.api -v
-```
-
-This adds the following field to each package:
-- `maintainers` - Array of maintainers with `username` and `avatar_url`
-
-**Data Sources:**
-- **Username data**: Downloaded from the [pypi-data](https://github.com/pypi-data/data) SQLite database
-- **Avatar URLs**: Scraped from PyPI user profile pages
-
-**Note:** The pypi-data database is cached locally (default 24 hours) to minimize downloads.
-
-
 ## Quickstart
 
 ### Using Profiles (Recommended)
@@ -506,19 +450,7 @@ This adds the following field to each package:
    uv run pyfdownloads -p flask
    ```
 
-5. Enrich with maintainer information:
-   ```shell
-   # For Plone
-   uv run pyfmaintainers -p plone
-
-   # For Django
-   uv run pyfmaintainers -p django
-
-   # For Flask
-   uv run pyfmaintainers -p flask
-   ```
-
-6. Create a search-only API key for clients:
+5. Create a search-only API key for clients:
    ```shell
    # For Plone
    uv run pyfupdater --add-search-only-apikey -p plone
@@ -671,9 +603,6 @@ To query for the "newest" version of a package, sort by `version_sortable:desc`.
 - `download_last_day`, `download_last_week`, `download_last_month`
 - `download_total`, `download_updated`
 
-**Maintainer Information:**
-- `maintainers` - Array of objects with `username`, `avatar_url`
-
 ### Queue-Based Processing
 
 The project uses a queue-based architecture with Celery for improved scalability and reliability:
@@ -694,7 +623,6 @@ The project uses a queue-based architecture with Celery for improved scalability
 | `refresh_all_indexed_packages` | Refresh all indexed packages from PyPI, remove packages returning 404 |
 | `full_fetch_all_packages` | Full fetch of all packages (equivalent to `pyfaggregator -f -p <profile>`) |
 | `enrich_downloads_all_packages` | Enrich all packages with download stats from pypistats.org |
-| `enrich_maintainers_all_packages` | Enrich all packages with maintainer info from pypi-data |
 
 **Periodic Task Schedules:**
 
@@ -704,7 +632,6 @@ The project uses a queue-based architecture with Celery for improved scalability
 | RSS new releases | Every minute | Monitor PyPI RSS feed for package updates |
 | Weekly refresh | Sunday 2:00 AM UTC | Refresh all indexed packages from PyPI |
 | Weekly downloads | Sunday 4:00 AM UTC | Enrich with download stats from pypistats.org |
-| Weekly maintainers | Sunday 5:00 AM UTC | Enrich with maintainer info from pypi-data |
 | Monthly full fetch | 1st of month, 3:00 AM UTC | Complete re-fetch from PyPI |
 
 **Worker Pool:**

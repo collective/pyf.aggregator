@@ -34,7 +34,6 @@ CELERY_SCHEDULE_RSS_RELEASES = os.getenv("CELERY_SCHEDULE_RSS_RELEASES", "*/1 * 
 CELERY_SCHEDULE_WEEKLY_REFRESH = os.getenv("CELERY_SCHEDULE_WEEKLY_REFRESH", "0 2 * * 0")
 CELERY_SCHEDULE_MONTHLY_FETCH = os.getenv("CELERY_SCHEDULE_MONTHLY_FETCH", "0 3 1 * *")
 CELERY_SCHEDULE_WEEKLY_DOWNLOADS = os.getenv("CELERY_SCHEDULE_WEEKLY_DOWNLOADS", "0 4 * * 0")
-CELERY_SCHEDULE_WEEKLY_MAINTAINERS = os.getenv("CELERY_SCHEDULE_WEEKLY_MAINTAINERS", "0 5 * * 0")
 
 # RSS deduplication TTL in seconds (0 to disable)
 # Separate TTLs for new-package vs update feeds; legacy env var used as fallback
@@ -904,31 +903,6 @@ def enrich_downloads_all_packages(self):
     return {"status": "completed", "profiles": results}
 
 
-@app.task(bind=True, max_retries=3, default_retry_delay=60, soft_time_limit=7200, time_limit=7500)
-def enrich_maintainers_all_packages(self):
-    """Enrich all indexed packages with maintainer information from pypi-data."""
-    from pyf.aggregator.enrichers.maintainers import MaintainerEnricher
-    from pyf.aggregator.profiles import ProfileManager
-
-    logger.info("Starting weekly maintainers enrichment")
-
-    profile_manager = ProfileManager()
-    profiles = profile_manager.list_profiles()
-
-    results = {}
-    for profile_name in profiles:
-        try:
-            enricher = MaintainerEnricher()
-            enricher.run(target=profile_name)
-            results[profile_name] = "completed"
-            logger.info(f"Maintainers enrichment complete for profile '{profile_name}'")
-        except Exception as e:
-            logger.error(f"Error enriching maintainers for profile '{profile_name}': {e}")
-            results[profile_name] = f"failed: {e}"
-
-    return {"status": "completed", "profiles": results}
-
-
 ####  Celery periodic tasks
 
 
@@ -1013,14 +987,3 @@ def setup_periodic_tasks(sender, **kw):
         )
     else:
         logger.info("Weekly download stats enrichment task disabled")
-
-    # Weekly maintainers enrichment
-    schedule = parse_crontab(CELERY_SCHEDULE_WEEKLY_MAINTAINERS)
-    if schedule:
-        sender.add_periodic_task(
-            schedule,
-            enrich_maintainers_all_packages.s(),
-            name='weekly maintainers enrichment'
-        )
-    else:
-        logger.info("Weekly maintainers enrichment task disabled")

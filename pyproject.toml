@@ -48,7 +48,6 @@ pyfaggregator = "pyf.aggregator.main:main"
 pyfupdater = "pyf.aggregator.typesense_util:main"
 pyfgithub = "pyf.aggregator.enrichers.github:main"
 pyfdownloads = "pyf.aggregator.enrichers.downloads:main"
-pyfmaintainers = "pyf.aggregator.enrichers.maintainers:main"
 
 [build-system]
 requires = ["hatchling"]
