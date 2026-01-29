@@ -406,7 +406,10 @@ def _get_github_data(repo_identifier):
         try:
             repo = github.get_repo(repo_identifier)
         except UnknownObjectException:
-            logger.warning(f"GitHub repository not found: {repo_identifier}")
+            logger.warning(
+                f"GitHub API 404: repository '{repo_identifier}' not found - "
+                "check if package metadata has incorrect URL"
+            )
             return {}
         except RateLimitExceededException:
             reset_time = github.rate_limiting_resettime

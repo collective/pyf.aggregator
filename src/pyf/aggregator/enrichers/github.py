@@ -137,6 +137,10 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
 
                     gh_data = self._get_github_data(package_repo_identifier, verbose=verbose)
                     if not gh_data:
+                        logger.warning(
+                            f"GitHub repository not found for package '{data.get('name')}': "
+                            f"{package_repo_identifier}"
+                        )
                         if verbose:
                             print("--- No GitHub data available ---")
                         continue
@@ -196,6 +200,7 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
             try:
                 repo = github.get_repo(repo_identifier)
             except UnknownObjectException:
+                logger.warning(f"GitHub API 404: repository '{repo_identifier}' not found")
                 if verbose:
                     print(f"GitHub repository not found: {repo_identifier}")
                 return {}
