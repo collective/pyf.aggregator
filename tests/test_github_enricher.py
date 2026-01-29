@@ -490,6 +490,136 @@ class TestMemoization:
 
 
 # ============================================================================
+# Search Parameters Tests
+# ============================================================================
+
+class TestSearchParameters:
+    """Test that search parameters are correctly configured."""
+
+    def test_search_uses_sort_by_upload_timestamp_desc(self, enricher, sample_github_repo, sample_github_contributors):
+        """
+        Test that the enricher uses sort_by: upload_timestamp:desc to get newest versions.
+
+        This is critical because when using group_by without sort_by, Typesense may return
+        an arbitrary version of each package. If project_urls with GitHub links was added
+        in a recent version, the enricher might pick up an older version without the URLs.
+
+        Regression test for: GitHub enricher not finding GitHub URLs from project_urls
+        """
+        if hasattr(enricher._get_github_data, 'cache'):
+            enricher._get_github_data.cache.clear()
+
+        sample_github_repo.get_contributors.return_value = sample_github_contributors
+
+        # Track calls to ts_search to verify search parameters
+        search_calls = []
+        original_ts_search = enricher.ts_search
+
+        def mock_ts_search(target, search_parameters, page=1):
+            search_calls.append(search_parameters.copy())
+            return {
+                "found": 1,
+                "request_params": {"per_page": 50},
+                "grouped_hits": [
+                    {
+                        "hits": [
+                            {
+                                "document": {
+                                    "id": "test-package-2.0.0",
+                                    "name": "test-package",
+                                    "version": "2.0.0",
+                                    "project_urls": {"Source": "https://github.com/org/test-package"}
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+
+        with patch('pyf.aggregator.enrichers.github.Github') as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.get_repo.return_value = sample_github_repo
+            mock_github_class.return_value = mock_github
+
+            enricher.ts_search = mock_ts_search
+            enricher.update_doc = MagicMock()
+
+            enricher.run("test_collection")
+
+        # Verify that sort_by was included in search parameters
+        assert len(search_calls) >= 1
+        first_call_params = search_calls[0]
+
+        assert "sort_by" in first_call_params, \
+            "search_parameters must include 'sort_by' to ensure newest version is fetched"
+        assert first_call_params["sort_by"] == "upload_timestamp:desc", \
+            "sort_by must be 'upload_timestamp:desc' to get newest package versions"
+
+        # Also verify group_by is present (the combination is what matters)
+        assert "group_by" in first_call_params, \
+            "search_parameters must include 'group_by' for deduplication"
+        assert first_call_params["group_by"] == "name_sortable"
+
+    def test_search_finds_github_url_from_newest_version_project_urls(self, enricher, sample_github_repo, sample_github_contributors):
+        """
+        Test that the enricher finds GitHub URLs from project_urls in the newest version.
+
+        Simulates the scenario where:
+        - Package v1.0.0 has no GitHub URL in project_urls
+        - Package v2.0.0 (newest) has GitHub URL in project_urls
+
+        The enricher should find the GitHub URL because it should be getting v2.0.0.
+        """
+        if hasattr(enricher._get_github_data, 'cache'):
+            enricher._get_github_data.cache.clear()
+
+        sample_github_repo.get_contributors.return_value = sample_github_contributors
+
+        # Simulate Typesense returning the newest version (v2.0.0) which has project_urls
+        search_results = {
+            "found": 1,
+            "request_params": {"per_page": 50},
+            "grouped_hits": [
+                {
+                    "hits": [
+                        {
+                            "document": {
+                                "id": "wcs.samlauth-1.3.0",
+                                "name": "wcs.samlauth",
+                                "version": "1.3.0",
+                                "home_page": None,
+                                "project_url": None,
+                                # GitHub URL only available in project_urls (added in recent version)
+                                "project_urls": {
+                                    "Homepage": "https://github.com/webcloud7/wcs.samlauth",
+                                    "Documentation": "https://docs.example.com"
+                                }
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+
+        with patch('pyf.aggregator.enrichers.github.Github') as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.get_repo.return_value = sample_github_repo
+            mock_github_class.return_value = mock_github
+
+            enricher.ts_search = MagicMock(return_value=search_results)
+            enricher.update_doc = MagicMock()
+
+            enricher.run("test_collection")
+
+        # The enricher should have found the GitHub URL and updated the document
+        assert enricher.update_doc.call_count == 1, \
+            "Enricher should find GitHub URL from project_urls and update the document"
+
+        # Verify GitHub API was called with the correct repo identifier
+        mock_github.get_repo.assert_called_with("webcloud7/wcs.samlauth")
+
+
+# ============================================================================
 # Full Enrichment Flow Tests
 # ============================================================================
 

@@ -95,6 +95,7 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
             "group_by": "name_sortable",
             "group_limit": 1,
             "per_page": 50,
+            "sort_by": "upload_timestamp:desc",
         }
         if package_name:
             search_parameters["filter_by"] = f"name:={package_name}"
