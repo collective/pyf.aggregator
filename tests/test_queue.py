@@ -1273,8 +1273,8 @@ class TestPeriodicTaskSetup:
 
         setup_periodic_tasks(mock_sender)
 
-        # Should have added 5 periodic tasks (2 RSS + weekly refresh + monthly full fetch + weekly downloads)
-        assert mock_sender.add_periodic_task.call_count == 5
+        # Should have added 6 periodic tasks (2 RSS + weekly refresh + monthly full fetch + weekly downloads + weekly maintainers)
+        assert mock_sender.add_periodic_task.call_count == 6
 
         # Check task names
         call_args_list = mock_sender.add_periodic_task.call_args_list
@@ -1285,6 +1285,7 @@ class TestPeriodicTaskSetup:
         assert 'weekly refresh all indexed packages' in task_names
         assert 'monthly full fetch all packages' in task_names
         assert 'weekly download stats enrichment' in task_names
+        assert 'weekly maintainers enrichment' in task_names
 
     def test_periodic_task_disabled_with_empty_string(self):
         """Test that tasks can be disabled by setting schedule to empty string."""
@@ -1293,8 +1294,8 @@ class TestPeriodicTaskSetup:
         with patch('pyf.aggregator.queue.CELERY_SCHEDULE_MONTHLY_FETCH', ''):
             setup_periodic_tasks(mock_sender)
 
-        # Should have added only 4 periodic tasks (monthly disabled)
-        assert mock_sender.add_periodic_task.call_count == 4
+        # Should have added only 5 periodic tasks (monthly disabled)
+        assert mock_sender.add_periodic_task.call_count == 5
 
         # Check that monthly task is not in the list
         call_args_list = mock_sender.add_periodic_task.call_args_list
@@ -1310,8 +1311,8 @@ class TestPeriodicTaskSetup:
         with patch('pyf.aggregator.queue.CELERY_SCHEDULE_RSS_PROJECTS', '*/5 * * * *'):
             setup_periodic_tasks(mock_sender)
 
-        # Should still have 5 tasks
-        assert mock_sender.add_periodic_task.call_count == 5
+        # Should still have 6 tasks
+        assert mock_sender.add_periodic_task.call_count == 6
 
 
 # ============================================================================

@@ -167,6 +167,11 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
             'github_open_issues': data["github"]["open_issues"],
             'github_url': data["github"]["gh_url"],
         }
+
+        # Include contributors if available
+        if data["github"].get("contributors"):
+            document['contributors'] = data["github"]["contributors"]
+
         doc = self.client.collections[target].documents[id].update(document)
         logger.info(f"[{page}/{enrich_counter}] Updated document {id}")
 
@@ -190,6 +195,31 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
             logger.info(f"no github url repository found for {data.get('name')}")
             return
 
+    def _get_top_contributors(self, repo, limit=5):
+        """Get top N contributors from a GitHub repository.
+
+        Args:
+            repo: PyGithub Repository object
+            limit: Maximum number of contributors to return (default: 5)
+
+        Returns:
+            List of dicts with username, avatar_url, and contributions count
+        """
+        try:
+            contributors = []
+            for contributor in repo.get_contributors():
+                contributors.append({
+                    "username": contributor.login,
+                    "avatar_url": contributor.avatar_url,
+                    "contributions": contributor.contributions,
+                })
+                if len(contributors) >= limit:
+                    break
+            return contributors
+        except Exception as e:
+            logger.warning(f"Failed to fetch contributors for {repo.full_name}: {e}")
+            return []
+
     @memoize
     def _get_github_data(self, repo_identifier, verbose=False):
         """Return stats from a given Github repository (e.g. Owner/repo)."""
@@ -209,7 +239,7 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
                 delta = reset_time - time.time()
                 logger.info(
                     "Waiting until {} (UTC) reset time to perform more Github requests.".format(
-                        datetime.utcfromtimestamp(reset_time).strftime(
+                        datetime.fromtimestamp(reset_time, tz=None).strftime(
                             "%Y-%m-%d %H:%M:%S"
                         )
                     )
@@ -236,6 +266,15 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
                 data = {"github": {}}
                 for key, key_github in GH_KEYS_MAP.items():
                     data["github"][key] = getattr(repo, key_github)
+
+                # Fetch top contributors
+                contributors = self._get_top_contributors(repo)
+                data["github"]["contributors"] = contributors
+
+                if verbose and contributors:
+                    print("Top contributors:")
+                    pprint(contributors)
+
                 return data
 
 

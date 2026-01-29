@@ -166,7 +166,20 @@ class TypesensePackagesCollection:
                     "index": False,
                     "optional": True,
                 },
+                {
+                    "name": "maintainers",
+                    "type": "object[]",
+                    "optional": True,
+                    "index": False,
+                },
+                {
+                    "name": "contributors",
+                    "type": "object[]",
+                    "optional": True,
+                    "index": False,
+                },
             ],
+            "enable_nested_fields": True,
             "token_separators": [".", "-", "_"],
             "default_sorting_field": "name_sortable",
         }

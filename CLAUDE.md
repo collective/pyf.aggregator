@@ -48,11 +48,17 @@ uv run pyfaggregator -i -p plone
 # Refresh indexed packages from PyPI (fetches ALL versions, updates existing, removes 404s)
 uv run pyfaggregator --refresh-from-pypi -p plone
 
-# Enrich with GitHub data
+# Enrich with GitHub data (includes contributors)
 uv run pyfgithub -p plone
 
 # Enrich single package with verbose output (for debugging)
 uv run pyfgithub -p plone -n plone.api -v
+
+# Enrich with maintainer data from pypi-data
+uv run pyfmaintainers -p plone
+
+# Enrich single package maintainers with verbose output
+uv run pyfmaintainers -p plone -n plone.api -v
 
 # Manage Typesense collections
 uv run pyfupdater -ls              # List collections
@@ -90,8 +96,9 @@ PyPI API  ->  Aggregator/Fetcher  ->  Plugins  ->  Indexer  ->  Typesense
 | `profiles.py` | Profile configuration for framework classifiers |
 | `queue.py` | Celery tasks for async processing and periodic schedules |
 | `typesense_util.py` | CLI for collection management (`pyfupdater`) |
-| `enrichers/github.py` | GitHub data enricher (`pyfgithub`) |
+| `enrichers/github.py` | GitHub data enricher (`pyfgithub`) - includes contributors |
 | `enrichers/downloads.py` | Download statistics enricher (`pyfdownloads`) |
+| `enrichers/maintainers.py` | PyPI maintainers enricher (`pyfmaintainers`) |
 
 `queue.py` also exposes `get_dedup_redis()` (lazy singleton Redis client for dedup) and `is_package_recently_queued(package_id, release_id=None, feed_type="new", ttl=None)` (atomic SET NX EX check, fail-open). Keys are namespaced by feed type: `pyf:dedup:new:{id}` for new packages, `pyf:dedup:update:{id}:{version}` for releases.
 
@@ -129,6 +136,7 @@ Background tasks in `queue.py`:
 - `refresh_all_indexed_packages` - Refresh all indexed packages from PyPI, remove 404s
 - `full_fetch_all_packages` - Full fetch equivalent to `pyfaggregator -f -p <profile>`
 - `enrich_downloads_all_packages` - Enrich all packages with download stats from pypistats.org
+- `enrich_maintainers_all_packages` - Enrich all packages with maintainer info from pypi-data
 
 **Periodic Schedules:**
 | Schedule | Task | Description |
@@ -136,6 +144,7 @@ Background tasks in `queue.py`:
 | Every minute | RSS tasks | Monitor PyPI for new packages/releases |
 | Sunday 2:00 AM UTC | `refresh_all_indexed_packages` | Weekly refresh of all indexed packages |
 | Sunday 4:00 AM UTC | `enrich_downloads_all_packages` | Weekly download stats from pypistats.org |
+| Sunday 5:00 AM UTC | `enrich_maintainers_all_packages` | Weekly maintainer info from pypi-data |
 | 1st of month, 3:00 AM UTC | `full_fetch_all_packages` | Monthly complete re-fetch |
 
 ### Database Schema
@@ -145,6 +154,8 @@ Typesense collection schema includes:
 - GitHub enrichment (github_stars, github_watchers, github_open_issues, github_url)
 - Download stats (download_last_day, download_last_week, download_last_month)
 - Computed fields (version_major/minor/bugfix, health scores)
+- Maintainers (object[] with username, avatar_url)
+- Contributors (object[] with username, avatar_url, contributions)
 
 ## Testing Patterns
 
@@ -167,9 +178,15 @@ REDIS_HOST=localhost:6379
 
 # Optional: Default profile for all CLI commands
 DEFAULT_PROFILE=plone
+
+# Optional: Maintainer enricher settings
+PYPI_PROFILE_RATE_LIMIT_DELAY=0.5
+PYPI_PROFILE_MAX_RETRIES=3
+PYPI_DATA_CACHE_DIR=/tmp/pyf-data
+PYPI_DATA_CACHE_TTL=86400
 ```
 
-When `DEFAULT_PROFILE` is set, all CLI commands (`pyfaggregator`, `pyfgithub`, `pyfdownloads`, `pyfupdater`) will use it as the default profile. The `-p` CLI argument overrides this environment variable.
+When `DEFAULT_PROFILE` is set, all CLI commands (`pyfaggregator`, `pyfgithub`, `pyfdownloads`, `pyfmaintainers`, `pyfupdater`) will use it as the default profile. The `-p` CLI argument overrides this environment variable.
 
 ## Critical Rules
 
