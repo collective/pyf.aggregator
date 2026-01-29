@@ -78,46 +78,46 @@ class TestNormalizeHeadings:
         result = normalize_headings("")
         assert result == ""
 
-    def test_single_h1_unchanged(self, single_h1_html):
-        """Single H1 should remain unchanged."""
+    def test_single_h1_shifts_to_h2(self, single_h1_html):
+        """Single H1 should shift to H2."""
         result = normalize_headings(single_h1_html)
-        assert "<h1>Title</h1>" in result
+        assert "<h2>Title</h2>" in result
         assert "<p>Content</p>" in result
+        assert "<h1" not in result
 
-    def test_multiple_h1_converts_subsequent(self, multiple_h1_html):
-        """Second and third H1 become H2."""
+    def test_multiple_h1_all_become_h2(self, multiple_h1_html):
+        """All H1s become H2."""
         result = normalize_headings(multiple_h1_html)
-        assert "<h1>Title</h1>" in result
+        assert "<h2>Title</h2>" in result
         assert "<h2>Section One</h2>" in result
         assert "<h2>Section Two</h2>" in result
-        # Should not have extra H1 tags
-        assert result.count("<h1") == 1
+        assert "<h1" not in result
 
-    def test_nested_structure_shifts_levels(self, nested_structure_html):
-        """H2 under second H1 becomes H3."""
+    def test_nested_structure_shifts_all_levels(self, nested_structure_html):
+        """All headings shift down by one level."""
         result = normalize_headings(nested_structure_html)
-        assert "<h1>Main Title</h1>" in result
-        assert "<h2>Subtitle</h2>" in result
+        assert "<h2>Main Title</h2>" in result
+        assert "<h3>Subtitle</h3>" in result
         assert "<h2>Second Section</h2>" in result
         assert "<h3>Second Subtitle</h3>" in result
         assert "<h4>Nested Item</h4>" in result
+        assert "<h1" not in result
 
     def test_complex_structure(self, complex_structure_html):
-        """Test complex multi-level structure."""
+        """Test complex multi-level structure with all headings shifted."""
         result = normalize_headings(complex_structure_html)
-        # First section stays at original levels
-        assert "<h1>Project Name</h1>" in result
-        assert "<h2>Overview</h2>" in result
-        # Second section (originally h1) and its children shift down
+        # All headings shift down by one level
+        assert "<h2>Project Name</h2>" in result
+        assert "<h3>Overview</h3>" in result
         assert "<h2>Installation</h2>" in result
         assert "<h3>Requirements</h3>" in result
         assert "<h4>Python</h4>" in result
         assert "<h4>Dependencies</h4>" in result
         assert "<h3>Setup</h3>" in result
-        # Third section also shifts down
         assert "<h2>Usage</h2>" in result
         assert "<h3>Basic</h3>" in result
         assert "<h3>Advanced</h3>" in result
+        assert "<h1" not in result
 
     def test_preserves_heading_content(self):
         """Heading text content should be preserved."""
@@ -127,14 +127,15 @@ class TestNormalizeHeadings:
         assert "&amp;" in result or "&" in result
 
     def test_preserves_heading_attributes(self):
-        """Heading attributes like id and class should be preserved."""
+        """Heading attributes like id and class should be preserved when shifting."""
         html = '<h1 id="main-title" class="title">Title</h1><h1 id="section">Section</h1>'
         result = normalize_headings(html)
         assert 'id="main-title"' in result
         assert 'class="title"' in result
         assert 'id="section"' in result
-        # Second h1 should become h2
-        assert "<h2" in result
+        # Both h1s should become h2
+        assert "<h1" not in result
+        assert result.count("<h2") == 2
 
     def test_preserves_non_heading_elements(self):
         """Non-heading elements should be unchanged."""
@@ -148,15 +149,17 @@ class TestNormalizeHeadings:
         """Heading levels should not go beyond H6."""
         html = (
             "<h1>Title</h1>"
-            "<h1>Section</h1>"
             "<h5>Already Deep</h5>"
             "<h6>Maximum Depth</h6>"
         )
         result = normalize_headings(html)
+        # h1 becomes h2
+        assert "<h2>Title</h2>" in result
         # h5 becomes h6 (shifted by 1)
         assert "<h6>Already Deep</h6>" in result
         # h6 stays h6 (can't go deeper)
         assert "<h6>Maximum Depth</h6>" in result
+        assert "<h1" not in result
 
     def test_handles_html_without_headings(self):
         """HTML without headings should be unchanged."""
@@ -166,23 +169,25 @@ class TestNormalizeHeadings:
         assert "<div>And a div</div>" in result
 
     def test_handles_only_h1_no_content(self):
-        """Multiple H1s without other content."""
+        """Multiple H1s without other content all become H2."""
         html = "<h1>One</h1><h1>Two</h1><h1>Three</h1>"
         result = normalize_headings(html)
-        assert "<h1>One</h1>" in result
+        assert "<h2>One</h2>" in result
         assert "<h2>Two</h2>" in result
         assert "<h2>Three</h2>" in result
+        assert "<h1" not in result
 
     def test_handles_whitespace_in_html(self):
-        """HTML with whitespace should be handled."""
+        """HTML with whitespace should be handled with all headings shifted."""
         html = """
         <h1>Title</h1>
         <p>Content</p>
         <h1>Section</h1>
         """
         result = normalize_headings(html)
-        assert "<h1>Title</h1>" in result
+        assert "<h2>Title</h2>" in result
         assert "<h2>Section</h2>" in result
+        assert "<h1" not in result
 
 
 # ============================================================================
@@ -193,18 +198,19 @@ class TestProcess:
     """Test the main process function with heading normalization."""
 
     def test_process_normalizes_headings_in_description(self):
-        """Process should normalize headings in rendered description."""
+        """Process should shift all headings down in rendered description."""
         data = {
             "description": "Title\n=====\n\nSection\n=======\n\nContent",
             "description_content_type": "text/x-rst",
         }
         process("test-id", data)
 
-        # Should have normalized headings
+        # Should have all headings shifted down (no h1 remaining)
         description = data["description"]
         if description:
-            # First h1 stays h1, second becomes h2
-            assert description.count("<h1") <= 1 or "<h2>" in description
+            assert "<h1" not in description
+            # RST renders "======" as h2, which becomes h3 after shift
+            assert "<h3" in description or "<h2" in description
 
     def test_process_handles_none_description(self):
         """Process should handle None description."""
@@ -254,7 +260,7 @@ class TestIntegration:
     """Integration tests for RST to HTML conversion with heading normalization."""
 
     def test_full_rst_conversion_with_multiple_titles(self):
-        """Test full RST to HTML conversion with multiple titles."""
+        """Test full RST to HTML conversion with all headings shifted."""
         rst_content = """
 Project Name
 ============
@@ -280,11 +286,10 @@ Run pip install.
 
         description = data["description"]
         if description:
-            # Should have only one H1
-            h1_count = description.count("<h1")
-            h2_count = description.count("<h2")
-            # Either 1 H1 with H2s, or handled gracefully
-            assert h1_count <= 1 or h2_count > 0
+            # All headings should be shifted down (no h1 remaining)
+            assert "<h1" not in description
+            # RST renders "======" as h2, which becomes h3 after shift
+            assert description.count("<h3") >= 1 or description.count("<h2") >= 1
 
     def test_preserves_list_and_paragraph_content(self):
         """Test that list and paragraph content is preserved."""

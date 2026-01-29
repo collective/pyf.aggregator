@@ -101,7 +101,7 @@ Plugins are registered in `plugins/__init__.py` and called for each package duri
 - `version_slicer` - Parses semantic version components
 - `framework_versions` - Extracts framework version classifiers
 - `python_versions` - Extracts Python version classifiers
-- `rst_to_html` - Converts RST descriptions to HTML
+- `rst_to_html` - Converts RST descriptions to HTML and shifts headings down one level (UI provides H1)
 - `health_score` - Calculates package health metrics
 
 ### Profile System

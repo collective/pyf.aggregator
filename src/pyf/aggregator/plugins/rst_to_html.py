@@ -20,16 +20,17 @@ HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 
 def normalize_headings(html_content):
     """
-    Normalize heading structure so only one H1 exists.
+    Shift all headings down by one level for proper document hierarchy.
 
-    Subsequent H1 tags are converted to H2, and all headings
-    that follow them are shifted down by one level.
+    The UI provides the H1 tag for the project/page title, so article
+    content should start at H2 to maintain semantic heading structure.
 
     Args:
         html_content: HTML string to normalize
 
     Returns:
-        Normalized HTML string, or original value if None/empty
+        Normalized HTML string with all headings shifted down one level,
+        or original value if None/empty
     """
     if not html_content:
         return html_content
@@ -49,25 +50,10 @@ def normalize_headings(html_content):
         if not headings:
             return html_content
 
-        # Track offset: 0 until we see second H1, then 1
-        seen_first_h1 = False
-        offset = 0
-
         for heading in headings:
             current_level = int(heading.tag[1])
-
-            if heading.tag == "h1":
-                if not seen_first_h1:
-                    # First H1 - keep as is
-                    seen_first_h1 = True
-                else:
-                    # Subsequent H1 - convert to H2
-                    offset = 1
-                    heading.tag = "h2"
-            elif offset > 0:
-                # Shift other headings down by offset
-                new_level = min(current_level + offset, 6)
-                heading.tag = f"h{new_level}"
+            new_level = min(current_level + 1, 6)
+            heading.tag = f"h{new_level}"
 
         # Serialize back to HTML string
         result_parts = []
