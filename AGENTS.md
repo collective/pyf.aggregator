@@ -102,6 +102,7 @@ Plugins are registered in `plugins/__init__.py` and called for each package duri
 - `framework_versions` - Extracts framework version classifiers
 - `python_versions` - Extracts Python version classifiers
 - `rst_to_html` - Converts RST descriptions to HTML and shifts headings down one level (UI provides H1)
+- `description_splitter` - Splits HTML description into weighted search fields (title, first_chapter, main_content, changelog)
 - `health_score` - Calculates package health metrics
 
 ### Profile System
@@ -142,10 +143,28 @@ Background tasks in `queue.py`:
 
 Typesense collection schema includes:
 - Package metadata (name, version, author, description, classifiers)
+- Weighted search fields (title, first_chapter, main_content, changelog)
 - GitHub enrichment (github_stars, github_watchers, github_open_issues, github_url)
 - Download stats (download_last_day, download_last_week, download_last_month)
 - Computed fields (version_major/minor/bugfix, health scores)
 - Contributors (object[] with username, avatar_url, contributions)
+
+#### Weighted Search Fields
+
+The `description_splitter` plugin extracts weighted search fields from package descriptions:
+
+| Field | Weight | Description |
+|-------|--------|-------------|
+| `title` | 10x | First H2 heading text (plain text) |
+| `first_chapter` | 5x | Summary + content until 2nd heading |
+| `main_content` | 3x | Content between first_chapter and changelog |
+| `changelog` | 1x | Content under changelog/history headings |
+
+**Recommended search configuration for consumers:**
+```
+query_by: "name,title,first_chapter,main_content,changelog"
+query_by_weights: "10,10,5,3,1"
+```
 
 ## Testing Patterns
 

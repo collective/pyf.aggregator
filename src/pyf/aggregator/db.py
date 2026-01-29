@@ -96,6 +96,10 @@ class TypesensePackagesCollection:
                 {"name": "python_versions", "type": "string[]", "facet": True},
                 {"name": "description", "type": "string"},
                 {"name": "description_content_type", "type": "string"},
+                {"name": "title", "type": "string", "optional": True},
+                {"name": "first_chapter", "type": "string", "optional": True},
+                {"name": "main_content", "type": "string", "optional": True},
+                {"name": "changelog", "type": "string", "optional": True},
                 {
                     "name": "docs_url",
                     "type": "string",
