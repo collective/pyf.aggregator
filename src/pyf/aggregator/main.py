@@ -19,6 +19,12 @@ DEFAULT_PROFILE = os.getenv("DEFAULT_PROFILE")
 
 COLLECTION_NAME = "packages1"
 
+# Fields to preserve during refresh (not available from PyPI)
+GITHUB_FIELDS = [
+    'github_stars', 'github_watchers', 'github_updated',
+    'github_open_issues', 'github_url', 'contributors'
+]
+
 
 def show_package(package_name, collection_name, all_versions=False):
     """Show indexed data for a single package from Typesense (for debugging)."""
@@ -121,6 +127,16 @@ def run_refresh_mode(settings):
             if not releases:
                 return {"status": "skip", "package": package_name, "reason": "no_releases"}
 
+            # Fetch existing docs to preserve GitHub data
+            existing_docs = helper.get_documents_by_name(settings["target"], package_name)
+            preserved_fields = {}
+            if existing_docs:
+                # Use the newest version's GitHub data (first doc after sort)
+                newest_doc = existing_docs[0]
+                for field in GITHUB_FIELDS:
+                    if field in newest_doc and newest_doc[field]:
+                        preserved_fields[field] = newest_doc[field]
+
             versions_data = []
             for release_id, release_info in agg._all_package_versions(releases):
                 # Get upload timestamp from release info
@@ -149,6 +165,11 @@ def run_refresh_mode(settings):
                 # Apply plugins
                 for plugin in PLUGINS:
                     plugin(identifier, version_data)
+
+                # Merge preserved GitHub fields
+                for field, value in preserved_fields.items():
+                    if field not in version_data or not version_data.get(field):
+                        version_data[field] = value
 
                 versions_data.append(version_data)
 

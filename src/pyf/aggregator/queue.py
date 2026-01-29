@@ -34,6 +34,7 @@ CELERY_SCHEDULE_RSS_RELEASES = os.getenv("CELERY_SCHEDULE_RSS_RELEASES", "*/1 * 
 CELERY_SCHEDULE_WEEKLY_REFRESH = os.getenv("CELERY_SCHEDULE_WEEKLY_REFRESH", "0 2 * * 0")
 CELERY_SCHEDULE_MONTHLY_FETCH = os.getenv("CELERY_SCHEDULE_MONTHLY_FETCH", "0 3 1 * *")
 CELERY_SCHEDULE_WEEKLY_DOWNLOADS = os.getenv("CELERY_SCHEDULE_WEEKLY_DOWNLOADS", "0 4 * * 0")
+CELERY_SCHEDULE_WEEKLY_GITHUB = os.getenv("CELERY_SCHEDULE_WEEKLY_GITHUB", "0 5 * * 0")
 
 # RSS deduplication TTL in seconds (0 to disable)
 # Separate TTLs for new-package vs update feeds; legacy env var used as fallback
@@ -50,6 +51,12 @@ CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", 600))
 
 # GitHub URL regex pattern
 github_regex = re.compile(r"^(http[s]{0,1}:\/\/|www\.)github\.com/(.+/.+)")
+
+# Fields to preserve during refresh (not available from PyPI)
+GITHUB_FIELDS = [
+    'github_stars', 'github_watchers', 'github_updated',
+    'github_open_issues', 'github_url', 'contributors'
+]
 
 # GitHub API field mapping
 GH_KEYS_MAP = {
@@ -631,10 +638,51 @@ def read_rss_new_releases_and_queue(self):
             logger.error("Max retries exceeded for RSS new releases scan")
             return {"status": "failed", "reason": str(e)}
 
-@app.task
-def queue_all_github_updates():
-    # TODO
-    pass
+@app.task(bind=True, soft_time_limit=3600, time_limit=3900)
+def queue_all_github_updates(self, collection_name=None):
+    """
+    Queue update_github task for all packages in collection.
+
+    This task fetches all document IDs from the Typesense collection and
+    queues an update_github task for each one. Used for weekly GitHub
+    data re-enrichment.
+
+    Args:
+        collection_name: Target collection (defaults to TYPESENSE_COLLECTION)
+
+    Returns:
+        dict: Summary with status and number of packages queued
+    """
+    collection = collection_name or TYPESENSE_COLLECTION
+
+    logger.info(f"Starting GitHub update queue for collection '{collection}'")
+
+    try:
+        indexer = PackageIndexer()
+
+        # Get all document IDs
+        package_ids = indexer.get_all_document_ids(collection)
+        total = len(package_ids)
+        logger.info(f"Found {total} documents to queue for GitHub update")
+
+        queued = 0
+        for pkg_id in package_ids:
+            update_github.delay(pkg_id)
+            queued += 1
+
+            if queued % 500 == 0:
+                logger.info(f"Queued {queued}/{total} packages for GitHub update")
+
+        logger.info(f"Queued {queued} packages for GitHub update")
+        return {"status": "completed", "queued": queued, "collection": collection}
+
+    except SoftTimeLimitExceeded:
+        logger.warning(f"GitHub queue task hit soft time limit, queued {queued} packages")
+        return {"status": "partial", "queued": queued, "collection": collection}
+
+    except Exception as e:
+        logger.error(f"Error queuing GitHub updates: {e}")
+        return {"status": "failed", "reason": str(e), "collection": collection}
 
 
 @app.task(bind=True, max_retries=2, default_retry_delay=300, soft_time_limit=3600, time_limit=3900)
@@ -731,6 +779,18 @@ def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
                 # Apply plugins
                 for plugin in PLUGINS:
                     plugin(identifier, data)
+
+                # Preserve existing GitHub fields
+                try:
+                    existing_docs = indexer.get_documents_by_name(collection, package_name)
+                    if existing_docs:
+                        newest_doc = existing_docs[0]
+                        for field in GITHUB_FIELDS:
+                            if field in newest_doc and newest_doc[field]:
+                                if field not in data or not data.get(field):
+                                    data[field] = newest_doc[field]
+                except Exception as e:
+                    logger.debug(f"Could not fetch existing GitHub data for {package_name}: {e}")
 
                 return {"status": "update", "package": package_name, "identifier": identifier, "data": data}
 
@@ -987,3 +1047,14 @@ def setup_periodic_tasks(sender, **kw):
         )
     else:
         logger.info("Weekly download stats enrichment task disabled")
+
+    # Weekly GitHub data refresh
+    schedule = parse_crontab(CELERY_SCHEDULE_WEEKLY_GITHUB)
+    if schedule:
+        sender.add_periodic_task(
+            schedule,
+            queue_all_github_updates.s(),
+            name='weekly GitHub data refresh'
+        )
+    else:
+        logger.info("Weekly GitHub data refresh task disabled")

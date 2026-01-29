@@ -217,3 +217,38 @@ class TypesensePackagesCollection:
         return self.client.collections[collection_name].documents.delete(
             {'filter_by': f'name:={package_name}'}
         )
+
+    def get_all_document_ids(self, collection_name):
+        """Get all document IDs from a collection."""
+        ids = []
+        page = 1
+        per_page = 250
+
+        while True:
+            result = self.client.collections[collection_name].documents.search({
+                "q": "*",
+                "query_by": "name",
+                "per_page": per_page,
+                "page": page,
+                "include_fields": "id",
+            })
+
+            hits = result.get("hits", [])
+            if not hits:
+                break
+
+            ids.extend([h["document"]["id"] for h in hits])
+            page += 1
+
+        return ids
+
+    def get_documents_by_name(self, collection_name, package_name):
+        """Get all documents for a package by name, sorted by upload_timestamp desc."""
+        result = self.client.collections[collection_name].documents.search({
+            "q": package_name,
+            "query_by": "name",
+            "filter_by": f"name:={package_name}",
+            "sort_by": "upload_timestamp:desc",
+            "per_page": 100,
+        })
+        return [hit["document"] for hit in result.get("hits", [])]
