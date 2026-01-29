@@ -1101,6 +1101,34 @@ class TestGetPackageRepoIdentifier:
         result = _get_package_repo_identifier(data)
         assert result is None
 
+    def test_extracts_from_url_field_fallback(self):
+        """Test extraction of GitHub repo identifier from url field as fallback."""
+        from pyf.aggregator.queue import _get_package_repo_identifier
+
+        data = {
+            "home_page": "https://example.com",  # Not GitHub
+            "project_url": "https://pypi.org/project/test/",  # Not GitHub
+            "project_urls": None,
+            "url": "https://github.com/collective/collective.testpackage",  # GitHub URL here
+        }
+
+        result = _get_package_repo_identifier(data)
+        assert result == "collective/collective.testpackage"
+
+    def test_url_field_not_used_when_github_found_earlier(self):
+        """Test that url field is not checked when GitHub URL found in home_page."""
+        from pyf.aggregator.queue import _get_package_repo_identifier
+
+        data = {
+            "home_page": "https://github.com/plone/plone.api",
+            "project_url": None,
+            "project_urls": None,
+            "url": "https://github.com/other/repo",  # Should be ignored
+        }
+
+        result = _get_package_repo_identifier(data)
+        assert result == "plone/plone.api"  # From home_page, not url
+
 
 class TestGetGithubData:
     """Test the _get_github_data helper function."""

@@ -367,7 +367,7 @@ def _get_package_repo_identifier(data):
     """
     Extract GitHub repository identifier from package metadata.
 
-    Searches home_page, project_url, and project_urls for a GitHub URL and
+    Searches home_page, project_url, url, and project_urls for a GitHub URL and
     extracts the owner/repo identifier.
 
     Args:
@@ -376,7 +376,7 @@ def _get_package_repo_identifier(data):
     Returns:
         str: GitHub repo identifier (e.g., "plone/plone.api") or None if not found.
     """
-    urls = [data.get("home_page"), data.get("project_url")] + list(
+    urls = [data.get("home_page"), data.get("project_url"), data.get("url")] + list(
         (data.get("project_urls") or {}).values()
     )
     for url in urls:

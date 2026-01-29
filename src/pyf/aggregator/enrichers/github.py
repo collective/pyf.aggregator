@@ -171,7 +171,7 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
         return self.client.collections[target].documents.search(search_parameters)
 
     def get_package_repo_identifier(self, data):
-        urls = [data.get("home_page"), data.get("project_url")] + list(
+        urls = [data.get("home_page"), data.get("project_url"), data.get("url")] + list(
             (data.get("project_urls") or {}).values()
         )
         for url in urls:
