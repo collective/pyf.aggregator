@@ -12,8 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv run ruff check src tests
-      - run: uv run ruff format --check src tests
+      - run: uv tool run ruff check src tests
+      - run: uv tool run ruff format --check src tests
 
   test:
     runs-on: ubuntu-latest
@@ -22,4 +22,4 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-      - run: uv run pytest
+      - run: uv run --extra test pytest
