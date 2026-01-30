@@ -109,7 +109,7 @@ class TestPackageIndexer:
             indexer = PackageIndexer()
             data = {"id": "test-1.0", "name": "test"}
 
-            result = indexer.index_single(data, "test_collection")
+            indexer.index_single(data, "test_collection")
 
             mock_typesense_client.collections[
                 "test_collection"
@@ -1308,7 +1308,7 @@ class TestGetGithubData:
             assert result["github"]["stars"] == 100
             assert result["github"]["watchers"] == 20
             assert result["github"]["open_issues"] == 15
-            assert result["github"]["is_archived"] == False
+            assert result["github"]["is_archived"] is False
             assert result["github"]["updated"] == datetime(2023, 6, 15, 12, 30, 0)
             assert result["github"]["gh_url"] == "https://github.com/plone/plone.api"
 

@@ -20,7 +20,7 @@ class Indexer(TypesenceConnection, TypesensePackagesCollection):
                 data["keywords"] = [k.strip() for k in keywords if k and k.strip()]
 
         for key, value in data.items():
-            if key in list_fields and value == None:
+            if key in list_fields and value is None:
                 data[key] = []
                 continue
             if key == "upload_timestamp":

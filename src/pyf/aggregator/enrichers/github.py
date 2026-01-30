@@ -181,7 +181,7 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
         if data["github"].get("contributors"):
             document["contributors"] = data["github"]["contributors"]
 
-        doc = self.client.collections[target].documents[id].update(document)
+        self.client.collections[target].documents[id].update(document)
         logger.info(f"[{page}/{enrich_counter}] Updated document {id}")
 
     def ts_search(self, target, search_parameters, page=1):

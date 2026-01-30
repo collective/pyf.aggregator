@@ -548,7 +548,6 @@ class TestSearchParameters:
 
         # Track calls to ts_search to verify search parameters
         search_calls = []
-        original_ts_search = enricher.ts_search
 
         def mock_ts_search(target, search_parameters, page=1):
             search_calls.append(search_parameters.copy())

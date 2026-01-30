@@ -115,8 +115,6 @@ def split_description(html_content):
             return result
 
         # First chapter: from start to second heading (or end if only one heading)
-        first_heading_pos = heading_positions[0]
-
         if len(heading_positions) > 1:
             second_heading_pos = heading_positions[1]
             first_chapter_elements = children[:second_heading_pos]

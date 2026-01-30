@@ -58,7 +58,7 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
             "health_score_breakdown": data["health_score_breakdown"],
             "health_score_last_calculated": data["health_score_last_calculated"],
         }
-        doc = self.client.collections[target].documents[id].update(document)
+        self.client.collections[target].documents[id].update(document)
         logger.info(
             f"[{page}/{enrich_counter}] Updated health score for document {id}: {data['health_score']}"
         )

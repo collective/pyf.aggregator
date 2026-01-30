@@ -422,7 +422,7 @@ class TestRecreateCollectionConfirmationTypesenseUtil:
                 }
                 mock_util.return_value = mock_util_instance
 
-                with patch.object(typesense_util_module, "logger") as mock_logger:
+                with patch.object(typesense_util_module, "logger"):
                     # Mock input to return 'n' (keep old collection)
                     with patch("builtins.input", return_value="n"):
                         with patch.object(
