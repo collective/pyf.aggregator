@@ -12,7 +12,7 @@ This module tests:
 import time
 import pytest
 import responses
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import patch, MagicMock
 from datetime import datetime
 import re
 
@@ -23,11 +23,18 @@ from pyf.aggregator.enrichers.downloads import Enricher, memoize
 # Fixtures
 # ============================================================================
 
+
 @pytest.fixture
 def enricher():
     """Create an Enricher instance for testing."""
-    with patch('pyf.aggregator.enrichers.downloads.TypesenceConnection.__init__', return_value=None):
-        with patch('pyf.aggregator.enrichers.downloads.TypesensePackagesCollection.__init__', return_value=None):
+    with patch(
+        "pyf.aggregator.enrichers.downloads.TypesenceConnection.__init__",
+        return_value=None,
+    ):
+        with patch(
+            "pyf.aggregator.enrichers.downloads.TypesensePackagesCollection.__init__",
+            return_value=None,
+        ):
             e = Enricher(limit=None)
             e.client = MagicMock()
             return e
@@ -36,8 +43,14 @@ def enricher():
 @pytest.fixture
 def enricher_with_limit():
     """Create an Enricher instance with a limit for testing."""
-    with patch('pyf.aggregator.enrichers.downloads.TypesenceConnection.__init__', return_value=None):
-        with patch('pyf.aggregator.enrichers.downloads.TypesensePackagesCollection.__init__', return_value=None):
+    with patch(
+        "pyf.aggregator.enrichers.downloads.TypesenceConnection.__init__",
+        return_value=None,
+    ):
+        with patch(
+            "pyf.aggregator.enrichers.downloads.TypesensePackagesCollection.__init__",
+            return_value=None,
+        ):
             e = Enricher(limit=5)
             e.client = MagicMock()
             return e
@@ -53,7 +66,7 @@ def sample_pypistats_response():
             "last_month": 35421,
         },
         "package": "plone.api",
-        "type": "recent_downloads"
+        "type": "recent_downloads",
     }
 
 
@@ -67,7 +80,7 @@ def sample_pypistats_response_with_nulls():
             "last_month": None,
         },
         "package": "test-package",
-        "type": "recent_downloads"
+        "type": "recent_downloads",
     }
 
 
@@ -76,9 +89,7 @@ def sample_typesense_search_results():
     """Sample Typesense search results."""
     return {
         "found": 100,
-        "request_params": {
-            "per_page": 50
-        },
+        "request_params": {"per_page": 50},
         "grouped_hits": [
             {
                 "hits": [
@@ -86,7 +97,7 @@ def sample_typesense_search_results():
                         "document": {
                             "id": "plone.api-1",
                             "name": "plone.api",
-                            "version": "2.0.0"
+                            "version": "2.0.0",
                         }
                     }
                 ]
@@ -97,18 +108,19 @@ def sample_typesense_search_results():
                         "document": {
                             "id": "plone.restapi-1",
                             "name": "plone.restapi",
-                            "version": "8.0.0"
+                            "version": "8.0.0",
                         }
                     }
                 ]
-            }
-        ]
+            },
+        ],
     }
 
 
 # ============================================================================
 # pypistats.org API Tests
 # ============================================================================
+
 
 class TestGetPypistatsData:
     """Test the _get_pypistats_data method."""
@@ -146,7 +158,9 @@ class TestGetPypistatsData:
         assert result == {}
 
     @responses.activate
-    def test_handles_rate_limiting_with_retry_after_header(self, enricher, sample_pypistats_response):
+    def test_handles_rate_limiting_with_retry_after_header(
+        self, enricher, sample_pypistats_response
+    ):
         """Test that 429 rate limiting is handled with Retry-After header."""
         # First request returns 429, second succeeds
         responses.add(
@@ -167,7 +181,9 @@ class TestGetPypistatsData:
         assert result["downloads"]["last_day"] == 1234
 
     @responses.activate
-    def test_handles_rate_limiting_without_retry_after_header(self, enricher, sample_pypistats_response):
+    def test_handles_rate_limiting_without_retry_after_header(
+        self, enricher, sample_pypistats_response
+    ):
         """Test that 429 rate limiting is handled without Retry-After header (exponential backoff)."""
         # First request returns 429, second succeeds
         responses.add(
@@ -187,7 +203,9 @@ class TestGetPypistatsData:
         assert result["downloads"]["last_day"] == 1234
 
     @responses.activate
-    def test_handles_invalid_retry_after_header(self, enricher, sample_pypistats_response):
+    def test_handles_invalid_retry_after_header(
+        self, enricher, sample_pypistats_response
+    ):
         """Test that invalid Retry-After header falls back to exponential backoff."""
         # First request returns 429 with invalid Retry-After, second succeeds
         responses.add(
@@ -302,7 +320,9 @@ class TestGetPypistatsData:
         assert result["downloads"]["last_month"] == 0
 
     @responses.activate
-    def test_handles_null_values_in_stats(self, enricher, sample_pypistats_response_with_nulls):
+    def test_handles_null_values_in_stats(
+        self, enricher, sample_pypistats_response_with_nulls
+    ):
         """Test that null values in stats are converted to 0."""
         responses.add(
             responses.GET,
@@ -335,6 +355,7 @@ class TestGetPypistatsData:
 # ============================================================================
 # Rate Limiting Tests
 # ============================================================================
+
 
 class TestRateLimiting:
     """Test the _apply_rate_limit method."""
@@ -399,6 +420,7 @@ class TestRateLimiting:
 # Memoization Tests
 # ============================================================================
 
+
 class TestMemoization:
     """Test the memoization decorator."""
 
@@ -406,7 +428,7 @@ class TestMemoization:
     def test_memoizes_api_results(self, enricher, sample_pypistats_response):
         """Test that API results are memoized."""
         # Clear the memoization cache
-        if hasattr(enricher._get_pypistats_data, 'cache'):
+        if hasattr(enricher._get_pypistats_data, "cache"):
             enricher._get_pypistats_data.cache.clear()
 
         # Only add one response
@@ -442,7 +464,7 @@ class TestMemoization:
             return f"result-{key}"
 
         # Create a simple object to use as self
-        obj = type('obj', (), {})()
+        obj = type("obj", (), {})()
 
         # First call
         result1 = test_func(obj, "test")
@@ -464,6 +486,7 @@ class TestMemoization:
 # Document Update Tests
 # ============================================================================
 
+
 class TestUpdateDoc:
     """Test the update_doc method."""
 
@@ -471,11 +494,7 @@ class TestUpdateDoc:
         """Test updating a document with complete download data."""
         mock_doc = MagicMock()
         enricher.client.collections = {
-            "test_collection": MagicMock(
-                documents={
-                    "test-id": mock_doc
-                }
-            )
+            "test_collection": MagicMock(documents={"test-id": mock_doc})
         }
 
         updated_time = datetime(2023, 6, 15, 12, 30, 0)
@@ -485,11 +504,13 @@ class TestUpdateDoc:
                 "last_week": 700,
                 "last_month": 3000,
                 "total": None,
-                "updated": updated_time
+                "updated": updated_time,
             }
         }
 
-        enricher.update_doc("test_collection", "test-id", data, page=1, enrich_counter=1)
+        enricher.update_doc(
+            "test_collection", "test-id", data, page=1, enrich_counter=1
+        )
 
         # Verify update was called with correct data
         mock_doc.update.assert_called_once()
@@ -505,11 +526,7 @@ class TestUpdateDoc:
         """Test updating a document with total download count."""
         mock_doc = MagicMock()
         enricher.client.collections = {
-            "test_collection": MagicMock(
-                documents={
-                    "test-id": mock_doc
-                }
-            )
+            "test_collection": MagicMock(documents={"test-id": mock_doc})
         }
 
         updated_time = datetime(2023, 6, 15, 12, 30, 0)
@@ -519,11 +536,13 @@ class TestUpdateDoc:
                 "last_week": 700,
                 "last_month": 3000,
                 "total": 50000,
-                "updated": updated_time
+                "updated": updated_time,
             }
         }
 
-        enricher.update_doc("test_collection", "test-id", data, page=1, enrich_counter=1)
+        enricher.update_doc(
+            "test_collection", "test-id", data, page=1, enrich_counter=1
+        )
 
         # Verify update was called with correct data including total
         call_args = mock_doc.update.call_args[0][0]
@@ -534,6 +553,7 @@ class TestUpdateDoc:
 # Typesense Search Tests
 # ============================================================================
 
+
 class TestTsSearch:
     """Test the ts_search method."""
 
@@ -541,9 +561,7 @@ class TestTsSearch:
         """Test that search adds page number to parameters."""
         mock_search = MagicMock(return_value={"found": 0})
         enricher.client.collections = {
-            "test_collection": MagicMock(
-                documents=MagicMock(search=mock_search)
-            )
+            "test_collection": MagicMock(documents=MagicMock(search=mock_search))
         }
 
         search_params = {"q": "*", "query_by": "name"}
@@ -560,6 +578,7 @@ class TestTsSearch:
 # Full Enrichment Flow Tests
 # ============================================================================
 
+
 class TestRun:
     """Test the run method (full enrichment flow)."""
 
@@ -571,27 +590,13 @@ class TestRun:
             "found": 2,
             "request_params": {"per_page": 50},
             "grouped_hits": [
+                {"hits": [{"document": {"id": "plone.api-1", "name": "plone.api"}}]},
                 {
                     "hits": [
-                        {
-                            "document": {
-                                "id": "plone.api-1",
-                                "name": "plone.api"
-                            }
-                        }
+                        {"document": {"id": "plone.restapi-1", "name": "plone.restapi"}}
                     ]
                 },
-                {
-                    "hits": [
-                        {
-                            "document": {
-                                "id": "plone.restapi-1",
-                                "name": "plone.restapi"
-                            }
-                        }
-                    ]
-                }
-            ]
+            ],
         }
 
         enricher.ts_search = MagicMock(return_value=mock_search_results)
@@ -611,27 +616,20 @@ class TestRun:
         assert enricher.update_doc.call_count == 2
 
     @responses.activate
-    def test_enriches_packages_with_limit(self, enricher_with_limit, sample_pypistats_response):
+    def test_enriches_packages_with_limit(
+        self, enricher_with_limit, sample_pypistats_response
+    ):
         """Test enriching packages with a limit."""
         # Mock Typesense search results with many packages
         hits = [
-            {
-                "hits": [
-                    {
-                        "document": {
-                            "id": f"package-{i}",
-                            "name": f"package-{i}"
-                        }
-                    }
-                ]
-            }
+            {"hits": [{"document": {"id": f"package-{i}", "name": f"package-{i}"}}]}
             for i in range(10)
         ]
 
         mock_search_results = {
             "found": 10,
             "request_params": {"per_page": 50},
-            "grouped_hits": hits
+            "grouped_hits": hits,
         }
 
         enricher_with_limit.ts_search = MagicMock(return_value=mock_search_results)
@@ -667,17 +665,8 @@ class TestRun:
                         }
                     ]
                 },
-                {
-                    "hits": [
-                        {
-                            "document": {
-                                "id": "package-2",
-                                "name": "valid-package"
-                            }
-                        }
-                    ]
-                }
-            ]
+                {"hits": [{"document": {"id": "package-2", "name": "valid-package"}}]},
+            ],
         }
 
         enricher.ts_search = MagicMock(return_value=mock_search_results)
@@ -705,25 +694,11 @@ class TestRun:
             "grouped_hits": [
                 {
                     "hits": [
-                        {
-                            "document": {
-                                "id": "package-1",
-                                "name": "no-stats-package"
-                            }
-                        }
+                        {"document": {"id": "package-1", "name": "no-stats-package"}}
                     ]
                 },
-                {
-                    "hits": [
-                        {
-                            "document": {
-                                "id": "package-2",
-                                "name": "valid-package"
-                            }
-                        }
-                    ]
-                }
-            ]
+                {"hits": [{"document": {"id": "package-2", "name": "valid-package"}}]},
+            ],
         }
 
         enricher.ts_search = MagicMock(return_value=mock_search_results)
@@ -738,13 +713,7 @@ class TestRun:
         responses.add(
             responses.GET,
             "https://pypistats.org/api/packages/valid-package/recent",
-            json={
-                "data": {
-                    "last_day": 100,
-                    "last_week": 700,
-                    "last_month": 3000
-                }
-            },
+            json={"data": {"last_day": 100, "last_week": 700, "last_month": 3000}},
             status=200,
         )
 
@@ -760,18 +729,9 @@ class TestRun:
             "found": 100,
             "request_params": {"per_page": 50},
             "grouped_hits": [
-                {
-                    "hits": [
-                        {
-                            "document": {
-                                "id": f"package-{i}",
-                                "name": f"package-{i}"
-                            }
-                        }
-                    ]
-                }
+                {"hits": [{"document": {"id": f"package-{i}", "name": f"package-{i}"}}]}
                 for i in range(50)
-            ]
+            ],
         }
 
         # Second page
@@ -779,18 +739,9 @@ class TestRun:
             "found": 100,
             "request_params": {"per_page": 50},
             "grouped_hits": [
-                {
-                    "hits": [
-                        {
-                            "document": {
-                                "id": f"package-{i}",
-                                "name": f"package-{i}"
-                            }
-                        }
-                    ]
-                }
+                {"hits": [{"document": {"id": f"package-{i}", "name": f"package-{i}"}}]}
                 for i in range(50, 100)
-            ]
+            ],
         }
 
         # Mock search to return different results based on page
@@ -799,10 +750,16 @@ class TestRun:
                 return first_page_results
             elif page == 2:
                 return second_page_results
-            return {"found": 100, "request_params": {"per_page": 50}, "grouped_hits": []}
+            return {
+                "found": 100,
+                "request_params": {"per_page": 50},
+                "grouped_hits": [],
+            }
 
         enricher.ts_search = MagicMock(side_effect=mock_search_side_effect)
-        enricher._get_pypistats_data = MagicMock(return_value={})  # Return empty to skip updates
+        enricher._get_pypistats_data = MagicMock(
+            return_value={}
+        )  # Return empty to skip updates
 
         enricher.run("test_collection")
 

@@ -10,11 +10,10 @@ This module tests:
 
 import time
 import pytest
-import typesense
 from typesense.exceptions import ObjectNotFound
 
-from pyf.aggregator.plugins.version_slicer import make_version_sortable, process
-from pyf.aggregator.db import TypesenceConnection, TypesensePackagesCollection
+from pyf.aggregator.plugins.version_slicer import process
+from pyf.aggregator.db import TypesenceConnection
 
 
 # ============================================================================
@@ -40,7 +39,7 @@ EXPECTED_SORT_ORDER_ASC = ["1.0.3", "2.1.2", "2.1.3", "2.1.5", "12.5.9"]
 PRERELEASE_TEST_DATA = [
     ("2.0.0a1", "0.0002.0000.0000.0001.0001"),  # alpha
     ("2.0.0b1", "0.0002.0000.0000.0002.0001"),  # beta
-    ("2.0.0", "1.0002.0000.0000.0000.0000"),    # stable
+    ("2.0.0", "1.0002.0000.0000.0000.0000"),  # stable
 ]
 
 # Ascending order: pre-releases first (by type: alpha < beta), then stable
@@ -50,6 +49,7 @@ PRERELEASE_SORT_ORDER_ASC = ["2.0.0a1", "2.0.0b1", "2.0.0"]
 # ============================================================================
 # Fixtures
 # ============================================================================
+
 
 @pytest.fixture
 def check_typesense_available():
@@ -101,6 +101,7 @@ def test_collection(typesense_client):
 @pytest.fixture
 def create_test_package():
     """Factory for creating minimal test package data."""
+
     def _create(name: str, version: str) -> dict:
         data = {
             "identifier": f"{name}-{version}",
@@ -118,6 +119,7 @@ def create_test_package():
 # Unit Tests: version_sortable Format
 # ============================================================================
 
+
 class TestVersionSortableFormat:
     """Unit tests for zero-padded version_sortable format generation."""
 
@@ -127,8 +129,9 @@ class TestVersionSortableFormat:
         data = {"version": version}
         process("test-pkg", data)
 
-        assert data.get("version_sortable") == expected, \
+        assert data.get("version_sortable") == expected, (
             f"Version {version} should produce {expected}, got {data.get('version_sortable')}"
+        )
 
     @pytest.mark.parametrize("version,expected", VERSION_TEST_DATA)
     def test_all_segments_have_correct_format(self, version, expected):
@@ -144,21 +147,18 @@ class TestVersionSortableFormat:
         sortable = data.get("version_sortable")
         segments = sortable.split(".")
 
-        assert len(segments) == 6, \
+        assert len(segments) == 6, (
             f"Expected 6 segments, got {len(segments)}: {sortable}"
+        )
 
         # First segment (stable flag) is 1 digit
-        assert len(segments[0]) == 1, \
-            f"Stable flag should be 1 digit: {segments[0]}"
-        assert segments[0] in ("0", "1"), \
-            f"Stable flag should be 0 or 1: {segments[0]}"
+        assert len(segments[0]) == 1, f"Stable flag should be 1 digit: {segments[0]}"
+        assert segments[0] in ("0", "1"), f"Stable flag should be 0 or 1: {segments[0]}"
 
         # Remaining segments are 4 digits each
         for i, segment in enumerate(segments[1:], start=1):
-            assert len(segment) == 4, \
-                f"Segment {i} should be 4 digits: {segment}"
-            assert segment.isdigit(), \
-                f"Segment {i} should be all digits: {segment}"
+            assert len(segment) == 4, f"Segment {i} should be 4 digits: {segment}"
+            assert segment.isdigit(), f"Segment {i} should be all digits: {segment}"
 
     @pytest.mark.parametrize("version,expected", PRERELEASE_TEST_DATA)
     def test_prerelease_version_sortable_format(self, version, expected):
@@ -166,13 +166,15 @@ class TestVersionSortableFormat:
         data = {"version": version}
         process("test-pkg", data)
 
-        assert data.get("version_sortable") == expected, \
+        assert data.get("version_sortable") == expected, (
             f"Version {version} should produce {expected}, got {data.get('version_sortable')}"
+        )
 
 
 # ============================================================================
 # Integration Tests: Indexing
 # ============================================================================
+
 
 @pytest.mark.integration
 class TestVersionSortableIndexing:
@@ -190,10 +192,15 @@ class TestVersionSortableIndexing:
         # Verify each document
         for version, expected_sortable in VERSION_TEST_DATA:
             doc_id = f"test-pkg-{version}"
-            doc = typesense_client.collections[test_collection].documents[doc_id].retrieve()
+            doc = (
+                typesense_client.collections[test_collection]
+                .documents[doc_id]
+                .retrieve()
+            )
 
-            assert doc["version_sortable"] == expected_sortable, \
+            assert doc["version_sortable"] == expected_sortable, (
                 f"Document for {version} has wrong version_sortable: {doc['version_sortable']}"
+            )
 
     def test_prerelease_documents_indexed_correctly(
         self, typesense_client, test_collection, create_test_package
@@ -205,15 +212,21 @@ class TestVersionSortableIndexing:
 
         for version, expected_sortable in PRERELEASE_TEST_DATA:
             doc_id = f"test-pkg-{version}"
-            doc = typesense_client.collections[test_collection].documents[doc_id].retrieve()
+            doc = (
+                typesense_client.collections[test_collection]
+                .documents[doc_id]
+                .retrieve()
+            )
 
-            assert doc["version_sortable"] == expected_sortable, \
+            assert doc["version_sortable"] == expected_sortable, (
                 f"Document for {version} has wrong version_sortable: {doc['version_sortable']}"
+            )
 
 
 # ============================================================================
 # Integration Tests: Sort Order
 # ============================================================================
+
 
 @pytest.mark.integration
 class TestVersionSortableSortOrder:
@@ -229,18 +242,21 @@ class TestVersionSortableSortOrder:
             typesense_client.collections[test_collection].documents.upsert(pkg)
 
         # Search with ascending sort
-        result = typesense_client.collections[test_collection].documents.search({
-            "q": "*",
-            "query_by": "name",
-            "sort_by": "version_sortable:asc",
-            "per_page": 100,
-        })
+        result = typesense_client.collections[test_collection].documents.search(
+            {
+                "q": "*",
+                "query_by": "name",
+                "sort_by": "version_sortable:asc",
+                "per_page": 100,
+            }
+        )
 
         # Extract versions in order
         sorted_versions = [hit["document"]["version"] for hit in result["hits"]]
 
-        assert sorted_versions == EXPECTED_SORT_ORDER_ASC, \
+        assert sorted_versions == EXPECTED_SORT_ORDER_ASC, (
             f"Expected {EXPECTED_SORT_ORDER_ASC}, got {sorted_versions}"
+        )
 
     def test_sort_by_version_sortable_descending(
         self, typesense_client, test_collection, create_test_package
@@ -252,24 +268,28 @@ class TestVersionSortableSortOrder:
             typesense_client.collections[test_collection].documents.upsert(pkg)
 
         # Search with descending sort
-        result = typesense_client.collections[test_collection].documents.search({
-            "q": "*",
-            "query_by": "name",
-            "sort_by": "version_sortable:desc",
-            "per_page": 100,
-        })
+        result = typesense_client.collections[test_collection].documents.search(
+            {
+                "q": "*",
+                "query_by": "name",
+                "sort_by": "version_sortable:desc",
+                "per_page": 100,
+            }
+        )
 
         # Extract versions in order
         sorted_versions = [hit["document"]["version"] for hit in result["hits"]]
 
         expected_desc = list(reversed(EXPECTED_SORT_ORDER_ASC))
-        assert sorted_versions == expected_desc, \
+        assert sorted_versions == expected_desc, (
             f"Expected {expected_desc}, got {sorted_versions}"
+        )
 
 
 # ============================================================================
 # Integration Tests: Pre-release Sorting
 # ============================================================================
+
 
 @pytest.mark.integration
 class TestVersionSortablePreRelease:
@@ -285,17 +305,20 @@ class TestVersionSortablePreRelease:
             typesense_client.collections[test_collection].documents.upsert(pkg)
 
         # Search with ascending sort
-        result = typesense_client.collections[test_collection].documents.search({
-            "q": "*",
-            "query_by": "name",
-            "sort_by": "version_sortable:asc",
-            "per_page": 100,
-        })
+        result = typesense_client.collections[test_collection].documents.search(
+            {
+                "q": "*",
+                "query_by": "name",
+                "sort_by": "version_sortable:asc",
+                "per_page": 100,
+            }
+        )
 
         sorted_versions = [hit["document"]["version"] for hit in result["hits"]]
 
-        assert sorted_versions == PRERELEASE_SORT_ORDER_ASC, \
+        assert sorted_versions == PRERELEASE_SORT_ORDER_ASC, (
             f"Expected {PRERELEASE_SORT_ORDER_ASC}, got {sorted_versions}"
+        )
 
     def test_prerelease_before_stable_in_mixed_versions(
         self, typesense_client, test_collection, create_test_package
@@ -315,17 +338,20 @@ class TestVersionSortablePreRelease:
             pkg = create_test_package("test-pkg", version)
             typesense_client.collections[test_collection].documents.upsert(pkg)
 
-        result = typesense_client.collections[test_collection].documents.search({
-            "q": "*",
-            "query_by": "name",
-            "sort_by": "version_sortable:asc",
-            "per_page": 100,
-        })
+        result = typesense_client.collections[test_collection].documents.search(
+            {
+                "q": "*",
+                "query_by": "name",
+                "sort_by": "version_sortable:asc",
+                "per_page": 100,
+            }
+        )
 
         sorted_versions = [hit["document"]["version"] for hit in result["hits"]]
 
-        assert sorted_versions == expected_order, \
+        assert sorted_versions == expected_order, (
             f"Expected {expected_order}, got {sorted_versions}"
+        )
 
     def test_stable_sorts_above_higher_prerelease_descending(
         self, typesense_client, test_collection, create_test_package
@@ -345,21 +371,25 @@ class TestVersionSortablePreRelease:
             pkg = create_test_package("test-pkg", version)
             typesense_client.collections[test_collection].documents.upsert(pkg)
 
-        result = typesense_client.collections[test_collection].documents.search({
-            "q": "*",
-            "query_by": "name",
-            "sort_by": "version_sortable:desc",
-            "per_page": 100,
-        })
+        result = typesense_client.collections[test_collection].documents.search(
+            {
+                "q": "*",
+                "query_by": "name",
+                "sort_by": "version_sortable:desc",
+                "per_page": 100,
+            }
+        )
 
         sorted_versions = [hit["document"]["version"] for hit in result["hits"]]
 
         # Descending: stable versions first (by version desc), then pre-releases
         # 2.5.3 > 2.5.2 > 3.0.0a2 > 3.0.0a1
         expected_order = ["2.5.3", "2.5.2", "3.0.0a2", "3.0.0a1"]
-        assert sorted_versions == expected_order, \
+        assert sorted_versions == expected_order, (
             f"Expected {expected_order}, got {sorted_versions}"
+        )
 
         # The "newest" (first) version should be the latest stable, not the alpha
-        assert sorted_versions[0] == "2.5.3", \
+        assert sorted_versions[0] == "2.5.3", (
             f"Expected '2.5.3' as newest, got '{sorted_versions[0]}'"
+        )

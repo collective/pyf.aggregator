@@ -283,7 +283,11 @@ class TestVersionSortableFormat:
         doc = create_package_document("test-pkg", "2.5.3")
         typesense_client.collections[test_collection].documents.upsert(doc)
 
-        result = typesense_client.collections[test_collection].documents[doc["identifier"]].retrieve()
+        result = (
+            typesense_client.collections[test_collection]
+            .documents[doc["identifier"]]
+            .retrieve()
+        )
 
         version_sortable = result["version_sortable"]
         assert version_sortable.startswith("1."), (
@@ -295,7 +299,11 @@ class TestVersionSortableFormat:
         doc = create_package_document("test-pkg", "3.0.0a2")
         typesense_client.collections[test_collection].documents.upsert(doc)
 
-        result = typesense_client.collections[test_collection].documents[doc["identifier"]].retrieve()
+        result = (
+            typesense_client.collections[test_collection]
+            .documents[doc["identifier"]]
+            .retrieve()
+        )
 
         version_sortable = result["version_sortable"]
         assert version_sortable.startswith("0."), (
@@ -307,7 +315,11 @@ class TestVersionSortableFormat:
         doc = create_package_document("test-pkg", "2.5.3")
         typesense_client.collections[test_collection].documents.upsert(doc)
 
-        result = typesense_client.collections[test_collection].documents[doc["identifier"]].retrieve()
+        result = (
+            typesense_client.collections[test_collection]
+            .documents[doc["identifier"]]
+            .retrieve()
+        )
 
         version_sortable = result["version_sortable"]
         segments = version_sortable.split(".")

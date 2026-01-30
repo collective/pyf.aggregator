@@ -47,20 +47,24 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
 
                     if health_data:
                         enrich_counter += 1
-                        self.update_doc(target, data['id'], health_data, page, enrich_counter)
+                        self.update_doc(
+                            target, data["id"], health_data, page, enrich_counter
+                        )
         logger.info(f"[{datetime.now()}] done - updated {enrich_counter} documents")
 
     def update_doc(self, target, id, data, page, enrich_counter):
         document = {
-            'health_score': data["health_score"],
-            'health_score_breakdown': data["health_score_breakdown"],
-            'health_score_last_calculated': data["health_score_last_calculated"],
+            "health_score": data["health_score"],
+            "health_score_breakdown": data["health_score_breakdown"],
+            "health_score_last_calculated": data["health_score_last_calculated"],
         }
         doc = self.client.collections[target].documents[id].update(document)
-        logger.info(f"[{page}/{enrich_counter}] Updated health score for document {id}: {data['health_score']}")
+        logger.info(
+            f"[{page}/{enrich_counter}] Updated health score for document {id}: {data['health_score']}"
+        )
 
     def ts_search(self, target, search_parameters, page=1):
-        search_parameters['page'] = page
+        search_parameters["page"] = page
         return self.client.collections[target].documents.search(search_parameters)
 
     def _calculate_enhanced_health_score(self, data):
@@ -111,7 +115,9 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
             open_issues = data.get("github_open_issues", 0)
             stars_for_ratio = data.get("github_stars", 0)
             if stars_for_ratio > 0:  # Only meaningful for projects with some stars
-                issue_bonus = self._calculate_issue_management_bonus(open_issues, stars_for_ratio)
+                issue_bonus = self._calculate_issue_management_bonus(
+                    open_issues, stars_for_ratio
+                )
                 github_bonus += issue_bonus
                 breakdown["github_issue_bonus"] = issue_bonus
 
@@ -172,7 +178,9 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
 
         try:
             now = time.time()
-            age_days = (now - github_updated_timestamp) / 86400  # Convert seconds to days
+            age_days = (
+                now - github_updated_timestamp
+            ) / 86400  # Convert seconds to days
 
             if age_days < 30:
                 return 10

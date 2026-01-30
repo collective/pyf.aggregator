@@ -21,8 +21,12 @@ COLLECTION_NAME = "packages1"
 
 # Fields to preserve during refresh (not available from PyPI)
 GITHUB_FIELDS = [
-    'github_stars', 'github_watchers', 'github_updated',
-    'github_open_issues', 'github_url', 'contributors'
+    "github_stars",
+    "github_watchers",
+    "github_updated",
+    "github_open_issues",
+    "github_url",
+    "contributors",
 ]
 
 
@@ -37,17 +41,21 @@ def show_package(package_name, collection_name, all_versions=False):
         sys.exit(1)
 
     # Search for exact package name, sorted by upload_timestamp descending (newest first)
-    result = conn.client.collections[collection_name].documents.search({
-        "q": package_name,
-        "query_by": "name",
-        "filter_by": f"name:={package_name}",
-        "sort_by": "upload_timestamp:desc",
-        "per_page": 100,
-    })
+    result = conn.client.collections[collection_name].documents.search(
+        {
+            "q": package_name,
+            "query_by": "name",
+            "filter_by": f"name:={package_name}",
+            "sort_by": "upload_timestamp:desc",
+            "per_page": 100,
+        }
+    )
 
     hits = result.get("hits", [])
     if not hits:
-        logger.error(f"Package '{package_name}' not found in collection '{collection_name}'.")
+        logger.error(
+            f"Package '{package_name}' not found in collection '{collection_name}'."
+        )
         sys.exit(1)
 
     documents = [hit["document"] for hit in hits]
@@ -80,24 +88,30 @@ def run_refresh_mode(settings):
 
     # Verify collection exists
     if not indexer.collection_exists(name=settings["target"]):
-        logger.error(f"Collection '{settings['target']}' does not exist. Cannot refresh.")
+        logger.error(
+            f"Collection '{settings['target']}' does not exist. Cannot refresh."
+        )
         sys.exit(1)
 
     # Get all unique package names
-    logger.info(f"Fetching unique package names from collection '{settings['target']}'...")
+    logger.info(
+        f"Fetching unique package names from collection '{settings['target']}'..."
+    )
     package_names = helper.get_unique_package_names(settings["target"])
     total = len(package_names)
     logger.info(f"Found {total} unique packages to refresh")
 
     # Apply limit if specified
     if settings["limit"] and settings["limit"] > 0:
-        package_names = list(package_names)[:settings["limit"]]
+        package_names = list(package_names)[: settings["limit"]]
         logger.info(f"Limiting to {len(package_names)} packages")
 
     # Apply name filter if specified
     if settings["filter_name"]:
         package_names = [p for p in package_names if settings["filter_name"] in p]
-        logger.info(f"Filtered to {len(package_names)} packages matching '{settings['filter_name']}'")
+        logger.info(
+            f"Filtered to {len(package_names)} packages matching '{settings['filter_name']}'"
+        )
 
     # Create aggregator for PyPI fetching (reuse existing methods)
     agg = Aggregator(
@@ -116,19 +130,33 @@ def run_refresh_mode(settings):
             package_json = agg._get_pypi_json(package_name)
 
             if package_json is None:
-                return {"status": "delete", "package": package_name, "reason": "not_found"}
+                return {
+                    "status": "delete",
+                    "package": package_name,
+                    "reason": "not_found",
+                }
 
             # Check classifier filter if specified (once per package)
             if settings["filter_troove"]:
                 if not agg.has_classifiers(package_json, settings["filter_troove"]):
-                    return {"status": "delete", "package": package_name, "reason": "no_classifier"}
+                    return {
+                        "status": "delete",
+                        "package": package_name,
+                        "reason": "no_classifier",
+                    }
 
             releases = package_json.get("releases", {})
             if not releases:
-                return {"status": "skip", "package": package_name, "reason": "no_releases"}
+                return {
+                    "status": "skip",
+                    "package": package_name,
+                    "reason": "no_releases",
+                }
 
             # Fetch existing docs to preserve GitHub data
-            existing_docs = helper.get_documents_by_name(settings["target"], package_name)
+            existing_docs = helper.get_documents_by_name(
+                settings["target"], package_name
+            )
             preserved_fields = {}
             if existing_docs:
                 # Use the newest version's GitHub data (first doc after sort)
@@ -155,7 +183,7 @@ def run_refresh_mode(settings):
                 # Convert timestamp to Unix int64
                 if ts:
                     try:
-                        dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
                         version_data["upload_timestamp"] = int(dt.timestamp())
                     except (ValueError, TypeError):
                         version_data["upload_timestamp"] = 0
@@ -173,7 +201,11 @@ def run_refresh_mode(settings):
 
                 versions_data.append(version_data)
 
-            return {"status": "update", "package": package_name, "versions": versions_data}
+            return {
+                "status": "update",
+                "package": package_name,
+                "versions": versions_data,
+            }
 
         except Exception as e:
             return {"status": "error", "package": package_name, "error": str(e)}
@@ -200,22 +232,32 @@ def run_refresh_mode(settings):
                             cleaned_versions, {"action": "upsert"}
                         )
                         stats["updated"] += len(versions)
-                        logger.info(f"[{i}/{len(package_names)}] Updated {package_name}: {len(versions)} versions")
+                        logger.info(
+                            f"[{i}/{len(package_names)}] Updated {package_name}: {len(versions)} versions"
+                        )
                     except Exception as e:
                         stats["failed"] += 1
-                        logger.error(f"[{i}/{len(package_names)}] Failed to index {package_name}: {e}")
+                        logger.error(
+                            f"[{i}/{len(package_names)}] Failed to index {package_name}: {e}"
+                        )
 
             elif result["status"] == "delete":
                 packages_to_delete.append(package_name)
-                logger.info(f"[{i}/{len(package_names)}] Marked for deletion: {package_name} ({result['reason']})")
+                logger.info(
+                    f"[{i}/{len(package_names)}] Marked for deletion: {package_name} ({result['reason']})"
+                )
 
             elif result["status"] == "skip":
                 stats["skipped"] += 1
-                logger.warning(f"[{i}/{len(package_names)}] Skipped: {package_name} ({result['reason']})")
+                logger.warning(
+                    f"[{i}/{len(package_names)}] Skipped: {package_name} ({result['reason']})"
+                )
 
             elif result["status"] == "error":
                 stats["failed"] += 1
-                logger.error(f"[{i}/{len(package_names)}] Error processing {package_name}: {result['error']}")
+                logger.error(
+                    f"[{i}/{len(package_names)}] Error processing {package_name}: {result['error']}"
+                )
 
     # Delete packages that are no longer valid
     if packages_to_delete:
@@ -237,14 +279,16 @@ parser = ArgumentParser(
     "Use -f for full download or -i for incremental updates via RSS feeds."
 )
 parser.add_argument(
-    "-f", "--first",
+    "-f",
+    "--first",
     help="Full download: fetch all PyPI packages with Plone classifier",
-    action="store_true"
+    action="store_true",
 )
 parser.add_argument(
-    "-i", "--incremental",
+    "-i",
+    "--incremental",
     help="Incremental update: fetch recent package updates via RSS feeds",
-    action="store_true"
+    action="store_true",
 )
 parser.add_argument(
     "-s",
@@ -255,67 +299,72 @@ parser.add_argument(
     default=".pyaggregator.since",
 )
 parser.add_argument(
-    "-l", "--limit",
+    "-l",
+    "--limit",
     help="Limit the number of packages to process (useful for testing)",
     nargs="?",
     type=int,
-    default=0
+    default=0,
 )
 parser.add_argument(
-    "-fn", "--filter-name",
+    "-fn",
+    "--filter-name",
     help="Filter packages by name substring",
     nargs="?",
     type=str,
-    default=""
+    default="",
 )
 parser.add_argument(
-    "-ft", "--filter-troove",
+    "-ft",
+    "--filter-troove",
     help="Filter by classifier (deprecated: Plone filtering is now automatic)",
     action="append",
-    default=[]
+    default=[],
 )
 parser.add_argument(
-    "-t", "--target",
+    "-t",
+    "--target",
     help="Target Typesense collection name (required)",
     nargs="?",
-    type=str
+    type=str,
 )
 parser.add_argument(
     "--no-plone-filter",
     help="Disable automatic Plone classifier filtering (process all packages)",
-    action="store_true"
+    action="store_true",
 )
 parser.add_argument(
-    "-p", "--profile",
+    "-p",
+    "--profile",
     help="Profile name for classifier filtering (overrides DEFAULT_PROFILE env var)",
     nargs="?",
-    type=str
+    type=str,
 )
 parser.add_argument(
     "--refresh-from-pypi",
     help="Refresh indexed packages data from PyPi",
-    action="store_true"
+    action="store_true",
 )
 parser.add_argument(
     "--show",
     help="Show indexed data for a package by name (for debugging)",
     type=str,
-    metavar="PACKAGE_NAME"
+    metavar="PACKAGE_NAME",
 )
 parser.add_argument(
     "--all-versions",
     help="Show all versions when using --show (default: only newest)",
-    action="store_true"
+    action="store_true",
 )
 parser.add_argument(
     "--recreate-collection",
     help="Delete and recreate the target collection with current schema (use with -f)",
-    action="store_true"
+    action="store_true",
 )
 parser.add_argument(
     "--force",
     help="Skip confirmation prompts for destructive operations",
-    action="store_true"
+    action="store_true",
 )
 
 
@@ -332,7 +381,9 @@ def main():
             if profile_manager.get_profile(effective_profile):
                 target = effective_profile
         if not target:
-            logger.error("Target collection name is required. Use -t <collection_name> or -p <profile>")
+            logger.error(
+                "Target collection name is required. Use -t <collection_name> or -p <profile>"
+            )
             sys.exit(1)
         show_package(args.show, target, all_versions=args.all_versions)
         return
@@ -340,7 +391,9 @@ def main():
     # Validate mode flags - must specify exactly one of -f, -i, or --refresh-from-pypi
     modes = [args.first, args.incremental, args.refresh_from_pypi]
     if sum(modes) != 1:
-        logger.error("Must specify exactly one of -f (full), -i (incremental), or --refresh-from-pypi")
+        logger.error(
+            "Must specify exactly one of -f (full), -i (incremental), or --refresh-from-pypi"
+        )
         parser.print_help()
         sys.exit(1)
 
@@ -375,7 +428,9 @@ def main():
             sys.exit(1)
 
         filter_troove = profile["classifiers"]
-        logger.info(f"Using profile '{effective_profile}' ({profile_source}) with {len(filter_troove)} classifiers")
+        logger.info(
+            f"Using profile '{effective_profile}' ({profile_source}) with {len(filter_troove)} classifiers"
+        )
 
         # Auto-set collection name from profile if not specified
         if not args.target:
@@ -389,7 +444,9 @@ def main():
             logger.info(f"Filtering for packages with classifier: {PLONE_CLASSIFIER}")
 
         if args.no_plone_filter:
-            logger.warning("Plone classifier filtering disabled. Processing ALL packages.")
+            logger.warning(
+                "Plone classifier filtering disabled. Processing ALL packages."
+            )
 
     # Validate target collection is specified
     if not args.target:
@@ -407,9 +464,9 @@ def main():
 
     logger.info(f"Starting PyPI aggregation in '{mode}' mode")
     logger.info(f"Target collection: {settings['target']}")
-    if settings['limit']:
+    if settings["limit"]:
         logger.info(f"Limiting to {settings['limit']} packages")
-    if settings['filter_name']:
+    if settings["filter_name"]:
         logger.info(f"Filtering by name: {settings['filter_name']}")
 
     register_plugins(PLUGINS, settings)
@@ -432,6 +489,7 @@ def main():
     # Handle --recreate-collection: use zero-downtime alias switching
     if args.recreate_collection:
         from pyf.aggregator.typesense_util import TypesenceUtil
+
         ts_util = TypesenceUtil()
 
         # Run migration first (no confirmation needed), then ask about deletion
@@ -446,19 +504,22 @@ def main():
                 confirm = input(
                     f"Delete old collection '{result['old_collection']}'? (Y/n): "
                 )
-                if confirm.lower() != 'n':  # Default is Yes
+                if confirm.lower() != "n":  # Default is Yes
                     ts_util.delete_collection(name=result["old_collection"])
                     logger.info(f"Deleted old collection '{result['old_collection']}'")
                 else:
                     logger.info(f"Kept old collection '{result['old_collection']}'")
-    elif not indexer.collection_exists(name=settings["target"]) and not indexer.get_alias(settings["target"]):
+    elif not indexer.collection_exists(
+        name=settings["target"]
+    ) and not indexer.get_alias(settings["target"]):
         # Create versioned collection with alias for fresh start
         from pyf.aggregator.typesense_util import TypesenceUtil
+
         ts_util = TypesenceUtil()
         ts_util.recreate_collection(name=settings["target"])
 
     # Execute the aggregation flow
-    indexer(agg, settings['target'])
+    indexer(agg, settings["target"])
 
     logger.info(f"Aggregation complete for collection: {settings['target']}")
 

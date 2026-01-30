@@ -1,5 +1,4 @@
 from dotenv import load_dotenv
-from pyf.aggregator.logger import logger
 
 import os
 import typesense
@@ -7,17 +6,17 @@ import typesense
 
 load_dotenv()
 
-TYPESENSE_HOST = os.getenv('TYPESENSE_HOST')
-TYPESENSE_PORT = os.getenv('TYPESENSE_PORT')
-TYPESENSE_PROTOCOL = os.getenv('TYPESENSE_PROTOCOL')
-TYPESENSE_API_KEY = os.getenv('TYPESENSE_API_KEY')
-TYPESENSE_TIMEOUT = os.getenv('TYPESENSE_TIMEOUT')
+TYPESENSE_HOST = os.getenv("TYPESENSE_HOST")
+TYPESENSE_PORT = os.getenv("TYPESENSE_PORT")
+TYPESENSE_PROTOCOL = os.getenv("TYPESENSE_PROTOCOL")
+TYPESENSE_API_KEY = os.getenv("TYPESENSE_API_KEY")
+TYPESENSE_TIMEOUT = os.getenv("TYPESENSE_TIMEOUT")
 
 
 def parse_versioned_name(collection_name):
     """Parse 'name-N' into ('name', N). Returns (name, None) if no version suffix."""
-    if '-' in collection_name:
-        base, suffix = collection_name.rsplit('-', 1)
+    if "-" in collection_name:
+        base, suffix = collection_name.rsplit("-", 1)
         if suffix.isdigit():
             return base, int(suffix)
     return collection_name, None
@@ -30,7 +29,6 @@ def get_next_version(base_name, current_version):
 
 
 class TypesenceConnection:
-
     def __init__(self):
         self.client = typesense.Client(
             {
@@ -66,7 +64,7 @@ class TypesenceConnection:
         """Get the collection name an alias points to, or None if alias doesn't exist."""
         try:
             alias = self.client.aliases[alias_name].retrieve()
-            return alias.get('collection_name')
+            return alias.get("collection_name")
         except typesense.exceptions.ObjectNotFound:
             return None
 
@@ -78,11 +76,10 @@ class TypesenceConnection:
         return self.client.collections.retrieve()
 
     def get_collection_names(self):
-        return [i.get('name') for i in self.client.collections.retrieve()]
+        return [i.get("name") for i in self.client.collections.retrieve()]
 
 
 class TypesensePackagesCollection:
-
     def create_collection(self, name=None):
         schema = {
             "name": name,
@@ -147,12 +144,22 @@ class TypesensePackagesCollection:
                 {"name": "summary", "type": "string"},
                 {"name": "urls", "type": "auto", "index": False, "optional": True},
                 {"name": "version", "type": "string"},
-                {"name": "upload_timestamp", "type": "int64", "sort": True, "optional": True},
+                {
+                    "name": "upload_timestamp",
+                    "type": "int64",
+                    "sort": True,
+                    "optional": True,
+                },
                 {"name": "version_bugfix", "type": "int32", "sort": True},
                 {"name": "version_major", "type": "int32", "sort": True},
                 {"name": "version_minor", "type": "int32", "sort": True},
                 {"name": "version_postfix", "type": "string", "sort": True},
-                {"name": "version_sortable", "type": "string", "sort": True, "facet": True},
+                {
+                    "name": "version_sortable",
+                    "type": "string",
+                    "sort": True,
+                    "facet": True,
+                },
                 {"name": "version_raw", "type": "string", "sort": True, "facet": True},
                 {"name": "yanked", "type": "bool"},
                 {"name": "github_stars", "type": "auto", "facet": True},
@@ -163,7 +170,12 @@ class TypesensePackagesCollection:
                 {"name": "download_last_week", "type": "auto", "facet": True},
                 {"name": "download_last_month", "type": "auto", "facet": True},
                 {"name": "download_total", "type": "auto", "facet": True},
-                {"name": "download_updated", "type": "float", "sort": True, "optional": True},
+                {
+                    "name": "download_updated",
+                    "type": "float",
+                    "sort": True,
+                    "optional": True,
+                },
                 {
                     "name": "yanked_reason",
                     "type": "string",
@@ -194,15 +206,17 @@ class TypesensePackagesCollection:
         per_page = 250
 
         while True:
-            result = self.client.collections[collection_name].documents.search({
-                "q": "*",
-                "query_by": "name",
-                "include_fields": "name",
-                "per_page": per_page,
-                "page": page,
-                "group_by": "name",
-                "group_limit": 1,
-            })
+            result = self.client.collections[collection_name].documents.search(
+                {
+                    "q": "*",
+                    "query_by": "name",
+                    "include_fields": "name",
+                    "per_page": per_page,
+                    "page": page,
+                    "group_by": "name",
+                    "group_limit": 1,
+                }
+            )
 
             for group in result.get("grouped_hits", []):
                 for hit in group.get("hits", []):
@@ -219,7 +233,7 @@ class TypesensePackagesCollection:
     def delete_package_by_name(self, collection_name, package_name):
         """Delete all versions of a package by name."""
         return self.client.collections[collection_name].documents.delete(
-            {'filter_by': f'name:={package_name}'}
+            {"filter_by": f"name:={package_name}"}
         )
 
     def get_all_document_ids(self, collection_name):
@@ -229,13 +243,15 @@ class TypesensePackagesCollection:
         per_page = 250
 
         while True:
-            result = self.client.collections[collection_name].documents.search({
-                "q": "*",
-                "query_by": "name",
-                "per_page": per_page,
-                "page": page,
-                "include_fields": "id",
-            })
+            result = self.client.collections[collection_name].documents.search(
+                {
+                    "q": "*",
+                    "query_by": "name",
+                    "per_page": per_page,
+                    "page": page,
+                    "include_fields": "id",
+                }
+            )
 
             hits = result.get("hits", [])
             if not hits:
@@ -248,11 +264,13 @@ class TypesensePackagesCollection:
 
     def get_documents_by_name(self, collection_name, package_name):
         """Get all documents for a package by name, sorted by upload_timestamp desc."""
-        result = self.client.collections[collection_name].documents.search({
-            "q": package_name,
-            "query_by": "name",
-            "filter_by": f"name:={package_name}",
-            "sort_by": "upload_timestamp:desc",
-            "per_page": 100,
-        })
+        result = self.client.collections[collection_name].documents.search(
+            {
+                "q": package_name,
+                "query_by": "name",
+                "filter_by": f"name:={package_name}",
+                "sort_by": "upload_timestamp:desc",
+                "per_page": 100,
+            }
+        )
         return [hit["document"] for hit in result.get("hits", [])]

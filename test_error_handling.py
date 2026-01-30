@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 """Test error handling for non-existent packages."""
+
 from pyf.aggregator.enrichers.downloads import Enricher
 from pyf.aggregator.logger import logger
+
 
 def main():
     logger.info("=== Testing Error Handling ===")
@@ -29,5 +31,6 @@ def main():
 
     logger.info("\n=== Error Handling Test Complete ===")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

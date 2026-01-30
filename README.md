@@ -718,10 +718,34 @@ uv run pytest -m integration -v
 uv run pytest -m "not integration"
 ```
 
+### Continuous Integration
+
+The project uses GitHub Actions for CI, running on every push and pull request to the `master` branch.
+
+**CI Jobs:**
+
+| Job | Description |
+|-----|-------------|
+| `lint` | Runs ruff linter and format checker on `src` and `tests` |
+| `test` | Runs pytest with Python 3.12 |
+
+**Running Locally:**
+
+```shell
+# Lint check
+uv tool run ruff check src tests
+
+# Format check
+uv tool run ruff format --check src tests
+
+# Run tests
+uv run --extra test pytest
+```
+
 
 ## GUI
 
-We have GUI which we use for the Plone addon gallery (PAG).
+We have a GUI which we use for the Plone addon gallery (PAG).
 This is a reference implemetation build with SvelteKit.
 
 https://github.com/collective/pyf-gui

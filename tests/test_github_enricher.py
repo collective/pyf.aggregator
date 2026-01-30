@@ -12,21 +12,28 @@ This module tests:
 
 import time
 import pytest
-from unittest.mock import patch, MagicMock, PropertyMock
+from unittest.mock import patch, MagicMock
 from datetime import datetime
 
-from pyf.aggregator.enrichers.github import Enricher, memoize, GH_KEYS_MAP
+from pyf.aggregator.enrichers.github import Enricher, memoize
 
 
 # ============================================================================
 # Fixtures
 # ============================================================================
 
+
 @pytest.fixture
 def enricher():
     """Create an Enricher instance for testing."""
-    with patch('pyf.aggregator.enrichers.github.TypesenceConnection.__init__', return_value=None):
-        with patch('pyf.aggregator.enrichers.github.TypesensePackagesCollection.__init__', return_value=None):
+    with patch(
+        "pyf.aggregator.enrichers.github.TypesenceConnection.__init__",
+        return_value=None,
+    ):
+        with patch(
+            "pyf.aggregator.enrichers.github.TypesensePackagesCollection.__init__",
+            return_value=None,
+        ):
             e = Enricher()
             e.client = MagicMock()
             return e
@@ -54,14 +61,16 @@ def sample_github_repo():
 def sample_github_contributors():
     """Create mock GitHub contributor objects."""
     contributors = []
-    for i, (username, contributions) in enumerate([
-        ("timo", 150),
-        ("davisagli", 120),
-        ("sneridagh", 80),
-        ("tisto", 60),
-        ("jensens", 40),
-        ("someone", 10),
-    ]):
+    for i, (username, contributions) in enumerate(
+        [
+            ("timo", 150),
+            ("davisagli", 120),
+            ("sneridagh", 80),
+            ("tisto", 60),
+            ("jensens", 40),
+            ("someone", 10),
+        ]
+    ):
         contributor = MagicMock()
         contributor.login = username
         contributor.avatar_url = f"https://avatars.githubusercontent.com/u/{1000 + i}"
@@ -84,7 +93,7 @@ def sample_typesense_search_results():
                             "id": "plone.api-2.0.0",
                             "name": "plone.api",
                             "version": "2.0.0",
-                            "home_page": "https://github.com/plone/plone.api"
+                            "home_page": "https://github.com/plone/plone.api",
                         }
                     }
                 ]
@@ -98,18 +107,19 @@ def sample_typesense_search_results():
                             "version": "8.0.0",
                             "project_urls": {
                                 "Homepage": "https://github.com/plone/plone.restapi"
-                            }
+                            },
                         }
                     }
                 ]
-            }
-        ]
+            },
+        ],
     }
 
 
 # ============================================================================
 # Repository Identifier Extraction Tests
 # ============================================================================
+
 
 class TestGetPackageRepoIdentifier:
     """Test the get_package_repo_identifier method."""
@@ -128,7 +138,11 @@ class TestGetPackageRepoIdentifier:
 
     def test_extracts_from_url_field(self, enricher):
         """Test extraction from url field."""
-        data = {"home_page": None, "project_url": None, "url": "https://github.com/plone/plone.api"}
+        data = {
+            "home_page": None,
+            "project_url": None,
+            "url": "https://github.com/plone/plone.api",
+        }
         result = enricher.get_package_repo_identifier(data)
         assert result == "plone/plone.api"
 
@@ -137,7 +151,7 @@ class TestGetPackageRepoIdentifier:
         data = {
             "home_page": None,
             "project_url": None,
-            "project_urls": {"Homepage": "https://github.com/plone/plone.api"}
+            "project_urls": {"Homepage": "https://github.com/plone/plone.api"},
         }
         result = enricher.get_package_repo_identifier(data)
         assert result == "plone/plone.api"
@@ -171,16 +185,17 @@ class TestGetPackageRepoIdentifier:
 # GitHub API Data Fetching Tests
 # ============================================================================
 
+
 class TestGetGithubData:
     """Test the _get_github_data method."""
 
     def test_returns_github_data_for_valid_repo(self, enricher, sample_github_repo):
         """Test successful GitHub data retrieval."""
         # Clear the memoization cache
-        if hasattr(enricher._get_github_data, 'cache'):
+        if hasattr(enricher._get_github_data, "cache"):
             enricher._get_github_data.cache.clear()
 
-        with patch('pyf.aggregator.enrichers.github.Github') as mock_github_class:
+        with patch("pyf.aggregator.enrichers.github.Github") as mock_github_class:
             mock_github = MagicMock()
             mock_github.get_repo.return_value = sample_github_repo
             mock_github_class.return_value = mock_github
@@ -196,14 +211,16 @@ class TestGetGithubData:
 
     def test_returns_empty_dict_for_404(self, enricher):
         """Test that empty dict is returned for non-existent repo."""
-        if hasattr(enricher._get_github_data, 'cache'):
+        if hasattr(enricher._get_github_data, "cache"):
             enricher._get_github_data.cache.clear()
 
         from github import UnknownObjectException
 
-        with patch('pyf.aggregator.enrichers.github.Github') as mock_github_class:
+        with patch("pyf.aggregator.enrichers.github.Github") as mock_github_class:
             mock_github = MagicMock()
-            mock_github.get_repo.side_effect = UnknownObjectException(404, "Not Found", {})
+            mock_github.get_repo.side_effect = UnknownObjectException(
+                404, "Not Found", {}
+            )
             mock_github_class.return_value = mock_github
 
             result = enricher._get_github_data("nonexistent/repo")
@@ -212,17 +229,17 @@ class TestGetGithubData:
 
     def test_handles_rate_limit_exceeded(self, enricher, sample_github_repo):
         """Test handling of GitHub rate limit exceeded."""
-        if hasattr(enricher._get_github_data, 'cache'):
+        if hasattr(enricher._get_github_data, "cache"):
             enricher._get_github_data.cache.clear()
 
         from github import RateLimitExceededException
 
-        with patch('pyf.aggregator.enrichers.github.Github') as mock_github_class:
+        with patch("pyf.aggregator.enrichers.github.Github") as mock_github_class:
             mock_github = MagicMock()
             # First call raises rate limit, second succeeds
             mock_github.get_repo.side_effect = [
                 RateLimitExceededException(403, "Rate limit exceeded", {}),
-                sample_github_repo
+                sample_github_repo,
             ]
             mock_github.rate_limiting_resettime = time.time() + 0.1
             mock_github_class.return_value = mock_github
@@ -234,10 +251,10 @@ class TestGetGithubData:
 
     def test_memoizes_results(self, enricher, sample_github_repo):
         """Test that GitHub data is memoized."""
-        if hasattr(enricher._get_github_data, 'cache'):
+        if hasattr(enricher._get_github_data, "cache"):
             enricher._get_github_data.cache.clear()
 
-        with patch('pyf.aggregator.enrichers.github.Github') as mock_github_class:
+        with patch("pyf.aggregator.enrichers.github.Github") as mock_github_class:
             mock_github = MagicMock()
             mock_github.get_repo.return_value = sample_github_repo
             mock_github_class.return_value = mock_github
@@ -256,6 +273,7 @@ class TestGetGithubData:
 # GitHub Contributors Tests
 # ============================================================================
 
+
 class TestGetTopContributors:
     """Test the _get_top_contributors method."""
 
@@ -273,7 +291,9 @@ class TestGetTopContributors:
         assert result[4]["username"] == "jensens"
         assert result[4]["contributions"] == 40
 
-    def test_returns_all_contributors_when_less_than_limit(self, enricher, sample_github_contributors):
+    def test_returns_all_contributors_when_less_than_limit(
+        self, enricher, sample_github_contributors
+    ):
         """Test when there are fewer contributors than the limit."""
         mock_repo = MagicMock()
         mock_repo.get_contributors.return_value = sample_github_contributors[:3]
@@ -290,7 +310,9 @@ class TestGetTopContributors:
         result = enricher._get_top_contributors(mock_repo, limit=2)
 
         assert "avatar_url" in result[0]
-        assert result[0]["avatar_url"].startswith("https://avatars.githubusercontent.com/")
+        assert result[0]["avatar_url"].startswith(
+            "https://avatars.githubusercontent.com/"
+        )
 
     def test_returns_empty_list_on_error(self, enricher):
         """Test that empty list is returned on API error."""
@@ -315,17 +337,20 @@ class TestGetTopContributors:
 # GitHub Data with Contributors Tests
 # ============================================================================
 
+
 class TestGetGithubDataWithContributors:
     """Test _get_github_data with contributors enabled."""
 
-    def test_includes_contributors_in_result(self, enricher, sample_github_repo, sample_github_contributors):
+    def test_includes_contributors_in_result(
+        self, enricher, sample_github_repo, sample_github_contributors
+    ):
         """Test that contributors are included in the result."""
-        if hasattr(enricher._get_github_data, 'cache'):
+        if hasattr(enricher._get_github_data, "cache"):
             enricher._get_github_data.cache.clear()
 
         sample_github_repo.get_contributors.return_value = sample_github_contributors
 
-        with patch('pyf.aggregator.enrichers.github.Github') as mock_github_class:
+        with patch("pyf.aggregator.enrichers.github.Github") as mock_github_class:
             mock_github = MagicMock()
             mock_github.get_repo.return_value = sample_github_repo
             mock_github_class.return_value = mock_github
@@ -342,6 +367,7 @@ class TestGetGithubDataWithContributors:
 # Document Update Tests
 # ============================================================================
 
+
 class TestUpdateDoc:
     """Test the update_doc method."""
 
@@ -349,11 +375,7 @@ class TestUpdateDoc:
         """Test updating a document with GitHub data."""
         mock_doc = MagicMock()
         enricher.client.collections = {
-            "test_collection": MagicMock(
-                documents={
-                    "plone.api-2.0.0": mock_doc
-                }
-            )
+            "test_collection": MagicMock(documents={"plone.api-2.0.0": mock_doc})
         }
 
         data = {
@@ -366,7 +388,9 @@ class TestUpdateDoc:
             }
         }
 
-        enricher.update_doc("test_collection", "plone.api-2.0.0", data, page=1, enrich_counter=1)
+        enricher.update_doc(
+            "test_collection", "plone.api-2.0.0", data, page=1, enrich_counter=1
+        )
 
         mock_doc.update.assert_called_once()
         call_args = mock_doc.update.call_args[0][0]
@@ -379,16 +403,20 @@ class TestUpdateDoc:
         """Test updating a document with contributors data."""
         mock_doc = MagicMock()
         enricher.client.collections = {
-            "test_collection": MagicMock(
-                documents={
-                    "plone.api-2.0.0": mock_doc
-                }
-            )
+            "test_collection": MagicMock(documents={"plone.api-2.0.0": mock_doc})
         }
 
         contributors = [
-            {"username": "timo", "avatar_url": "https://example.com/1", "contributions": 150},
-            {"username": "davisagli", "avatar_url": "https://example.com/2", "contributions": 120},
+            {
+                "username": "timo",
+                "avatar_url": "https://example.com/1",
+                "contributions": 150,
+            },
+            {
+                "username": "davisagli",
+                "avatar_url": "https://example.com/2",
+                "contributions": 120,
+            },
         ]
 
         data = {
@@ -402,7 +430,9 @@ class TestUpdateDoc:
             }
         }
 
-        enricher.update_doc("test_collection", "plone.api-2.0.0", data, page=1, enrich_counter=1)
+        enricher.update_doc(
+            "test_collection", "plone.api-2.0.0", data, page=1, enrich_counter=1
+        )
 
         call_args = mock_doc.update.call_args[0][0]
         assert "contributors" in call_args
@@ -413,6 +443,7 @@ class TestUpdateDoc:
 # ============================================================================
 # Rate Limiting Tests
 # ============================================================================
+
 
 class TestRateLimiting:
     """Test the _apply_github_rate_limit method."""
@@ -458,6 +489,7 @@ class TestRateLimiting:
 # Memoization Tests
 # ============================================================================
 
+
 class TestMemoization:
     """Test the memoization decorator."""
 
@@ -471,7 +503,7 @@ class TestMemoization:
             call_count += 1
             return f"result-{key}"
 
-        obj = type('obj', (), {})()
+        obj = type("obj", (), {})()
 
         # First call
         result1 = test_func(obj, "test")
@@ -493,10 +525,13 @@ class TestMemoization:
 # Search Parameters Tests
 # ============================================================================
 
+
 class TestSearchParameters:
     """Test that search parameters are correctly configured."""
 
-    def test_search_uses_sort_by_upload_timestamp_desc(self, enricher, sample_github_repo, sample_github_contributors):
+    def test_search_uses_sort_by_upload_timestamp_desc(
+        self, enricher, sample_github_repo, sample_github_contributors
+    ):
         """
         Test that the enricher uses sort_by: upload_timestamp:desc to get newest versions.
 
@@ -506,7 +541,7 @@ class TestSearchParameters:
 
         Regression test for: GitHub enricher not finding GitHub URLs from project_urls
         """
-        if hasattr(enricher._get_github_data, 'cache'):
+        if hasattr(enricher._get_github_data, "cache"):
             enricher._get_github_data.cache.clear()
 
         sample_github_repo.get_contributors.return_value = sample_github_contributors
@@ -528,15 +563,17 @@ class TestSearchParameters:
                                     "id": "test-package-2.0.0",
                                     "name": "test-package",
                                     "version": "2.0.0",
-                                    "project_urls": {"Source": "https://github.com/org/test-package"}
+                                    "project_urls": {
+                                        "Source": "https://github.com/org/test-package"
+                                    },
                                 }
                             }
                         ]
                     }
-                ]
+                ],
             }
 
-        with patch('pyf.aggregator.enrichers.github.Github') as mock_github_class:
+        with patch("pyf.aggregator.enrichers.github.Github") as mock_github_class:
             mock_github = MagicMock()
             mock_github.get_repo.return_value = sample_github_repo
             mock_github_class.return_value = mock_github
@@ -550,17 +587,22 @@ class TestSearchParameters:
         assert len(search_calls) >= 1
         first_call_params = search_calls[0]
 
-        assert "sort_by" in first_call_params, \
+        assert "sort_by" in first_call_params, (
             "search_parameters must include 'sort_by' to ensure newest version is fetched"
-        assert first_call_params["sort_by"] == "upload_timestamp:desc", \
+        )
+        assert first_call_params["sort_by"] == "upload_timestamp:desc", (
             "sort_by must be 'upload_timestamp:desc' to get newest package versions"
+        )
 
         # Also verify group_by is present (the combination is what matters)
-        assert "group_by" in first_call_params, \
+        assert "group_by" in first_call_params, (
             "search_parameters must include 'group_by' for deduplication"
+        )
         assert first_call_params["group_by"] == "name_sortable"
 
-    def test_search_finds_github_url_from_newest_version_project_urls(self, enricher, sample_github_repo, sample_github_contributors):
+    def test_search_finds_github_url_from_newest_version_project_urls(
+        self, enricher, sample_github_repo, sample_github_contributors
+    ):
         """
         Test that the enricher finds GitHub URLs from project_urls in the newest version.
 
@@ -570,7 +612,7 @@ class TestSearchParameters:
 
         The enricher should find the GitHub URL because it should be getting v2.0.0.
         """
-        if hasattr(enricher._get_github_data, 'cache'):
+        if hasattr(enricher._get_github_data, "cache"):
             enricher._get_github_data.cache.clear()
 
         sample_github_repo.get_contributors.return_value = sample_github_contributors
@@ -592,16 +634,16 @@ class TestSearchParameters:
                                 # GitHub URL only available in project_urls (added in recent version)
                                 "project_urls": {
                                     "Homepage": "https://github.com/webcloud7/wcs.samlauth",
-                                    "Documentation": "https://docs.example.com"
-                                }
+                                    "Documentation": "https://docs.example.com",
+                                },
                             }
                         }
                     ]
                 }
-            ]
+            ],
         }
 
-        with patch('pyf.aggregator.enrichers.github.Github') as mock_github_class:
+        with patch("pyf.aggregator.enrichers.github.Github") as mock_github_class:
             mock_github = MagicMock()
             mock_github.get_repo.return_value = sample_github_repo
             mock_github_class.return_value = mock_github
@@ -612,8 +654,9 @@ class TestSearchParameters:
             enricher.run("test_collection")
 
         # The enricher should have found the GitHub URL and updated the document
-        assert enricher.update_doc.call_count == 1, \
+        assert enricher.update_doc.call_count == 1, (
             "Enricher should find GitHub URL from project_urls and update the document"
+        )
 
         # Verify GitHub API was called with the correct repo identifier
         mock_github.get_repo.assert_called_with("webcloud7/wcs.samlauth")
@@ -623,17 +666,24 @@ class TestSearchParameters:
 # Full Enrichment Flow Tests
 # ============================================================================
 
+
 class TestRun:
     """Test the run method (full enrichment flow)."""
 
-    def test_enriches_packages(self, enricher, sample_github_repo, sample_typesense_search_results, sample_github_contributors):
+    def test_enriches_packages(
+        self,
+        enricher,
+        sample_github_repo,
+        sample_typesense_search_results,
+        sample_github_contributors,
+    ):
         """Test full enrichment flow."""
-        if hasattr(enricher._get_github_data, 'cache'):
+        if hasattr(enricher._get_github_data, "cache"):
             enricher._get_github_data.cache.clear()
 
         sample_github_repo.get_contributors.return_value = sample_github_contributors
 
-        with patch('pyf.aggregator.enrichers.github.Github') as mock_github_class:
+        with patch("pyf.aggregator.enrichers.github.Github") as mock_github_class:
             mock_github = MagicMock()
             mock_github.get_repo.return_value = sample_github_repo
             mock_github_class.return_value = mock_github
@@ -658,12 +708,12 @@ class TestRun:
                             "document": {
                                 "id": "some-package-1.0.0",
                                 "name": "some-package",
-                                "home_page": "https://readthedocs.io/some-package"
+                                "home_page": "https://readthedocs.io/some-package",
                             }
                         }
                     ]
                 }
-            ]
+            ],
         }
 
         enricher.ts_search = MagicMock(return_value=search_results)
@@ -674,9 +724,11 @@ class TestRun:
         # Should not have updated any packages
         assert enricher.update_doc.call_count == 0
 
-    def test_verbose_mode_outputs_data(self, enricher, sample_github_repo, sample_github_contributors, capsys):
+    def test_verbose_mode_outputs_data(
+        self, enricher, sample_github_repo, sample_github_contributors, capsys
+    ):
         """Test that verbose mode outputs raw data."""
-        if hasattr(enricher._get_github_data, 'cache'):
+        if hasattr(enricher._get_github_data, "cache"):
             enricher._get_github_data.cache.clear()
 
         sample_github_repo.get_contributors.return_value = sample_github_contributors
@@ -691,15 +743,15 @@ class TestRun:
                             "document": {
                                 "id": "plone.api-2.0.0",
                                 "name": "plone.api",
-                                "home_page": "https://github.com/plone/plone.api"
+                                "home_page": "https://github.com/plone/plone.api",
                             }
                         }
                     ]
                 }
-            ]
+            ],
         }
 
-        with patch('pyf.aggregator.enrichers.github.Github') as mock_github_class:
+        with patch("pyf.aggregator.enrichers.github.Github") as mock_github_class:
             mock_github = MagicMock()
             mock_github.get_repo.return_value = sample_github_repo
             mock_github_class.return_value = mock_github

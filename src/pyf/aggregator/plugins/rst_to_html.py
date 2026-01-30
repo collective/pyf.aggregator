@@ -37,9 +37,7 @@ def normalize_headings(html_content):
 
     try:
         # Parse HTML - wrap in div to handle fragments
-        doc = lxml_html.fragment_fromstring(
-            html_content, create_parent="div"
-        )
+        doc = lxml_html.fragment_fromstring(html_content, create_parent="div")
 
         # Find all heading elements in document order
         headings = []
@@ -74,11 +72,11 @@ def normalize_headings(html_content):
 
 def process(identifier, data):
     """Convert package description from RST to HTML and normalize headings."""
-    description = data.get('description')
+    description = data.get("description")
     if description is None:
         return
 
-    renderer = _RENDERERS.get(data.get('description_content_type'), readme_renderer.rst)
+    renderer = _RENDERERS.get(data.get("description_content_type"), readme_renderer.rst)
     html_output = renderer.render(description)
     data["description"] = normalize_headings(html_output)
 

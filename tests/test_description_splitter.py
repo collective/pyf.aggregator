@@ -22,6 +22,7 @@ from pyf.aggregator.plugins.description_splitter import (
 # Test Fixtures
 # ============================================================================
 
+
 @pytest.fixture
 def simple_html():
     """HTML with a single H2 and content."""
@@ -117,6 +118,7 @@ def complex_html():
 # Split Description Tests - Title Extraction
 # ============================================================================
 
+
 class TestTitleExtraction:
     """Test title extraction from first H2."""
 
@@ -153,6 +155,7 @@ class TestTitleExtraction:
 # Split Description Tests - First Chapter
 # ============================================================================
 
+
 class TestFirstChapterExtraction:
     """Test first_chapter extraction."""
 
@@ -186,6 +189,7 @@ class TestFirstChapterExtraction:
 # ============================================================================
 # Split Description Tests - Main Content
 # ============================================================================
+
 
 class TestMainContentExtraction:
     """Test main_content extraction."""
@@ -223,6 +227,7 @@ class TestMainContentExtraction:
 # ============================================================================
 # Split Description Tests - Changelog Detection
 # ============================================================================
+
 
 class TestChangelogDetection:
     """Test changelog section detection."""
@@ -283,6 +288,7 @@ class TestChangelogDetection:
 # Split Description Tests - Edge Cases
 # ============================================================================
 
+
 class TestEdgeCases:
     """Test edge cases."""
 
@@ -338,6 +344,7 @@ class TestEdgeCases:
 # Process Function Tests
 # ============================================================================
 
+
 class TestProcess:
     """Test the main process function."""
 
@@ -392,6 +399,7 @@ class TestProcess:
 # ============================================================================
 # Load Function Tests
 # ============================================================================
+
 
 class TestLoad:
     """Test the load function."""

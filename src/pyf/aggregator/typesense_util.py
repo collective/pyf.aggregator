@@ -1,7 +1,12 @@
 from argparse import ArgumentParser
 from datetime import datetime
 from dotenv import load_dotenv
-from pyf.aggregator.db import TypesenceConnection, TypesensePackagesCollection, parse_versioned_name, get_next_version
+from pyf.aggregator.db import (
+    TypesenceConnection,
+    TypesensePackagesCollection,
+    parse_versioned_name,
+    get_next_version,
+)
 from pyf.aggregator.logger import logger
 from pyf.aggregator.profiles import ProfileManager
 from pyf.aggregator.queue import app as celery_app
@@ -57,10 +62,11 @@ parser.add_argument(
     type=str,
 )
 parser.add_argument(
-    "-p", "--profile",
+    "-p",
+    "--profile",
     help="Profile name for collection operations (overrides DEFAULT_PROFILE env var)",
     nargs="?",
-    type=str
+    type=str,
 )
 parser.add_argument(
     "--purge-queue",
@@ -84,10 +90,12 @@ parser.add_argument(
     metavar="COLLECTION_NAME",
 )
 parser.add_argument(
-    "-f", "--force",
+    "-f",
+    "--force",
     help="Skip confirmation prompts for destructive operations",
     action="store_true",
 )
+
 
 class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
     """
@@ -135,16 +143,18 @@ class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
 
     def add_search_only_apikey(self, collection_filter, key=None):
         q = {
-                "description": "Search-only key.",
-                "actions": ["documents:search"],
-                "collections": [
-                    collection_filter,
-                ],
+            "description": "Search-only key.",
+            "actions": ["documents:search"],
+            "collections": [
+                collection_filter,
+            ],
         }
         if key:
             q["value"] = key
         res_key = self.client.keys.create(q)
-        logger.info(f"add search only API key {key}, with collection filter: {collection_filter}")
+        logger.info(
+            f"add search only API key {key}, with collection filter: {collection_filter}"
+        )
         print(f"res_key: {res_key}")
 
     def delete_apikey(self, key_id):
@@ -175,10 +185,14 @@ class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
             base_name, current_version = parse_versioned_name(current_collection)
             new_collection, new_version = get_next_version(base_name, current_version)
 
-            logger.info(f"Creating new collection '{new_collection}' with current schema...")
+            logger.info(
+                f"Creating new collection '{new_collection}' with current schema..."
+            )
             self.create_collection(name=new_collection)
 
-            logger.info(f"Migrating data from '{current_collection}' to '{new_collection}'...")
+            logger.info(
+                f"Migrating data from '{current_collection}' to '{new_collection}'..."
+            )
             self.migrate(source=current_collection, target=new_collection)
 
             logger.info(f"Switching alias '{name}' to '{new_collection}'...")
@@ -187,11 +201,18 @@ class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
             if delete_old:
                 logger.info(f"Deleting old collection '{current_collection}'...")
                 self.delete_collection(name=current_collection)
-                logger.info(f"Collection recreation complete: {name} → {new_collection}")
+                logger.info(
+                    f"Collection recreation complete: {name} → {new_collection}"
+                )
             else:
-                logger.info(f"Collection migration complete: {name} → {new_collection} (old collection kept)")
+                logger.info(
+                    f"Collection migration complete: {name} → {new_collection} (old collection kept)"
+                )
 
-            return {"old_collection": current_collection, "new_collection": new_collection}
+            return {
+                "old_collection": current_collection,
+                "new_collection": new_collection,
+            }
         else:
             # No alias - check if it's a direct collection
             if self.collection_exists(name):
@@ -207,7 +228,9 @@ class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
                     self.delete_collection(name=name)
                     logger.info(f"Converted: alias '{name}' → '{new_collection}'")
                 else:
-                    logger.info(f"Converted: alias '{name}' → '{new_collection}' (old collection kept)")
+                    logger.info(
+                        f"Converted: alias '{name}' → '{new_collection}' (old collection kept)"
+                    )
 
                 return {"old_collection": name, "new_collection": new_collection}
             else:
@@ -267,10 +290,10 @@ def main():
         and args.delete_collection is None
     ):
         logger.info(
-            f" No action provided, provide at least one action: "
-            f"--migrate, --add_alias, --list-aliases, --list-collections, "
-            f"--list-collection-names, --add-search-only-apikey, --delete-apikey, "
-            f"--purge-queue, --queue-stats, --recreate-collection, --delete-collection"
+            " No action provided, provide at least one action: "
+            "--migrate, --add_alias, --list-aliases, --list-collections, "
+            "--list-collection-names, --add-search-only-apikey, --delete-apikey, "
+            "--purge-queue, --queue-stats, --recreate-collection, --delete-collection"
         )
     if args.list_search_only_apikeys:
         keys = ts_util.get_search_only_apikeys()
@@ -299,10 +322,12 @@ def main():
         pprint(result)
     if args.queue_stats:
         # Get Redis queue length (pending tasks)
-        redis_url = os.getenv('REDIS_HOST', 'redis://localhost:6379')
+        redis_url = os.getenv("REDIS_HOST", "redis://localhost:6379")
         parsed = urlparse(redis_url)
-        r = redis.Redis(host=parsed.hostname or 'localhost', port=parsed.port or 6379, db=0)
-        pending_count = r.llen('celery')
+        r = redis.Redis(
+            host=parsed.hostname or "localhost", port=parsed.port or 6379, db=0
+        )
+        pending_count = r.llen("celery")
 
         print("Queue Statistics:")
         print("-" * 40)
@@ -319,7 +344,9 @@ def main():
                 print(f"\nWorker: {worker}")
                 print(f"  Active tasks: {len(tasks)}")
                 for task in tasks:
-                    print(f"    - {task.get('name', 'unknown')} [{task.get('id', '')[:8]}...]")
+                    print(
+                        f"    - {task.get('name', 'unknown')} [{task.get('id', '')[:8]}...]"
+                    )
         else:
             print("\n  No active workers connected")
 
@@ -328,7 +355,7 @@ def main():
             for worker, tasks in scheduled.items():
                 print(f"  {worker}: {len(tasks)} tasks")
                 for task in tasks:
-                    req = task.get('request', {})
+                    req = task.get("request", {})
                     print(f"    - {req.get('name', 'unknown')}")
         else:
             print("\n  No scheduled tasks")
@@ -343,7 +370,7 @@ def main():
             print("\n  No reserved tasks")
     if args.purge_queue:
         confirm = input("Are you sure you want to purge all pending tasks? (y/N): ")
-        if confirm.lower() == 'y':
+        if confirm.lower() == "y":
             num_purged = celery_app.control.purge()
             logger.info(f"Purged {num_purged} pending tasks from queue")
         else:
@@ -368,7 +395,7 @@ def main():
                 confirm = input(
                     f"Delete old collection '{result['old_collection']}'? (Y/n): "
                 )
-                if confirm.lower() != 'n':  # Default is Yes
+                if confirm.lower() != "n":  # Default is Yes
                     ts_util.delete_collection(name=result["old_collection"])
                     logger.info(f"Deleted old collection '{result['old_collection']}'")
                 else:
@@ -405,8 +432,10 @@ def main():
 
         # Confirmation (unless --force)
         if not args.force:
-            confirm = input(f"Are you sure you want to delete collection '{collection_name}'? (y/N): ")
-            if confirm.lower() != 'y':
+            confirm = input(
+                f"Are you sure you want to delete collection '{collection_name}'? (y/N): "
+            )
+            if confirm.lower() != "y":
                 logger.info("Delete operation cancelled")
                 sys.exit(0)
 

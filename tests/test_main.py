@@ -10,12 +10,13 @@ This module tests:
 import pytest
 import responses
 import re
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 
 # ============================================================================
 # Sample Data Fixtures for Refresh Mode
 # ============================================================================
+
 
 @pytest.fixture
 def sample_pypi_json_with_releases():
@@ -51,9 +52,27 @@ def sample_pypi_json_with_releases():
             "yanked_reason": None,
         },
         "releases": {
-            "1.0.0": [{"upload_time": "2020-01-01T00:00:00", "downloads": -1, "md5_digest": "abc"}],
-            "1.5.0": [{"upload_time": "2021-06-15T12:30:00", "downloads": -1, "md5_digest": "def"}],
-            "2.0.0": [{"upload_time": "2023-06-15T12:30:00", "downloads": -1, "md5_digest": "ghi"}],
+            "1.0.0": [
+                {
+                    "upload_time": "2020-01-01T00:00:00",
+                    "downloads": -1,
+                    "md5_digest": "abc",
+                }
+            ],
+            "1.5.0": [
+                {
+                    "upload_time": "2021-06-15T12:30:00",
+                    "downloads": -1,
+                    "md5_digest": "def",
+                }
+            ],
+            "2.0.0": [
+                {
+                    "upload_time": "2023-06-15T12:30:00",
+                    "downloads": -1,
+                    "md5_digest": "ghi",
+                }
+            ],
         },
         "urls": [
             {
@@ -74,6 +93,7 @@ def sample_pypi_json_with_releases():
 @pytest.fixture
 def sample_version_specific_json():
     """Sample version-specific PyPI JSON response."""
+
     def make_json(name, version, upload_time):
         return {
             "info": {
@@ -116,12 +136,14 @@ def sample_version_specific_json():
                 }
             ],
         }
+
     return make_json
 
 
 # ============================================================================
 # Refresh Mode Tests
 # ============================================================================
+
 
 class TestRunRefreshMode:
     """Test the run_refresh_mode function."""
@@ -149,7 +171,9 @@ class TestRunRefreshMode:
             responses.add(
                 responses.GET,
                 re.compile(rf"https://pypi\.org/+pypi/plone\.api/{version}/json"),
-                json=sample_version_specific_json("plone.api", version, upload_times[version]),
+                json=sample_version_specific_json(
+                    "plone.api", version, upload_times[version]
+                ),
                 status=200,
             )
 
@@ -189,7 +213,9 @@ class TestRunRefreshMode:
         assert "plone.api-2.0.0" in identifiers
 
     @responses.activate
-    def test_refresh_mode_deletes_before_upsert(self, sample_pypi_json_with_releases, sample_version_specific_json):
+    def test_refresh_mode_deletes_before_upsert(
+        self, sample_pypi_json_with_releases, sample_version_specific_json
+    ):
         """Test that refresh mode deletes existing versions before upserting new ones."""
         # This ensures clean slate per package - no stale versions remain
 
@@ -211,7 +237,9 @@ class TestRunRefreshMode:
             responses.add(
                 responses.GET,
                 re.compile(rf"https://pypi\.org/+pypi/plone\.api/{version}/json"),
-                json=sample_version_specific_json("plone.api", version, upload_times[version]),
+                json=sample_version_specific_json(
+                    "plone.api", version, upload_times[version]
+                ),
                 status=200,
             )
 
@@ -247,13 +275,21 @@ class TestRunRefreshMode:
         # A package that returns 404 should be marked for deletion
         # This test documents the expected behavior
 
-        result = {"status": "delete", "package": "removed-package", "reason": "not_found"}
+        result = {
+            "status": "delete",
+            "package": "removed-package",
+            "reason": "not_found",
+        }
         assert result["status"] == "delete"
         assert result["reason"] == "not_found"
 
     def test_refresh_mode_handles_no_classifier_match(self):
         """Test that packages without required classifiers are deleted."""
-        result = {"status": "delete", "package": "non-plone-package", "reason": "no_classifier"}
+        result = {
+            "status": "delete",
+            "package": "non-plone-package",
+            "reason": "no_classifier",
+        }
         assert result["status"] == "delete"
         assert result["reason"] == "no_classifier"
 
@@ -268,7 +304,9 @@ class TestProcessPackageFunction:
     """Test the process_package inner function behavior."""
 
     @responses.activate
-    def test_process_package_returns_all_versions(self, sample_pypi_json_with_releases, sample_version_specific_json):
+    def test_process_package_returns_all_versions(
+        self, sample_pypi_json_with_releases, sample_version_specific_json
+    ):
         """Test that process_package returns data for all versions."""
         # Mock main package JSON
         responses.add(
@@ -288,7 +326,9 @@ class TestProcessPackageFunction:
             responses.add(
                 responses.GET,
                 re.compile(rf"https://pypi\.org/+pypi/test-package/{version}/json"),
-                json=sample_version_specific_json("test-package", version, upload_times[version]),
+                json=sample_version_specific_json(
+                    "test-package", version, upload_times[version]
+                ),
                 status=200,
             )
 
@@ -324,13 +364,15 @@ class TestProcessPackageFunction:
         assert "test-package-2.0.0" in identifiers
 
     @responses.activate
-    def test_process_package_sets_upload_timestamp(self, sample_pypi_json_with_releases, sample_version_specific_json):
+    def test_process_package_sets_upload_timestamp(
+        self, sample_pypi_json_with_releases, sample_version_specific_json
+    ):
         """Test that upload_timestamp is set from release info."""
         from datetime import datetime
 
         # Parse an upload time
         ts = "2023-06-15T12:30:00"
-        dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
         timestamp = int(dt.timestamp())
 
         # Verify timestamp conversion
@@ -342,7 +384,9 @@ class TestRefreshModeIntegration:
     """Integration tests for refresh mode."""
 
     @responses.activate
-    def test_full_refresh_flow(self, sample_pypi_json_with_releases, sample_version_specific_json):
+    def test_full_refresh_flow(
+        self, sample_pypi_json_with_releases, sample_version_specific_json
+    ):
         """Test the complete refresh flow with mocked dependencies."""
         # Mock main package JSON
         responses.add(
@@ -362,7 +406,9 @@ class TestRefreshModeIntegration:
             responses.add(
                 responses.GET,
                 re.compile(rf"https://pypi\.org/+pypi/plone\.api/{version}/json"),
-                json=sample_version_specific_json("plone.api", version, upload_times[version]),
+                json=sample_version_specific_json(
+                    "plone.api", version, upload_times[version]
+                ),
                 status=200,
             )
 
@@ -390,9 +436,7 @@ class TestRefreshModeIntegration:
 
         # Mock search for unique package names
         mock_collection.documents.search.return_value = {
-            "grouped_hits": [
-                {"hits": [{"document": {"name": "plone.api"}}]}
-            ]
+            "grouped_hits": [{"hits": [{"document": {"name": "plone.api"}}]}]
         }
 
         with patch("pyf.aggregator.db.typesense.Client", return_value=mock_client):

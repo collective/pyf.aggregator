@@ -26,9 +26,7 @@ CHANGELOG_PATTERNS = [
     r"^versions?$",
 ]
 
-CHANGELOG_REGEX = re.compile(
-    "|".join(CHANGELOG_PATTERNS), re.IGNORECASE
-)
+CHANGELOG_REGEX = re.compile("|".join(CHANGELOG_PATTERNS), re.IGNORECASE)
 
 
 def is_changelog_heading(text):

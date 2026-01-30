@@ -9,8 +9,7 @@ This module tests:
 """
 
 import pytest
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from pyf.aggregator.profiles import ProfileManager
 
@@ -18,6 +17,7 @@ from pyf.aggregator.profiles import ProfileManager
 # ============================================================================
 # ProfileManager Initialization Tests
 # ============================================================================
+
 
 class TestProfileManagerInit:
     """Test ProfileManager initialization."""
@@ -105,6 +105,7 @@ profiles:
 # Profile Retrieval Tests
 # ============================================================================
 
+
 class TestGetProfile:
     """Test the get_profile method."""
 
@@ -167,6 +168,7 @@ profiles:
 # Profile Listing Tests
 # ============================================================================
 
+
 class TestListProfiles:
     """Test the list_profiles method."""
 
@@ -219,6 +221,7 @@ profiles:
 # ============================================================================
 # Profile Validation Tests
 # ============================================================================
+
 
 class TestValidateProfile:
     """Test the validate_profile method."""
@@ -327,6 +330,7 @@ profiles:
 # ============================================================================
 # Integration Tests
 # ============================================================================
+
 
 class TestProfileManagerIntegration:
     """Integration tests for ProfileManager with realistic scenarios."""

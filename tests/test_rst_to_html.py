@@ -19,6 +19,7 @@ from pyf.aggregator.plugins.rst_to_html import (
 # Test Fixtures
 # ============================================================================
 
+
 @pytest.fixture
 def single_h1_html():
     """HTML with a single H1 tag."""
@@ -64,6 +65,7 @@ def complex_structure_html():
 # ============================================================================
 # Normalize Headings Tests
 # ============================================================================
+
 
 class TestNormalizeHeadings:
     """Test the normalize_headings function."""
@@ -128,7 +130,9 @@ class TestNormalizeHeadings:
 
     def test_preserves_heading_attributes(self):
         """Heading attributes like id and class should be preserved when shifting."""
-        html = '<h1 id="main-title" class="title">Title</h1><h1 id="section">Section</h1>'
+        html = (
+            '<h1 id="main-title" class="title">Title</h1><h1 id="section">Section</h1>'
+        )
         result = normalize_headings(html)
         assert 'id="main-title"' in result
         assert 'class="title"' in result
@@ -147,11 +151,7 @@ class TestNormalizeHeadings:
 
     def test_caps_at_h6(self):
         """Heading levels should not go beyond H6."""
-        html = (
-            "<h1>Title</h1>"
-            "<h5>Already Deep</h5>"
-            "<h6>Maximum Depth</h6>"
-        )
+        html = "<h1>Title</h1><h5>Already Deep</h5><h6>Maximum Depth</h6>"
         result = normalize_headings(html)
         # h1 becomes h2
         assert "<h2>Title</h2>" in result
@@ -193,6 +193,7 @@ class TestNormalizeHeadings:
 # ============================================================================
 # Process Function Tests
 # ============================================================================
+
 
 class TestProcess:
     """Test the main process function with heading normalization."""
@@ -238,6 +239,7 @@ class TestProcess:
 # Load Function Tests
 # ============================================================================
 
+
 class TestLoad:
     """Test the load function."""
 
@@ -255,6 +257,7 @@ class TestLoad:
 # ============================================================================
 # Integration Tests
 # ============================================================================
+
 
 class TestIntegration:
     """Integration tests for RST to HTML conversion with heading normalization."""
@@ -310,4 +313,7 @@ Some paragraph text.
 
         description = data["description"]
         if description:
-            assert "paragraph text" in description.lower() or "paragraph" in description.lower()
+            assert (
+                "paragraph text" in description.lower()
+                or "paragraph" in description.lower()
+            )

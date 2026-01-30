@@ -37,16 +37,13 @@ class FeedParserEntry:
 # Classifier Filtering Tests
 # ============================================================================
 
+
 class TestHasPloneClassifier:
     """Test the has_plone_classifier method."""
 
     def test_returns_true_for_exact_plone_classifier(self, aggregator_first_mode):
         """Test that exact 'Framework :: Plone' classifier matches."""
-        package_json = {
-            "info": {
-                "classifiers": ["Framework :: Plone"]
-            }
-        }
+        package_json = {"info": {"classifiers": ["Framework :: Plone"]}}
         assert aggregator_first_mode.has_plone_classifier(package_json) is True
 
     def test_returns_true_for_plone_subclassifier(self, aggregator_first_mode):
@@ -74,17 +71,34 @@ class TestHasPloneClassifier:
         }
         assert aggregator_first_mode.has_plone_classifier(package_json) is True
 
-    def test_returns_false_for_non_plone_package(self, aggregator_first_mode, sample_pypi_json_non_plone):
+    def test_returns_false_for_non_plone_package(
+        self, aggregator_first_mode, sample_pypi_json_non_plone
+    ):
         """Test that non-Plone packages return False."""
-        assert aggregator_first_mode.has_plone_classifier(sample_pypi_json_non_plone) is False
+        assert (
+            aggregator_first_mode.has_plone_classifier(sample_pypi_json_non_plone)
+            is False
+        )
 
-    def test_returns_false_for_empty_classifiers(self, aggregator_first_mode, sample_pypi_json_empty_classifiers):
+    def test_returns_false_for_empty_classifiers(
+        self, aggregator_first_mode, sample_pypi_json_empty_classifiers
+    ):
         """Test that empty classifiers list returns False."""
-        assert aggregator_first_mode.has_plone_classifier(sample_pypi_json_empty_classifiers) is False
+        assert (
+            aggregator_first_mode.has_plone_classifier(
+                sample_pypi_json_empty_classifiers
+            )
+            is False
+        )
 
-    def test_returns_false_for_missing_info(self, aggregator_first_mode, sample_pypi_json_no_info):
+    def test_returns_false_for_missing_info(
+        self, aggregator_first_mode, sample_pypi_json_no_info
+    ):
         """Test that missing 'info' section returns False."""
-        assert aggregator_first_mode.has_plone_classifier(sample_pypi_json_no_info) is False
+        assert (
+            aggregator_first_mode.has_plone_classifier(sample_pypi_json_no_info)
+            is False
+        )
 
     def test_returns_false_for_missing_classifiers(self, aggregator_first_mode):
         """Test that missing 'classifiers' key returns False."""
@@ -112,6 +126,7 @@ class TestHasPloneClassifier:
 # ============================================================================
 # PyPI JSON API Tests
 # ============================================================================
+
 
 class TestGetPypiJson:
     """Test the _get_pypi_json method."""
@@ -223,6 +238,7 @@ class TestGetPypiJson:
 # Simple API Tests
 # ============================================================================
 
+
 class TestAllPackageIds:
     """Test the _all_package_ids property."""
 
@@ -292,39 +308,48 @@ class TestAllPackageIds:
 # RSS Feed Parsing Tests
 # ============================================================================
 
+
 class TestParseRssFeed:
     """Test the _parse_rss_feed method."""
 
     def test_parses_rss_entries(self, aggregator_first_mode, sample_rss_feed_xml):
         """Test that RSS feed entries are parsed correctly."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             # Create mock feed with entries
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
             mock_feed.entries = [
-                FeedParserEntry({
-                    "title": "plone.api 2.0.0",
-                    "link": "https://pypi.org/project/plone.api/2.0.0/",
-                    "summary": "A simple API for Plone",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
-                FeedParserEntry({
-                    "title": "requests 2.31.0",
-                    "link": "https://pypi.org/project/requests/2.31.0/",
-                    "summary": "Python HTTP for Humans",
-                    "published_parsed": time.strptime("2023-05-22", "%Y-%m-%d"),
-                }),
-                FeedParserEntry({
-                    "title": "plone.restapi 8.0.0",
-                    "link": "https://pypi.org/project/plone.restapi/8.0.0/",
-                    "summary": "RESTful API for Plone",
-                    "published_parsed": time.strptime("2023-06-14", "%Y-%m-%d"),
-                }),
+                FeedParserEntry(
+                    {
+                        "title": "plone.api 2.0.0",
+                        "link": "https://pypi.org/project/plone.api/2.0.0/",
+                        "summary": "A simple API for Plone",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
+                FeedParserEntry(
+                    {
+                        "title": "requests 2.31.0",
+                        "link": "https://pypi.org/project/requests/2.31.0/",
+                        "summary": "Python HTTP for Humans",
+                        "published_parsed": time.strptime("2023-05-22", "%Y-%m-%d"),
+                    }
+                ),
+                FeedParserEntry(
+                    {
+                        "title": "plone.restapi 8.0.0",
+                        "link": "https://pypi.org/project/plone.restapi/8.0.0/",
+                        "summary": "RESTful API for Plone",
+                        "published_parsed": time.strptime("2023-06-14", "%Y-%m-%d"),
+                    }
+                ),
             ]
             mock_parse.return_value = mock_feed
 
-            entries = aggregator_first_mode._parse_rss_feed("https://pypi.org/rss/updates.xml")
+            entries = aggregator_first_mode._parse_rss_feed(
+                "https://pypi.org/rss/updates.xml"
+            )
 
             assert len(entries) == 3
             assert entries[0]["package_id"] == "plone.api"
@@ -333,21 +358,25 @@ class TestParseRssFeed:
 
     def test_extracts_timestamp(self, aggregator_first_mode):
         """Test that timestamps are extracted from RSS entries."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
             mock_feed.entries = [
-                FeedParserEntry({
-                    "title": "test-package 1.0.0",
-                    "link": "https://pypi.org/project/test-package/1.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
+                FeedParserEntry(
+                    {
+                        "title": "test-package 1.0.0",
+                        "link": "https://pypi.org/project/test-package/1.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
             ]
             mock_parse.return_value = mock_feed
 
-            entries = aggregator_first_mode._parse_rss_feed("https://pypi.org/rss/updates.xml")
+            entries = aggregator_first_mode._parse_rss_feed(
+                "https://pypi.org/rss/updates.xml"
+            )
 
             assert len(entries) == 1
             assert entries[0]["timestamp"] is not None
@@ -355,29 +384,35 @@ class TestParseRssFeed:
 
     def test_applies_name_filter(self):
         """Test that filter_name is applied to RSS entries."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
             mock_feed.entries = [
-                FeedParserEntry({
-                    "title": "plone.api 2.0.0",
-                    "link": "https://pypi.org/project/plone.api/2.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
-                FeedParserEntry({
-                    "title": "requests 2.31.0",
-                    "link": "https://pypi.org/project/requests/2.31.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-05-22", "%Y-%m-%d"),
-                }),
-                FeedParserEntry({
-                    "title": "plone.restapi 8.0.0",
-                    "link": "https://pypi.org/project/plone.restapi/8.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-14", "%Y-%m-%d"),
-                }),
+                FeedParserEntry(
+                    {
+                        "title": "plone.api 2.0.0",
+                        "link": "https://pypi.org/project/plone.api/2.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
+                FeedParserEntry(
+                    {
+                        "title": "requests 2.31.0",
+                        "link": "https://pypi.org/project/requests/2.31.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-05-22", "%Y-%m-%d"),
+                    }
+                ),
+                FeedParserEntry(
+                    {
+                        "title": "plone.restapi 8.0.0",
+                        "link": "https://pypi.org/project/plone.restapi/8.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-14", "%Y-%m-%d"),
+                    }
+                ),
             ]
             mock_parse.return_value = mock_feed
 
@@ -392,14 +427,16 @@ class TestParseRssFeed:
 
     def test_handles_empty_feed(self, aggregator_first_mode):
         """Test that empty RSS feed returns empty list."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
             mock_feed.entries = []
             mock_parse.return_value = mock_feed
 
-            entries = aggregator_first_mode._parse_rss_feed("https://pypi.org/rss/empty.xml")
+            entries = aggregator_first_mode._parse_rss_feed(
+                "https://pypi.org/rss/empty.xml"
+            )
             assert entries == []
 
 
@@ -408,12 +445,14 @@ class TestParseRssEntry:
 
     def test_parses_standard_entry(self, aggregator_first_mode):
         """Test parsing a standard RSS entry."""
-        entry = FeedParserEntry({
-            "title": "plone.api 2.0.0",
-            "link": "https://pypi.org/project/plone.api/2.0.0/",
-            "summary": "A simple API for Plone",
-            "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-        })
+        entry = FeedParserEntry(
+            {
+                "title": "plone.api 2.0.0",
+                "link": "https://pypi.org/project/plone.api/2.0.0/",
+                "summary": "A simple API for Plone",
+                "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+            }
+        )
 
         result = aggregator_first_mode._parse_rss_entry(entry)
 
@@ -423,12 +462,14 @@ class TestParseRssEntry:
 
     def test_parses_entry_with_dashes_in_name(self, aggregator_first_mode):
         """Test parsing entry with dashes in package name."""
-        entry = FeedParserEntry({
-            "title": "plone-app-contenttypes 1.0.0",
-            "link": "https://pypi.org/project/plone-app-contenttypes/1.0.0/",
-            "summary": "",
-            "published_parsed": None,
-        })
+        entry = FeedParserEntry(
+            {
+                "title": "plone-app-contenttypes 1.0.0",
+                "link": "https://pypi.org/project/plone-app-contenttypes/1.0.0/",
+                "summary": "",
+                "published_parsed": None,
+            }
+        )
 
         result = aggregator_first_mode._parse_rss_entry(entry)
 
@@ -437,23 +478,27 @@ class TestParseRssEntry:
 
     def test_returns_none_for_empty_title(self, aggregator_first_mode):
         """Test that empty title with no link returns None."""
-        entry = FeedParserEntry({
-            "title": "",
-            "link": "",
-            "summary": "",
-        })
+        entry = FeedParserEntry(
+            {
+                "title": "",
+                "link": "",
+                "summary": "",
+            }
+        )
 
         result = aggregator_first_mode._parse_rss_entry(entry)
         assert result is None
 
     def test_extracts_from_link_fallback(self, aggregator_first_mode):
         """Test extraction from link when title is missing."""
-        entry = FeedParserEntry({
-            "title": "",
-            "link": "https://pypi.org/project/some-package/1.0.0/",
-            "summary": "",
-            "published_parsed": None,
-        })
+        entry = FeedParserEntry(
+            {
+                "title": "",
+                "link": "https://pypi.org/project/some-package/1.0.0/",
+                "summary": "",
+                "published_parsed": None,
+            }
+        )
 
         result = aggregator_first_mode._parse_rss_entry(entry)
 
@@ -462,12 +507,14 @@ class TestParseRssEntry:
 
     def test_handles_entry_without_version(self, aggregator_first_mode):
         """Test parsing entry without version in title."""
-        entry = FeedParserEntry({
-            "title": "some-package",
-            "link": "https://pypi.org/project/some-package/",
-            "summary": "",
-            "published_parsed": None,
-        })
+        entry = FeedParserEntry(
+            {
+                "title": "some-package",
+                "link": "https://pypi.org/project/some-package/",
+                "summary": "",
+                "published_parsed": None,
+            }
+        )
 
         result = aggregator_first_mode._parse_rss_entry(entry)
 
@@ -479,28 +526,33 @@ class TestParseRssEntry:
 # Package Updates (Incremental Mode) Tests
 # ============================================================================
 
+
 class TestPackageUpdates:
     """Test the _package_updates method for incremental mode."""
 
     def test_yields_updates_since_timestamp(self, aggregator_incremental_mode):
         """Test that updates are filtered by timestamp."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
             mock_feed.entries = [
-                FeedParserEntry({
-                    "title": "plone.api 2.0.0",
-                    "link": "https://pypi.org/project/plone.api/2.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
-                FeedParserEntry({
-                    "title": "requests 2.31.0",
-                    "link": "https://pypi.org/project/requests/2.31.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-05-22", "%Y-%m-%d"),
-                }),
+                FeedParserEntry(
+                    {
+                        "title": "plone.api 2.0.0",
+                        "link": "https://pypi.org/project/plone.api/2.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
+                FeedParserEntry(
+                    {
+                        "title": "requests 2.31.0",
+                        "link": "https://pypi.org/project/requests/2.31.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-05-22", "%Y-%m-%d"),
+                    }
+                ),
             ]
             mock_parse.return_value = mock_feed
 
@@ -513,17 +565,19 @@ class TestPackageUpdates:
 
     def test_deduplicates_packages(self):
         """Test that duplicate packages from both feeds are deduplicated."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
             mock_feed.entries = [
-                FeedParserEntry({
-                    "title": "plone.api 2.0.0",
-                    "link": "https://pypi.org/project/plone.api/2.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
+                FeedParserEntry(
+                    {
+                        "title": "plone.api 2.0.0",
+                        "link": "https://pypi.org/project/plone.api/2.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
             ]
             mock_parse.return_value = mock_feed
 
@@ -539,11 +593,14 @@ class TestPackageUpdates:
 # Rate Limiting Tests
 # ============================================================================
 
+
 class TestRateLimiting:
     """Test the rate limiting functionality."""
 
     @responses.activate
-    def test_applies_rate_limit_delay(self, sample_pypi_json_plone, sample_pypi_json_non_plone, monkeypatch):
+    def test_applies_rate_limit_delay(
+        self, sample_pypi_json_plone, sample_pypi_json_non_plone, monkeypatch
+    ):
         """Test that rate limiting delay is applied between requests."""
         # Patch the rate limit delay to a testable value
         monkeypatch.setattr("pyf.aggregator.fetcher.PYPI_RATE_LIMIT_DELAY", 0.1)
@@ -578,11 +635,14 @@ class TestRateLimiting:
 # Full Download Flow Tests
 # ============================================================================
 
+
 class TestAllPackages:
     """Test the _all_packages property for full download."""
 
     @responses.activate
-    def test_yields_package_releases(self, sample_simple_api_response, sample_pypi_json_plone):
+    def test_yields_package_releases(
+        self, sample_simple_api_response, sample_pypi_json_plone
+    ):
         """Test that _all_packages yields package releases."""
         # Mock simple API
         responses.add(
@@ -608,7 +668,9 @@ class TestAllPackages:
         assert packages[0][1] in ["1.0.0", "2.0.0"]  # release_id
 
     @responses.activate
-    def test_filters_by_plone_classifier(self, sample_pypi_json_plone, sample_pypi_json_non_plone):
+    def test_filters_by_plone_classifier(
+        self, sample_pypi_json_plone, sample_pypi_json_non_plone
+    ):
         """Test that classifier filtering works in full download mode."""
         # Mock simple API
         responses.add(
@@ -631,7 +693,9 @@ class TestAllPackages:
             status=200,
         )
 
-        aggregator = Aggregator(mode="first", filter_troove="Framework :: Plone", limit=10)
+        aggregator = Aggregator(
+            mode="first", filter_troove="Framework :: Plone", limit=10
+        )
         packages = list(aggregator._all_packages)
 
         # Should only yield Plone packages
@@ -643,6 +707,7 @@ class TestAllPackages:
 # ============================================================================
 # Project List Tests
 # ============================================================================
+
 
 class TestProjectList:
     """Test the _project_list property."""
@@ -665,7 +730,9 @@ class TestProjectList:
         assert "requests" in package_ids
 
     @responses.activate
-    def test_applies_classifier_filter(self, sample_pypi_json_plone, sample_pypi_json_non_plone):
+    def test_applies_classifier_filter(
+        self, sample_pypi_json_plone, sample_pypi_json_non_plone
+    ):
         """Test that classifier filter is applied in project list."""
         # Mock simple API
         responses.add(
@@ -718,6 +785,7 @@ class TestProjectList:
 # PLONE_CLASSIFIER Constant Tests
 # ============================================================================
 
+
 class TestPloneClassifierConstant:
     """Test the PLONE_CLASSIFIER constant."""
 
@@ -736,6 +804,7 @@ class TestPloneClassifierConstant:
 # ============================================================================
 # Aggregator Initialization Tests
 # ============================================================================
+
 
 class TestAggregatorInit:
     """Test Aggregator initialization."""

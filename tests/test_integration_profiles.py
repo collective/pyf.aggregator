@@ -24,6 +24,7 @@ from pyf.aggregator.fetcher import Aggregator
 # Profile Manager Integration Tests
 # ============================================================================
 
+
 class TestProfileManagerIntegration:
     """Test ProfileManager with actual profiles.yaml file."""
 
@@ -82,13 +83,15 @@ class TestProfileManagerIntegration:
         profiles = manager.list_profiles()
 
         for profile_name in profiles:
-            assert manager.validate_profile(profile_name), \
+            assert manager.validate_profile(profile_name), (
                 f"Profile '{profile_name}' failed validation"
+            )
 
 
 # ============================================================================
 # CLI Profile Integration Tests
 # ============================================================================
+
 
 class TestCLIProfileIntegration:
     """Test CLI integration with --profile flag."""
@@ -112,10 +115,11 @@ class TestCLIProfileIntegration:
     def test_cli_with_profile_no_target_auto_sets_collection(self):
         """Test that CLI auto-sets collection name from profile when -t is omitted."""
         # Mock sys.exit to capture exit without terminating test
-        with patch("sys.exit") as mock_exit, \
-             patch("pyf.aggregator.main.Indexer") as mock_indexer, \
-             patch("pyf.aggregator.main.Aggregator") as mock_aggregator:
-
+        with (
+            patch("sys.exit") as mock_exit,
+            patch("pyf.aggregator.main.Indexer") as mock_indexer,
+            patch("pyf.aggregator.main.Aggregator") as mock_aggregator,
+        ):
             # Mock indexer behavior
             mock_indexer_instance = MagicMock()
             mock_indexer_instance.collection_exists.return_value = True
@@ -156,10 +160,11 @@ class TestCLIProfileIntegration:
 
     def test_cli_with_profile_loads_correct_classifiers(self):
         """Test that CLI loads correct classifiers from profile."""
-        with patch("pyf.aggregator.main.Indexer") as mock_indexer, \
-             patch("pyf.aggregator.main.Aggregator") as mock_aggregator, \
-             patch("sys.exit"):
-
+        with (
+            patch("pyf.aggregator.main.Indexer") as mock_indexer,
+            patch("pyf.aggregator.main.Aggregator") as mock_aggregator,
+            patch("sys.exit"),
+        ):
             # Mock indexer
             mock_indexer_instance = MagicMock()
             mock_indexer_instance.collection_exists.return_value = True
@@ -185,6 +190,7 @@ class TestCLIProfileIntegration:
 # Aggregator Profile Integration Tests
 # ============================================================================
 
+
 class TestAggregatorProfileIntegration:
     """Test Aggregator with profile-based classifier filtering."""
 
@@ -206,17 +212,13 @@ class TestAggregatorProfileIntegration:
         django_profile = manager.get_profile("django")
         django_classifiers = django_profile["classifiers"]
 
-        aggregator = Aggregator(
-            mode="first",
-            filter_troove=django_classifiers,
-            limit=1
-        )
+        aggregator = Aggregator(mode="first", filter_troove=django_classifiers, limit=1)
 
         # Test has_classifiers method with Django package
-        assert aggregator.has_classifiers(
-            sample_pypi_json_django,
-            django_classifiers
-        ) is True
+        assert (
+            aggregator.has_classifiers(sample_pypi_json_django, django_classifiers)
+            is True
+        )
 
     @responses.activate
     def test_aggregator_rejects_non_django_with_django_profile(
@@ -228,16 +230,13 @@ class TestAggregatorProfileIntegration:
         django_profile = manager.get_profile("django")
         django_classifiers = django_profile["classifiers"]
 
-        aggregator = Aggregator(
-            mode="first",
-            filter_troove=django_classifiers
-        )
+        aggregator = Aggregator(mode="first", filter_troove=django_classifiers)
 
         # Plone package should NOT match Django classifiers
-        assert aggregator.has_classifiers(
-            sample_pypi_json_plone,
-            django_classifiers
-        ) is False
+        assert (
+            aggregator.has_classifiers(sample_pypi_json_plone, django_classifiers)
+            is False
+        )
 
     @responses.activate
     def test_aggregator_filters_flask_packages_with_flask_profile(
@@ -249,21 +248,19 @@ class TestAggregatorProfileIntegration:
         flask_profile = manager.get_profile("flask")
         flask_classifiers = flask_profile["classifiers"]
 
-        aggregator = Aggregator(
-            mode="first",
-            filter_troove=flask_classifiers
-        )
+        aggregator = Aggregator(mode="first", filter_troove=flask_classifiers)
 
         # Test has_classifiers method with Flask package
-        assert aggregator.has_classifiers(
-            sample_pypi_json_flask,
-            flask_classifiers
-        ) is True
+        assert (
+            aggregator.has_classifiers(sample_pypi_json_flask, flask_classifiers)
+            is True
+        )
 
 
 # ============================================================================
 # Multi-Profile Coexistence Tests
 # ============================================================================
+
 
 class TestMultiProfileCoexistence:
     """Test that multiple profiles can coexist with separate collections."""
@@ -281,12 +278,15 @@ class TestMultiProfileCoexistence:
         flask_classifiers = set(flask["classifiers"])
 
         # Verify they are distinct sets
-        assert not plone_classifiers.intersection(django_classifiers), \
+        assert not plone_classifiers.intersection(django_classifiers), (
             "Plone and Django classifiers should not overlap"
-        assert not plone_classifiers.intersection(flask_classifiers), \
+        )
+        assert not plone_classifiers.intersection(flask_classifiers), (
             "Plone and Flask classifiers should not overlap"
-        assert not django_classifiers.intersection(flask_classifiers), \
+        )
+        assert not django_classifiers.intersection(flask_classifiers), (
             "Django and Flask classifiers should not overlap"
+        )
 
     def test_profiles_can_be_loaded_simultaneously(self):
         """Test that multiple profiles can be loaded at once."""
@@ -313,13 +313,13 @@ class TestMultiProfileCoexistence:
         profiles = manager.list_profiles()
 
         # Profile names (used as collection names) should be unique
-        assert len(profiles) == len(set(profiles)), \
-            "Profile names should be unique"
+        assert len(profiles) == len(set(profiles)), "Profile names should be unique"
 
 
 # ============================================================================
 # End-to-End Profile Workflow Tests
 # ============================================================================
+
 
 class TestProfileWorkflowE2E:
     """End-to-end tests for complete profile workflow."""
@@ -352,17 +352,14 @@ class TestProfileWorkflowE2E:
 
         # Create aggregator with Plone classifiers
         aggregator = Aggregator(
-            mode="first",
-            filter_troove=plone_profile["classifiers"],
-            limit=1
+            mode="first", filter_troove=plone_profile["classifiers"], limit=1
         )
 
         # Verify Plone package matches
         plone_json = aggregator._get_pypi_json("plone.api")
-        assert aggregator.has_classifiers(
-            plone_json,
-            plone_profile["classifiers"]
-        ) is True
+        assert (
+            aggregator.has_classifiers(plone_json, plone_profile["classifiers"]) is True
+        )
 
     @responses.activate
     def test_complete_workflow_django_profile(
@@ -392,17 +389,15 @@ class TestProfileWorkflowE2E:
 
         # Create aggregator with Django classifiers
         aggregator = Aggregator(
-            mode="first",
-            filter_troove=django_profile["classifiers"],
-            limit=1
+            mode="first", filter_troove=django_profile["classifiers"], limit=1
         )
 
         # Verify Django package matches
         django_json = aggregator._get_pypi_json("django-rest-framework")
-        assert aggregator.has_classifiers(
-            django_json,
-            django_profile["classifiers"]
-        ) is True
+        assert (
+            aggregator.has_classifiers(django_json, django_profile["classifiers"])
+            is True
+        )
 
     def test_switching_profiles_changes_collection_target(self):
         """Test that switching profiles changes the target collection."""

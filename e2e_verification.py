@@ -16,7 +16,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from pyf.aggregator.profiles import ProfileManager
-from pyf.aggregator.logger import logger
 
 
 def verify_step_1_profiles_load():
@@ -33,7 +32,7 @@ def verify_step_1_profiles_load():
         print(f"  Available profiles: {', '.join(profiles)}")
 
         # Check each required profile
-        required_profiles = ['plone', 'django', 'flask']
+        required_profiles = ["plone", "django", "flask"]
         for profile_name in required_profiles:
             profile = pm.get_profile(profile_name)
             if not profile:
@@ -44,7 +43,9 @@ def verify_step_1_profiles_load():
                 print(f"✗ FAIL: Profile '{profile_name}' is invalid")
                 return False
 
-            print(f"✓ {profile_name}: {profile['name']} - {len(profile['classifiers'])} classifiers")
+            print(
+                f"✓ {profile_name}: {profile['name']} - {len(profile['classifiers'])} classifiers"
+            )
             print(f"  Classifiers: {', '.join(profile['classifiers'][:3])}...")
 
         print("\n✓ STEP 1 PASSED: All required profiles exist and are valid\n")
@@ -66,15 +67,21 @@ def verify_step_2_cli_integration():
 
         # Test parsing --profile argument
         test_cases = [
-            (['-f', '-p', 'django', '-l', '5', '-t', 'test-django'], 'django', 'test-django'),
-            (['-f', '-p', 'flask', '-l', '5'], 'flask', 'flask'),  # Auto-set collection
-            (['-f', '-p', 'plone', '-t', 'custom-plone'], 'plone', 'custom-plone'),
+            (
+                ["-f", "-p", "django", "-l", "5", "-t", "test-django"],
+                "django",
+                "test-django",
+            ),
+            (["-f", "-p", "flask", "-l", "5"], "flask", "flask"),  # Auto-set collection
+            (["-f", "-p", "plone", "-t", "custom-plone"], "plone", "custom-plone"),
         ]
 
         for args, expected_profile, expected_target in test_cases:
             parsed = parser.parse_args(args)
             if parsed.profile != expected_profile:
-                print(f"✗ FAIL: Expected profile '{expected_profile}', got '{parsed.profile}'")
+                print(
+                    f"✗ FAIL: Expected profile '{expected_profile}', got '{parsed.profile}'"
+                )
                 return False
             print(f"✓ CLI accepts --profile {expected_profile}")
 
@@ -96,22 +103,22 @@ def verify_step_3_profile_classifiers():
         pm = ProfileManager()
 
         # Verify Django profile classifiers
-        django_profile = pm.get_profile('django')
-        if 'Framework :: Django' not in django_profile['classifiers']:
+        django_profile = pm.get_profile("django")
+        if "Framework :: Django" not in django_profile["classifiers"]:
             print("✗ FAIL: Django profile missing base classifier")
             return False
         print(f"✓ Django profile has {len(django_profile['classifiers'])} classifiers")
 
         # Verify Flask profile classifiers
-        flask_profile = pm.get_profile('flask')
-        if 'Framework :: Flask' not in flask_profile['classifiers']:
+        flask_profile = pm.get_profile("flask")
+        if "Framework :: Flask" not in flask_profile["classifiers"]:
             print("✗ FAIL: Flask profile missing base classifier")
             return False
         print(f"✓ Flask profile has {len(flask_profile['classifiers'])} classifiers")
 
         # Verify Plone profile classifiers
-        plone_profile = pm.get_profile('plone')
-        if 'Framework :: Plone' not in plone_profile['classifiers']:
+        plone_profile = pm.get_profile("plone")
+        if "Framework :: Plone" not in plone_profile["classifiers"]:
             print("✗ FAIL: Plone profile missing base classifier")
             return False
         print(f"✓ Plone profile has {len(plone_profile['classifiers'])} classifiers")
@@ -141,14 +148,14 @@ def verify_step_4_github_cache_sharing():
         # Read and check for @memoize decorator
         content = github_file.read_text()
 
-        if '@memoize' not in content:
+        if "@memoize" not in content:
             print("✗ FAIL: @memoize decorator not found in github.py")
             return False
 
         print("✓ GitHub enricher uses @memoize decorator for caching")
 
         # Verify cache key is based on repo_identifier, not profile
-        if 'def enrich_github_info' in content:
+        if "def enrich_github_info" in content:
             print("✓ enrich_github_info function exists")
             # The cache key should be based on repo_identifier (args[1])
             # which is profile-agnostic, ensuring cache sharing
@@ -173,20 +180,22 @@ def verify_step_5_collection_naming():
 
         # Test auto-collection naming when -p is used without -t
         test_cases = [
-            (['-f', '-p', 'django', '-l', '5'], 'django'),
-            (['-f', '-p', 'flask', '-l', '5'], 'flask'),
-            (['-f', '-p', 'plone', '-l', '5'], 'plone'),
+            (["-f", "-p", "django", "-l", "5"], "django"),
+            (["-f", "-p", "flask", "-l", "5"], "flask"),
+            (["-f", "-p", "plone", "-l", "5"], "plone"),
         ]
 
         for args, expected_collection in test_cases:
             parsed = parser.parse_args(args)
             # The collection name should auto-set to profile name
-            print(f"✓ Profile '{parsed.profile}' can auto-set collection to '{expected_collection}'")
+            print(
+                f"✓ Profile '{parsed.profile}' can auto-set collection to '{expected_collection}'"
+            )
 
         # Test explicit collection naming overrides auto-naming
-        args_override = ['-f', '-p', 'django', '-t', 'custom-collection']
+        args_override = ["-f", "-p", "django", "-t", "custom-collection"]
         parsed_override = parser.parse_args(args_override)
-        if parsed_override.target != 'custom-collection':
+        if parsed_override.target != "custom-collection":
             print("✗ FAIL: Explicit -t flag doesn't override auto-naming")
             return False
         print("✓ Explicit -t flag correctly overrides auto-naming")
@@ -210,16 +219,16 @@ def verify_step_6_aggregator_integration():
 
         # Test that Aggregator accepts multiple classifiers from profiles
         django_classifiers = [
-            'Framework :: Django',
-            'Framework :: Django :: 4.2',
+            "Framework :: Django",
+            "Framework :: Django :: 4.2",
         ]
 
         # Create aggregator with Django classifiers
-        aggregator = Aggregator('first', filter_troove=django_classifiers)
+        aggregator = Aggregator("first", filter_troove=django_classifiers)
         print(f"✓ Aggregator created with {len(django_classifiers)} Django classifiers")
 
         # Verify has_classifiers method works
-        if not hasattr(aggregator, 'has_classifiers'):
+        if not hasattr(aggregator, "has_classifiers"):
             print("✗ FAIL: Aggregator missing has_classifiers method")
             return False
         print("✓ Aggregator has has_classifiers method")
@@ -248,13 +257,13 @@ def verify_step_7_pyfgithub_profile():
 
         content = github_file.read_text()
 
-        if 'add_argument' not in content or '--profile' not in content:
+        if "add_argument" not in content or "--profile" not in content:
             print("✗ FAIL: --profile flag not found in pyfgithub")
             return False
 
         print("✓ pyfgithub has --profile flag")
 
-        if 'ProfileManager' in content:
+        if "ProfileManager" in content:
             print("✓ pyfgithub integrates with ProfileManager")
 
         print("\n✓ STEP 7 PASSED: pyfgithub supports --profile flag\n")
@@ -281,13 +290,13 @@ def verify_step_8_pyfupdater_profile():
 
         content = util_file.read_text()
 
-        if 'add_argument' not in content or '--profile' not in content:
+        if "add_argument" not in content or "--profile" not in content:
             print("✗ FAIL: --profile flag not found in pyfupdater")
             return False
 
         print("✓ pyfupdater has --profile flag")
 
-        if 'ProfileManager' in content:
+        if "ProfileManager" in content:
             print("✓ pyfupdater integrates with ProfileManager")
 
         print("\n✓ STEP 8 PASSED: pyfupdater supports --profile flag\n")
@@ -345,7 +354,9 @@ def main():
         print("  • Each profile uses correct classifiers")
         print("  • Collection names auto-set from profile names")
         print("  • GitHub cache is shared across profiles")
-        print("  • All three CLI tools (pyfaggregator, pyfgithub, pyfupdater) support profiles")
+        print(
+            "  • All three CLI tools (pyfaggregator, pyfgithub, pyfupdater) support profiles"
+        )
         return 0
     else:
         print("\n✗✗✗ SOME VERIFICATIONS FAILED ✗✗✗")

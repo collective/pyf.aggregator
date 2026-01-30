@@ -25,16 +25,18 @@ parser = ArgumentParser(
 )
 parser.add_argument("-t", "--target", nargs="?", type=str)
 parser.add_argument(
-    "-p", "--profile",
+    "-p",
+    "--profile",
     help="Profile name for classifier filtering (overrides DEFAULT_PROFILE env var)",
     nargs="?",
-    type=str
+    type=str,
 )
 parser.add_argument(
-    "-l", "--limit",
+    "-l",
+    "--limit",
     help="Limit number of packages to process (for testing)",
     nargs="?",
-    type=int
+    type=int,
 )
 
 
@@ -98,27 +100,29 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
                         continue
 
                     enrich_counter += 1
-                    self.update_doc(target, data['id'], pypistats_data, page, enrich_counter)
+                    self.update_doc(
+                        target, data["id"], pypistats_data, page, enrich_counter
+                    )
 
         logger.info(f"[{datetime.now()}] done")
 
     def update_doc(self, target, id, data, page, enrich_counter):
         document = {
-            'download_last_day': data["downloads"]["last_day"],
-            'download_last_week': data["downloads"]["last_week"],
-            'download_last_month': data["downloads"]["last_month"],
-            'download_updated': data["downloads"]["updated"].timestamp(),
+            "download_last_day": data["downloads"]["last_day"],
+            "download_last_week": data["downloads"]["last_week"],
+            "download_last_month": data["downloads"]["last_month"],
+            "download_updated": data["downloads"]["updated"].timestamp(),
         }
 
         # Add total if available
         if data["downloads"].get("total") is not None:
-            document['download_total'] = data["downloads"]["total"]
+            document["download_total"] = data["downloads"]["total"]
 
         doc = self.client.collections[target].documents[id].update(document)
         logger.info(f"[{page}/{enrich_counter}] Updated document {id}")
 
     def ts_search(self, target, search_parameters, page=1):
-        search_parameters['page'] = page
+        search_parameters["page"] = page
         return self.client.collections[target].documents.search(search_parameters)
 
     def _apply_rate_limit(self):
@@ -161,14 +165,14 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
 
                 # Handle 429 - rate limiting
                 if response.status_code == 429:
-                    retry_after = response.headers.get('Retry-After')
+                    retry_after = response.headers.get("Retry-After")
                     if retry_after:
                         try:
                             wait_time = float(retry_after)
                         except ValueError:
-                            wait_time = PYPISTATS_RETRY_BACKOFF * (2 ** attempt)
+                            wait_time = PYPISTATS_RETRY_BACKOFF * (2**attempt)
                     else:
-                        wait_time = PYPISTATS_RETRY_BACKOFF * (2 ** attempt)
+                        wait_time = PYPISTATS_RETRY_BACKOFF * (2**attempt)
 
                     logger.warning(
                         f"Rate limited by pypistats for {package_name}. "
@@ -212,7 +216,7 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
                     f"Retry {attempt + 1}/{PYPISTATS_MAX_RETRIES}"
                 )
                 if attempt < PYPISTATS_MAX_RETRIES - 1:
-                    time.sleep(PYPISTATS_RETRY_BACKOFF * (2 ** attempt))
+                    time.sleep(PYPISTATS_RETRY_BACKOFF * (2**attempt))
                     continue
                 return {}
 
@@ -221,7 +225,9 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
                 return {}
 
         # All retries exhausted
-        logger.error(f"Failed to fetch stats for {package_name} after {PYPISTATS_MAX_RETRIES} retries")
+        logger.error(
+            f"Failed to fetch stats for {package_name} after {PYPISTATS_MAX_RETRIES} retries"
+        )
         return {}
 
 
@@ -253,7 +259,9 @@ def main():
             args.target = effective_profile
             logger.info(f"Auto-setting target collection from profile: {args.target}")
 
-        logger.info(f"Using profile '{effective_profile}' ({profile_source}) for target collection '{args.target}'")
+        logger.info(
+            f"Using profile '{effective_profile}' ({profile_source}) for target collection '{args.target}'"
+        )
 
     # Validate target is specified
     if not args.target:

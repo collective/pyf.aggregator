@@ -28,6 +28,7 @@ os.environ.setdefault("TYPESENSE_COLLECTION", "test_packages")
 # Sample Data Fixtures
 # ============================================================================
 
+
 @pytest.fixture
 def sample_pypi_json_plone():
     """Sample PyPI JSON response for a Plone package."""
@@ -62,7 +63,7 @@ def sample_pypi_json_plone():
             "project_url": "https://pypi.org/project/plone.api/",
             "project_urls": {
                 "Homepage": "https://github.com/plone/plone.api",
-                "Documentation": "https://ploneapi.readthedocs.io/"
+                "Documentation": "https://ploneapi.readthedocs.io/",
             },
             "release_url": "https://pypi.org/project/plone.api/2.0.0/",
             "requires_dist": ["plone.base", "zope.interface"],
@@ -364,6 +365,7 @@ def sample_rss_feed_xml():
 # Mock Fixtures
 # ============================================================================
 
+
 @pytest.fixture
 def mock_typesense_client():
     """Mock Typesense client for testing without a real Typesense server."""
@@ -389,7 +391,9 @@ def mock_typesense_client():
 @pytest.fixture
 def mock_typesense(mock_typesense_client):
     """Patch TypesenseConnection to use mock client."""
-    with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
+    with patch(
+        "pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client
+    ):
         yield mock_typesense_client
 
 
@@ -415,10 +419,12 @@ def mocked_responses():
 # Aggregator Fixtures
 # ============================================================================
 
+
 @pytest.fixture
 def aggregator_first_mode():
     """Create an Aggregator instance in 'first' (full download) mode."""
     from pyf.aggregator.fetcher import Aggregator
+
     return Aggregator(
         mode="first",
         sincefile=".test_sincefile",
@@ -446,6 +452,7 @@ def aggregator_incremental_mode(tmp_path):
 def aggregator_with_plone_filter():
     """Create an Aggregator with Plone classifier filter enabled."""
     from pyf.aggregator.fetcher import Aggregator
+
     return Aggregator(
         mode="first",
         sincefile=".test_sincefile",
@@ -457,6 +464,7 @@ def aggregator_with_plone_filter():
 # ============================================================================
 # Celery Test Configuration
 # ============================================================================
+
 
 @pytest.fixture(scope="session")
 def celery_config():
@@ -490,8 +498,11 @@ def celery_eager_mode():
 # Response Mocking Helpers
 # ============================================================================
 
+
 @pytest.fixture
-def mock_pypi_json_api(mocked_responses, sample_pypi_json_plone, sample_pypi_json_non_plone):
+def mock_pypi_json_api(
+    mocked_responses, sample_pypi_json_plone, sample_pypi_json_non_plone
+):
     """Setup mock responses for PyPI JSON API endpoints."""
     # Mock plone.api
     mocked_responses.add(
@@ -561,6 +572,7 @@ def mock_pypi_rss_feeds(mocked_responses, sample_rss_feed_xml):
 # Deduplication Fixtures
 # ============================================================================
 
+
 @pytest.fixture(autouse=True)
 def disable_rss_dedup():
     """Disable RSS deduplication in all tests by default.
@@ -576,11 +588,13 @@ def disable_rss_dedup():
 # Cleanup Fixtures
 # ============================================================================
 
+
 @pytest.fixture(autouse=True)
 def cleanup_sincefile():
     """Clean up any sincefile created during tests."""
     yield
     import os
+
     for f in [".test_sincefile", ".pyfaggregator"]:
         if os.path.exists(f):
             os.remove(f)

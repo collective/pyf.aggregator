@@ -4,9 +4,7 @@ Tests for pyf.aggregator.typesense_util module.
 Tests migration functionality including export, import, and collection recreation.
 """
 
-import json
-import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import patch
 
 
 class TestTypesenceUtilExport:
@@ -17,7 +15,9 @@ class TestTypesenceUtilExport:
         from pyf.aggregator.typesense_util import TypesenceUtil
 
         # Setup mock to return JSONL data (newline-delimited JSON)
-        sample_jsonl = '{"id":"pkg1","name":"plone.api"}\n{"id":"pkg2","name":"plone.restapi"}'
+        sample_jsonl = (
+            '{"id":"pkg1","name":"plone.api"}\n{"id":"pkg2","name":"plone.restapi"}'
+        )
         mock_typesense.collections.__getitem__.return_value.documents.export.return_value = sample_jsonl
 
         ts_util = TypesenceUtil()
@@ -34,7 +34,9 @@ class TestTypesenceUtilImport:
         """Verify import_data works with JSONL string (no encoding)."""
         from pyf.aggregator.typesense_util import TypesenceUtil
 
-        sample_jsonl = '{"id":"pkg1","name":"plone.api"}\n{"id":"pkg2","name":"plone.restapi"}'
+        sample_jsonl = (
+            '{"id":"pkg1","name":"plone.api"}\n{"id":"pkg2","name":"plone.restapi"}'
+        )
         mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [
             {"success": True},
             {"success": True},
@@ -68,7 +70,9 @@ class TestTypesenceUtilImport:
         from pyf.aggregator.typesense_util import TypesenceUtil
         import logging
 
-        sample_jsonl = '{"id":"pkg1","name":"plone.api"}\n{"id":"pkg2","name":"invalid"}'
+        sample_jsonl = (
+            '{"id":"pkg1","name":"plone.api"}\n{"id":"pkg2","name":"invalid"}'
+        )
         mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [
             {"success": True},
             {"success": False, "error": "Schema validation failed"},
@@ -85,7 +89,9 @@ class TestTypesenceUtilImport:
         from pyf.aggregator.typesense_util import TypesenceUtil
         import logging
 
-        sample_jsonl = "\n".join([f'{{"id":"pkg{i}","name":"invalid{i}"}}' for i in range(10)])
+        sample_jsonl = "\n".join(
+            [f'{{"id":"pkg{i}","name":"invalid{i}"}}' for i in range(10)]
+        )
         mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [
             {"success": False, "error": f"Error {i}"} for i in range(10)
         ]
@@ -107,14 +113,18 @@ class TestTypesenceUtilMigrate:
         """Verify migrate exports from source and imports to target."""
         from pyf.aggregator.typesense_util import TypesenceUtil
 
-        sample_jsonl = '{"id":"pkg1","name":"plone.api"}\n{"id":"pkg2","name":"plone.restapi"}'
+        sample_jsonl = (
+            '{"id":"pkg1","name":"plone.api"}\n{"id":"pkg2","name":"plone.restapi"}'
+        )
         mock_typesense.collections.__getitem__.return_value.documents.export.return_value = sample_jsonl
         mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [
             {"success": True},
             {"success": True},
         ]
         # Mock collection_exists to return True
-        mock_typesense.collections.__getitem__.return_value.retrieve.return_value = {"name": "target-collection"}
+        mock_typesense.collections.__getitem__.return_value.retrieve.return_value = {
+            "name": "target-collection"
+        }
 
         ts_util = TypesenceUtil()
 
@@ -135,12 +145,16 @@ class TestTypesenceUtilMigrate:
 
         sample_jsonl = '{"id":"pkg1","name":"plone.api"}'
         mock_typesense.collections.__getitem__.return_value.documents.export.return_value = sample_jsonl
-        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [{"success": True}]
+        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [
+            {"success": True}
+        ]
 
         ts_util = TypesenceUtil()
 
-        with patch.object(ts_util, "collection_exists", return_value=False), \
-             patch.object(ts_util, "create_collection") as mock_create:
+        with (
+            patch.object(ts_util, "collection_exists", return_value=False),
+            patch.object(ts_util, "create_collection") as mock_create,
+        ):
             ts_util.migrate(source="source-collection", target="new-target")
 
         mock_create.assert_called_once_with(name="new-target")
@@ -155,16 +169,19 @@ class TestTypesenceUtilRecreateCollection:
 
         sample_jsonl = '{"id":"pkg1","name":"plone.api"}'
         mock_typesense.collections.__getitem__.return_value.documents.export.return_value = sample_jsonl
-        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [{"success": True}]
+        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [
+            {"success": True}
+        ]
 
         ts_util = TypesenceUtil()
 
-        with patch.object(ts_util, "get_alias", return_value="packages-1"), \
-             patch.object(ts_util, "create_collection") as mock_create, \
-             patch.object(ts_util, "migrate") as mock_migrate, \
-             patch.object(ts_util, "add_alias") as mock_alias, \
-             patch.object(ts_util, "delete_collection") as mock_delete:
-
+        with (
+            patch.object(ts_util, "get_alias", return_value="packages-1"),
+            patch.object(ts_util, "create_collection") as mock_create,
+            patch.object(ts_util, "migrate") as mock_migrate,
+            patch.object(ts_util, "add_alias") as mock_alias,
+            patch.object(ts_util, "delete_collection") as mock_delete,
+        ):
             result = ts_util.recreate_collection(name="packages", delete_old=True)
 
         # Verify new collection created with incremented version
@@ -176,7 +193,10 @@ class TestTypesenceUtilRecreateCollection:
         # Verify old collection deleted
         mock_delete.assert_called_once_with(name="packages-1")
         # Verify return value
-        assert result == {"old_collection": "packages-1", "new_collection": "packages-2"}
+        assert result == {
+            "old_collection": "packages-1",
+            "new_collection": "packages-2",
+        }
 
     def test_recreate_collection_with_alias_delete_old_false(self, mock_typesense):
         """Verify recreate_collection keeps old collection when delete_old=False."""
@@ -184,16 +204,19 @@ class TestTypesenceUtilRecreateCollection:
 
         sample_jsonl = '{"id":"pkg1","name":"plone.api"}'
         mock_typesense.collections.__getitem__.return_value.documents.export.return_value = sample_jsonl
-        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [{"success": True}]
+        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [
+            {"success": True}
+        ]
 
         ts_util = TypesenceUtil()
 
-        with patch.object(ts_util, "get_alias", return_value="packages-1"), \
-             patch.object(ts_util, "create_collection") as mock_create, \
-             patch.object(ts_util, "migrate") as mock_migrate, \
-             patch.object(ts_util, "add_alias") as mock_alias, \
-             patch.object(ts_util, "delete_collection") as mock_delete:
-
+        with (
+            patch.object(ts_util, "get_alias", return_value="packages-1"),
+            patch.object(ts_util, "create_collection") as mock_create,
+            patch.object(ts_util, "migrate") as mock_migrate,
+            patch.object(ts_util, "add_alias") as mock_alias,
+            patch.object(ts_util, "delete_collection") as mock_delete,
+        ):
             result = ts_util.recreate_collection(name="packages", delete_old=False)
 
         # Verify new collection created with incremented version
@@ -205,7 +228,10 @@ class TestTypesenceUtilRecreateCollection:
         # Verify old collection NOT deleted
         mock_delete.assert_not_called()
         # Verify return value contains old_collection name
-        assert result == {"old_collection": "packages-1", "new_collection": "packages-2"}
+        assert result == {
+            "old_collection": "packages-1",
+            "new_collection": "packages-2",
+        }
 
     def test_recreate_collection_without_alias_delete_old_true(self, mock_typesense):
         """Verify recreate_collection converts non-aliased collection and deletes old."""
@@ -213,17 +239,20 @@ class TestTypesenceUtilRecreateCollection:
 
         sample_jsonl = '{"id":"pkg1","name":"plone.api"}'
         mock_typesense.collections.__getitem__.return_value.documents.export.return_value = sample_jsonl
-        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [{"success": True}]
+        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [
+            {"success": True}
+        ]
 
         ts_util = TypesenceUtil()
 
-        with patch.object(ts_util, "get_alias", return_value=None), \
-             patch.object(ts_util, "collection_exists", return_value=True), \
-             patch.object(ts_util, "create_collection") as mock_create, \
-             patch.object(ts_util, "migrate") as mock_migrate, \
-             patch.object(ts_util, "add_alias") as mock_alias, \
-             patch.object(ts_util, "delete_collection") as mock_delete:
-
+        with (
+            patch.object(ts_util, "get_alias", return_value=None),
+            patch.object(ts_util, "collection_exists", return_value=True),
+            patch.object(ts_util, "create_collection") as mock_create,
+            patch.object(ts_util, "migrate") as mock_migrate,
+            patch.object(ts_util, "add_alias") as mock_alias,
+            patch.object(ts_util, "delete_collection") as mock_delete,
+        ):
             result = ts_util.recreate_collection(name="packages", delete_old=True)
 
         # Verify new versioned collection created
@@ -243,17 +272,20 @@ class TestTypesenceUtilRecreateCollection:
 
         sample_jsonl = '{"id":"pkg1","name":"plone.api"}'
         mock_typesense.collections.__getitem__.return_value.documents.export.return_value = sample_jsonl
-        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [{"success": True}]
+        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [
+            {"success": True}
+        ]
 
         ts_util = TypesenceUtil()
 
-        with patch.object(ts_util, "get_alias", return_value=None), \
-             patch.object(ts_util, "collection_exists", return_value=True), \
-             patch.object(ts_util, "create_collection") as mock_create, \
-             patch.object(ts_util, "migrate") as mock_migrate, \
-             patch.object(ts_util, "add_alias") as mock_alias, \
-             patch.object(ts_util, "delete_collection") as mock_delete:
-
+        with (
+            patch.object(ts_util, "get_alias", return_value=None),
+            patch.object(ts_util, "collection_exists", return_value=True),
+            patch.object(ts_util, "create_collection") as mock_create,
+            patch.object(ts_util, "migrate") as mock_migrate,
+            patch.object(ts_util, "add_alias") as mock_alias,
+            patch.object(ts_util, "delete_collection") as mock_delete,
+        ):
             result = ts_util.recreate_collection(name="packages", delete_old=False)
 
         # Verify new versioned collection created
@@ -273,11 +305,12 @@ class TestTypesenceUtilRecreateCollection:
 
         ts_util = TypesenceUtil()
 
-        with patch.object(ts_util, "get_alias", return_value=None), \
-             patch.object(ts_util, "collection_exists", return_value=False), \
-             patch.object(ts_util, "create_collection") as mock_create, \
-             patch.object(ts_util, "add_alias") as mock_alias:
-
+        with (
+            patch.object(ts_util, "get_alias", return_value=None),
+            patch.object(ts_util, "collection_exists", return_value=False),
+            patch.object(ts_util, "create_collection") as mock_create,
+            patch.object(ts_util, "add_alias") as mock_alias,
+        ):
             result = ts_util.recreate_collection(name="packages")
 
         # Verify new versioned collection created
@@ -293,16 +326,19 @@ class TestTypesenceUtilRecreateCollection:
 
         sample_jsonl = '{"id":"pkg1","name":"plone.api"}'
         mock_typesense.collections.__getitem__.return_value.documents.export.return_value = sample_jsonl
-        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [{"success": True}]
+        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [
+            {"success": True}
+        ]
 
         ts_util = TypesenceUtil()
 
-        with patch.object(ts_util, "get_alias", return_value="packages-1"), \
-             patch.object(ts_util, "create_collection"), \
-             patch.object(ts_util, "migrate"), \
-             patch.object(ts_util, "add_alias"), \
-             patch.object(ts_util, "delete_collection") as mock_delete:
-
+        with (
+            patch.object(ts_util, "get_alias", return_value="packages-1"),
+            patch.object(ts_util, "create_collection"),
+            patch.object(ts_util, "migrate"),
+            patch.object(ts_util, "add_alias"),
+            patch.object(ts_util, "delete_collection") as mock_delete,
+        ):
             # Call without delete_old parameter - should default to True
             ts_util.recreate_collection(name="packages")
 
@@ -318,7 +354,9 @@ class TestImportDataNotEncoded:
         from pyf.aggregator.typesense_util import TypesenceUtil
 
         sample_jsonl = '{"id":"pkg1","name":"plone.api"}'
-        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [{"success": True}]
+        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [
+            {"success": True}
+        ]
 
         ts_util = TypesenceUtil()
         ts_util.import_data(collection_name="test-collection", data=sample_jsonl)
@@ -340,20 +378,21 @@ class TestRecreateCollectionCLI:
 
         ts_util = TypesenceUtil()
 
-        with patch.object(ts_util, "get_alias", return_value="packages-1"), \
-             patch.object(ts_util, "create_collection"), \
-             patch.object(ts_util, "migrate"), \
-             patch.object(ts_util, "add_alias"), \
-             patch.object(ts_util, "delete_collection") as mock_delete, \
-             patch("builtins.input", return_value="y"):
-
+        with (
+            patch.object(ts_util, "get_alias", return_value="packages-1"),
+            patch.object(ts_util, "create_collection"),
+            patch.object(ts_util, "migrate"),
+            patch.object(ts_util, "add_alias"),
+            patch.object(ts_util, "delete_collection") as mock_delete,
+            patch("builtins.input", return_value="y"),
+        ):
             # Simulate CLI flow: migrate with delete_old=False, then delete based on input
             result = ts_util.recreate_collection(name="packages", delete_old=False)
 
             # User confirms deletion
             if result.get("old_collection"):
                 confirm = input("Delete old collection? (Y/n): ")
-                if confirm.lower() != 'n':
+                if confirm.lower() != "n":
                     ts_util.delete_collection(name=result["old_collection"])
 
         mock_delete.assert_called_once_with(name="packages-1")
@@ -364,20 +403,21 @@ class TestRecreateCollectionCLI:
 
         ts_util = TypesenceUtil()
 
-        with patch.object(ts_util, "get_alias", return_value="packages-1"), \
-             patch.object(ts_util, "create_collection"), \
-             patch.object(ts_util, "migrate"), \
-             patch.object(ts_util, "add_alias"), \
-             patch.object(ts_util, "delete_collection") as mock_delete, \
-             patch("builtins.input", return_value=""):
-
+        with (
+            patch.object(ts_util, "get_alias", return_value="packages-1"),
+            patch.object(ts_util, "create_collection"),
+            patch.object(ts_util, "migrate"),
+            patch.object(ts_util, "add_alias"),
+            patch.object(ts_util, "delete_collection") as mock_delete,
+            patch("builtins.input", return_value=""),
+        ):
             # Simulate CLI flow
             result = ts_util.recreate_collection(name="packages", delete_old=False)
 
             # User presses Enter (empty string) - default is Yes
             if result.get("old_collection"):
                 confirm = input("Delete old collection? (Y/n): ")
-                if confirm.lower() != 'n':  # Empty string != 'n', so delete
+                if confirm.lower() != "n":  # Empty string != 'n', so delete
                     ts_util.delete_collection(name=result["old_collection"])
 
         mock_delete.assert_called_once_with(name="packages-1")
@@ -388,20 +428,21 @@ class TestRecreateCollectionCLI:
 
         ts_util = TypesenceUtil()
 
-        with patch.object(ts_util, "get_alias", return_value="packages-1"), \
-             patch.object(ts_util, "create_collection"), \
-             patch.object(ts_util, "migrate"), \
-             patch.object(ts_util, "add_alias"), \
-             patch.object(ts_util, "delete_collection") as mock_delete, \
-             patch("builtins.input", return_value="n"):
-
+        with (
+            patch.object(ts_util, "get_alias", return_value="packages-1"),
+            patch.object(ts_util, "create_collection"),
+            patch.object(ts_util, "migrate"),
+            patch.object(ts_util, "add_alias"),
+            patch.object(ts_util, "delete_collection") as mock_delete,
+            patch("builtins.input", return_value="n"),
+        ):
             # Simulate CLI flow
             result = ts_util.recreate_collection(name="packages", delete_old=False)
 
             # User says 'n' - keep old collection
             if result.get("old_collection"):
                 confirm = input("Delete old collection? (Y/n): ")
-                if confirm.lower() != 'n':
+                if confirm.lower() != "n":
                     ts_util.delete_collection(name=result["old_collection"])
 
         # delete_collection should NOT be called
@@ -414,13 +455,14 @@ class TestRecreateCollectionCLI:
         ts_util = TypesenceUtil()
         force = True
 
-        with patch.object(ts_util, "get_alias", return_value="packages-1"), \
-             patch.object(ts_util, "create_collection"), \
-             patch.object(ts_util, "migrate"), \
-             patch.object(ts_util, "add_alias"), \
-             patch.object(ts_util, "delete_collection") as mock_delete, \
-             patch("builtins.input") as mock_input:
-
+        with (
+            patch.object(ts_util, "get_alias", return_value="packages-1"),
+            patch.object(ts_util, "create_collection"),
+            patch.object(ts_util, "migrate"),
+            patch.object(ts_util, "add_alias"),
+            patch.object(ts_util, "delete_collection") as mock_delete,
+            patch("builtins.input") as mock_input,
+        ):
             # Simulate CLI flow with --force
             result = ts_util.recreate_collection(name="packages", delete_old=False)
 
@@ -429,7 +471,7 @@ class TestRecreateCollectionCLI:
                     ts_util.delete_collection(name=result["old_collection"])
                 else:
                     confirm = input("Delete old collection? (Y/n): ")
-                    if confirm.lower() != 'n':
+                    if confirm.lower() != "n":
                         ts_util.delete_collection(name=result["old_collection"])
 
         # input should NOT be called when force=True

@@ -8,7 +8,6 @@ from pprint import pprint
 from github import Github
 from github import RateLimitExceededException
 from github import UnknownObjectException
-from pyf.aggregator.logger import logger
 
 import functools
 import re
@@ -29,20 +28,23 @@ parser = ArgumentParser(
 )
 parser.add_argument("-t", "--target", nargs="?", type=str)
 parser.add_argument(
-    "-p", "--profile",
+    "-p",
+    "--profile",
     help="Profile name for classifier filtering (overrides DEFAULT_PROFILE env var)",
     nargs="?",
-    type=str
+    type=str,
 )
 parser.add_argument(
-    "-n", "--name",
+    "-n",
+    "--name",
     help="Single package name to enrich (enriches only this package)",
-    type=str
+    type=str,
 )
 parser.add_argument(
-    "-v", "--verbose",
+    "-v",
+    "--verbose",
     help="Show raw data from Typesense (PyPI) and GitHub API",
-    action="store_true"
+    action="store_true",
 )
 
 github_regex = re.compile(r"^(http[s]{0,1}:\/\/|www\.)github\.com/(.+/.+)")
@@ -110,20 +112,22 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
             logger.error(f"Package '{package_name}' not found in collection '{target}'")
             return
 
-        logger.info(f"[{datetime.now()}][found {found}] Start enriching data from github...")
+        logger.info(
+            f"[{datetime.now()}][found {found}] Start enriching data from github..."
+        )
         enrich_counter = 0
         page = 0
         for p in range(0, found, per_page):
-            page +=1
+            page += 1
             results = self.ts_search(target, search_parameters, page)
             for group in results["grouped_hits"]:
                 for item in group["hits"]:
                     data = item["document"]
 
                     if verbose:
-                        print(f"\n{'='*60}")
+                        print(f"\n{'=' * 60}")
                         print(f"=== Processing package: {data.get('name')} ===")
-                        print(f"{'='*60}")
+                        print(f"{'=' * 60}")
                         print("\n--- Typesense Document (PyPI data) ---")
                         pprint(data)
 
@@ -136,7 +140,9 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
                     if verbose:
                         print(f"\n--- GitHub Repository: {package_repo_identifier} ---")
 
-                    gh_data = self._get_github_data(package_repo_identifier, verbose=verbose)
+                    gh_data = self._get_github_data(
+                        package_repo_identifier, verbose=verbose
+                    )
                     if not gh_data:
                         logger.warning(
                             f"GitHub repository not found for package '{data.get('name')}': "
@@ -148,36 +154,38 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
 
                     if verbose:
                         print("\n--- Enrichment Result ---")
-                        pprint({
-                            'github_stars': gh_data["github"]["stars"],
-                            'github_watchers': gh_data["github"]["watchers"],
-                            'github_updated': gh_data["github"]["updated"],
-                            'github_open_issues': gh_data["github"]["open_issues"],
-                            'github_url': gh_data["github"]["gh_url"],
-                        })
+                        pprint(
+                            {
+                                "github_stars": gh_data["github"]["stars"],
+                                "github_watchers": gh_data["github"]["watchers"],
+                                "github_updated": gh_data["github"]["updated"],
+                                "github_open_issues": gh_data["github"]["open_issues"],
+                                "github_url": gh_data["github"]["gh_url"],
+                            }
+                        )
 
-                    enrich_counter +=1
-                    self.update_doc(target, data['id'], gh_data, page, enrich_counter)
+                    enrich_counter += 1
+                    self.update_doc(target, data["id"], gh_data, page, enrich_counter)
         logger.info(f"[{datetime.now()}] done")
 
     def update_doc(self, target, id, data, page, enrich_counter):
         document = {
-            'github_stars': data["github"]["stars"],
-            'github_watchers': data["github"]["watchers"],
-            'github_updated': data["github"]["updated"].timestamp(),
-            'github_open_issues': data["github"]["open_issues"],
-            'github_url': data["github"]["gh_url"],
+            "github_stars": data["github"]["stars"],
+            "github_watchers": data["github"]["watchers"],
+            "github_updated": data["github"]["updated"].timestamp(),
+            "github_open_issues": data["github"]["open_issues"],
+            "github_url": data["github"]["gh_url"],
         }
 
         # Include contributors if available
         if data["github"].get("contributors"):
-            document['contributors'] = data["github"]["contributors"]
+            document["contributors"] = data["github"]["contributors"]
 
         doc = self.client.collections[target].documents[id].update(document)
         logger.info(f"[{page}/{enrich_counter}] Updated document {id}")
 
     def ts_search(self, target, search_parameters, page=1):
-        search_parameters['page'] = page
+        search_parameters["page"] = page
         return self.client.collections[target].documents.search(search_parameters)
 
     def get_package_repo_identifier(self, data):
@@ -209,11 +217,13 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
         try:
             contributors = []
             for contributor in repo.get_contributors():
-                contributors.append({
-                    "username": contributor.login,
-                    "avatar_url": contributor.avatar_url,
-                    "contributions": contributor.contributions,
-                })
+                contributors.append(
+                    {
+                        "username": contributor.login,
+                        "avatar_url": contributor.avatar_url,
+                        "contributions": contributor.contributions,
+                    }
+                )
                 if len(contributors) >= limit:
                     break
             return contributors
@@ -231,7 +241,9 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
             try:
                 repo = github.get_repo(repo_identifier)
             except UnknownObjectException:
-                logger.warning(f"GitHub API 404: repository '{repo_identifier}' not found")
+                logger.warning(
+                    f"GitHub API 404: repository '{repo_identifier}' not found"
+                )
                 if verbose:
                     print(f"GitHub repository not found: {repo_identifier}")
                 return {}
@@ -307,7 +319,9 @@ def main():
             args.target = effective_profile
             logger.info(f"Auto-setting target collection from profile: {args.target}")
 
-        logger.info(f"Using profile '{effective_profile}' ({profile_source}) for target collection '{args.target}'")
+        logger.info(
+            f"Using profile '{effective_profile}' ({profile_source}) for target collection '{args.target}'"
+        )
 
     # Validate target is specified
     if not args.target:

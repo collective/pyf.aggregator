@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 """Manual verification script for downloads enricher - using existing packages collection."""
+
 from pyf.aggregator.db import TypesenceConnection
 from pyf.aggregator.enrichers.downloads import Enricher
 from pyf.aggregator.logger import logger
 import sys
+
 
 def main():
     # Step 1: Check Typesense connection
@@ -29,23 +31,21 @@ def main():
 
     # Step 3: Verify download fields are populated
     logger.info("\n=== Step 3: Verifying download fields ===")
-    docs = ts.client.collections[test_collection].documents.search({
-        'q': '*',
-        'query_by': 'name',
-        'per_page': 10
-    })
+    docs = ts.client.collections[test_collection].documents.search(
+        {"q": "*", "query_by": "name", "per_page": 10}
+    )
 
     found_downloads = False
     packages_with_downloads = 0
-    total_packages = len(docs['hits'])
+    total_packages = len(docs["hits"])
 
-    for hit in docs['hits']:
-        doc = hit['document']
-        name = doc.get('name', 'unknown')
-        download_last_day = doc.get('download_last_day', None)
-        download_last_week = doc.get('download_last_week', None)
-        download_last_month = doc.get('download_last_month', None)
-        download_updated = doc.get('download_updated', None)
+    for hit in docs["hits"]:
+        doc = hit["document"]
+        name = doc.get("name", "unknown")
+        download_last_day = doc.get("download_last_day", None)
+        download_last_week = doc.get("download_last_week", None)
+        download_last_month = doc.get("download_last_month", None)
+        download_updated = doc.get("download_updated", None)
 
         logger.info(f"\nPackage: {name}")
         logger.info(f"  - Last day: {download_last_day}")
@@ -64,7 +64,9 @@ def main():
 
     if found_downloads:
         logger.info("✓ Download statistics successfully fetched and stored")
-        logger.info("✓ Rate limiting handled (observe 2s delay between requests in logs)")
+        logger.info(
+            "✓ Rate limiting handled (observe 2s delay between requests in logs)"
+        )
         logger.info("✓ Enricher working correctly")
     else:
         logger.warning("⚠ No download statistics found in documents")
@@ -73,5 +75,6 @@ def main():
 
     return 0 if found_downloads else 1
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     sys.exit(main())

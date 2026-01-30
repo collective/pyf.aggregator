@@ -24,7 +24,6 @@ from pyf.aggregator.queue import (
     read_rss_new_projects_and_queue,
     read_rss_new_releases_and_queue,
     update_github,
-    queue_all_github_updates,
     refresh_all_indexed_packages,
     full_fetch_all_packages,
     enrich_downloads_all_packages,
@@ -61,6 +60,7 @@ class FeedParserEntry:
 # ============================================================================
 # PackageIndexer Tests
 # ============================================================================
+
 
 class TestPackageIndexer:
     """Test the PackageIndexer helper class."""
@@ -103,19 +103,27 @@ class TestPackageIndexer:
 
     def test_index_single_calls_upsert(self, mock_typesense_client):
         """Test that index_single uses upsert operation."""
-        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
+        with patch(
+            "pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client
+        ):
             indexer = PackageIndexer()
             data = {"id": "test-1.0", "name": "test"}
 
             result = indexer.index_single(data, "test_collection")
 
-            mock_typesense_client.collections["test_collection"].documents.upsert.assert_called_once_with(data)
+            mock_typesense_client.collections[
+                "test_collection"
+            ].documents.upsert.assert_called_once_with(data)
 
     def test_index_single_handles_errors(self, mock_typesense_client):
         """Test that index_single raises errors properly."""
-        mock_typesense_client.collections["test_collection"].documents.upsert.side_effect = Exception("Test error")
+        mock_typesense_client.collections[
+            "test_collection"
+        ].documents.upsert.side_effect = Exception("Test error")
 
-        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
+        with patch(
+            "pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client
+        ):
             indexer = PackageIndexer()
             data = {"id": "test-1.0", "name": "test"}
 
@@ -126,6 +134,7 @@ class TestPackageIndexer:
 # ============================================================================
 # inspect_project Task Tests
 # ============================================================================
+
 
 class TestInspectProjectTask:
     """Test the inspect_project Celery task."""
@@ -141,7 +150,9 @@ class TestInspectProjectTask:
         assert result["reason"] == "no package_id"
 
     @responses.activate
-    def test_skips_non_plone_package(self, celery_eager_mode, sample_pypi_json_non_plone):
+    def test_skips_non_plone_package(
+        self, celery_eager_mode, sample_pypi_json_non_plone
+    ):
         """Test that non-Plone packages are skipped."""
         responses.add(
             responses.GET,
@@ -157,7 +168,9 @@ class TestInspectProjectTask:
         assert result["package_id"] == "requests"
 
     @responses.activate
-    def test_indexes_plone_package(self, celery_eager_mode, sample_pypi_json_plone, mock_typesense_client):
+    def test_indexes_plone_package(
+        self, celery_eager_mode, sample_pypi_json_plone, mock_typesense_client
+    ):
         """Test that Plone packages are indexed."""
         responses.add(
             responses.GET,
@@ -210,7 +223,9 @@ class TestInspectProjectTask:
         assert "reason" in result
 
     @responses.activate
-    def test_uses_release_id_when_provided(self, celery_eager_mode, sample_pypi_json_plone, mock_typesense_client):
+    def test_uses_release_id_when_provided(
+        self, celery_eager_mode, sample_pypi_json_plone, mock_typesense_client
+    ):
         """Test that specific release_id is used when provided."""
         responses.add(
             responses.GET,
@@ -225,15 +240,19 @@ class TestInspectProjectTask:
             mock_indexer.index_single.return_value = {"success": True}
             mock_indexer_class.return_value = mock_indexer
 
-            result = inspect_project({
-                "package_id": "plone.api",
-                "release_id": "1.0.0",
-            })
+            result = inspect_project(
+                {
+                    "package_id": "plone.api",
+                    "release_id": "1.0.0",
+                }
+            )
 
             assert result["status"] == "indexed"
 
     @responses.activate
-    def test_removes_downloads_field(self, celery_eager_mode, sample_pypi_json_plone, mock_typesense_client):
+    def test_removes_downloads_field(
+        self, celery_eager_mode, sample_pypi_json_plone, mock_typesense_client
+    ):
         """Test that 'downloads' field is removed from indexed data."""
         sample_with_downloads = sample_pypi_json_plone.copy()
         sample_with_downloads["info"] = sample_with_downloads["info"].copy()
@@ -264,7 +283,9 @@ class TestInspectProjectTask:
             assert "downloads" not in indexed_data
 
     @responses.activate
-    def test_sets_id_and_identifier(self, celery_eager_mode, sample_pypi_json_plone, mock_typesense_client):
+    def test_sets_id_and_identifier(
+        self, celery_eager_mode, sample_pypi_json_plone, mock_typesense_client
+    ):
         """Test that id and identifier are set correctly."""
         responses.add(
             responses.GET,
@@ -297,6 +318,7 @@ class TestInspectProjectTask:
 # update_project Task Tests
 # ============================================================================
 
+
 class TestUpdateProjectTask:
     """Test the update_project Celery task."""
 
@@ -311,7 +333,9 @@ class TestUpdateProjectTask:
         assert result["reason"] == "no package_id"
 
     @responses.activate
-    def test_indexes_package(self, celery_eager_mode, sample_pypi_json_plone, mock_typesense_client):
+    def test_indexes_package(
+        self, celery_eager_mode, sample_pypi_json_plone, mock_typesense_client
+    ):
         """Test that package is indexed without classifier check."""
         responses.add(
             responses.GET,
@@ -333,7 +357,9 @@ class TestUpdateProjectTask:
             mock_indexer.index_single.assert_called_once()
 
     @responses.activate
-    def test_does_not_check_plone_classifier(self, celery_eager_mode, sample_pypi_json_non_plone, mock_typesense_client):
+    def test_does_not_check_plone_classifier(
+        self, celery_eager_mode, sample_pypi_json_non_plone, mock_typesense_client
+    ):
         """Test that non-Plone packages are still indexed (no classifier check)."""
         responses.add(
             responses.GET,
@@ -372,6 +398,7 @@ class TestUpdateProjectTask:
 # read_rss_new_projects_and_queue Task Tests
 # ============================================================================
 
+
 class TestReadRssNewProjectsAndQueue:
     """Test the read_rss_new_projects_and_queue Celery task."""
 
@@ -381,23 +408,27 @@ class TestReadRssNewProjectsAndQueue:
 
     def test_queues_packages_from_rss(self, celery_eager_mode):
         """Test that packages from RSS feed are queued."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
             mock_feed.entries = [
-                FeedParserEntry({
-                    "title": "new-package 1.0.0",
-                    "link": "https://pypi.org/project/new-package/1.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
-                FeedParserEntry({
-                    "title": "another-package 2.0.0",
-                    "link": "https://pypi.org/project/another-package/2.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-14", "%Y-%m-%d"),
-                }),
+                FeedParserEntry(
+                    {
+                        "title": "new-package 1.0.0",
+                        "link": "https://pypi.org/project/new-package/1.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
+                FeedParserEntry(
+                    {
+                        "title": "another-package 2.0.0",
+                        "link": "https://pypi.org/project/another-package/2.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-14", "%Y-%m-%d"),
+                    }
+                ),
             ]
             mock_parse.return_value = mock_feed
 
@@ -410,7 +441,7 @@ class TestReadRssNewProjectsAndQueue:
 
     def test_returns_zero_when_empty_feed(self, celery_eager_mode):
         """Test that empty feed returns 0 packages queued."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
@@ -424,22 +455,26 @@ class TestReadRssNewProjectsAndQueue:
 
     def test_skips_entries_without_package_id(self, celery_eager_mode):
         """Test that entries without valid package_id are skipped."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
             mock_feed.entries = [
-                FeedParserEntry({
-                    "title": "",
-                    "link": "",
-                    "summary": "",
-                }),
-                FeedParserEntry({
-                    "title": "valid-package 1.0.0",
-                    "link": "https://pypi.org/project/valid-package/1.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
+                FeedParserEntry(
+                    {
+                        "title": "",
+                        "link": "",
+                        "summary": "",
+                    }
+                ),
+                FeedParserEntry(
+                    {
+                        "title": "valid-package 1.0.0",
+                        "link": "https://pypi.org/project/valid-package/1.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
             ]
             mock_parse.return_value = mock_feed
 
@@ -452,17 +487,19 @@ class TestReadRssNewProjectsAndQueue:
 
     def test_passes_correct_data_to_inspect_project(self, celery_eager_mode):
         """Test that correct package data is passed to inspect_project task."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
             mock_feed.entries = [
-                FeedParserEntry({
-                    "title": "test-package 1.0.0",
-                    "link": "https://pypi.org/project/test-package/1.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
+                FeedParserEntry(
+                    {
+                        "title": "test-package 1.0.0",
+                        "link": "https://pypi.org/project/test-package/1.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
             ]
             mock_parse.return_value = mock_feed
 
@@ -476,28 +513,34 @@ class TestReadRssNewProjectsAndQueue:
 
     def test_skips_duplicate_packages(self, celery_eager_mode):
         """Test that dedup skips recently queued packages."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
             mock_feed.entries = [
-                FeedParserEntry({
-                    "title": "dup-package 1.0.0",
-                    "link": "https://pypi.org/project/dup-package/1.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
-                FeedParserEntry({
-                    "title": "new-package 1.0.0",
-                    "link": "https://pypi.org/project/new-package/1.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
+                FeedParserEntry(
+                    {
+                        "title": "dup-package 1.0.0",
+                        "link": "https://pypi.org/project/dup-package/1.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
+                FeedParserEntry(
+                    {
+                        "title": "new-package 1.0.0",
+                        "link": "https://pypi.org/project/new-package/1.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
             ]
             mock_parse.return_value = mock_feed
 
             with patch("pyf.aggregator.queue.inspect_project.delay") as mock_delay:
-                with patch("pyf.aggregator.queue.is_package_recently_queued") as mock_dedup:
+                with patch(
+                    "pyf.aggregator.queue.is_package_recently_queued"
+                ) as mock_dedup:
                     # First package is a duplicate, second is new
                     mock_dedup.side_effect = [True, False]
 
@@ -509,28 +552,34 @@ class TestReadRssNewProjectsAndQueue:
 
     def test_returns_skipped_count_in_result(self, celery_eager_mode):
         """Test that result includes packages_skipped count."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
             mock_feed.entries = [
-                FeedParserEntry({
-                    "title": "dup1 1.0.0",
-                    "link": "https://pypi.org/project/dup1/1.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
-                FeedParserEntry({
-                    "title": "dup2 1.0.0",
-                    "link": "https://pypi.org/project/dup2/1.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
+                FeedParserEntry(
+                    {
+                        "title": "dup1 1.0.0",
+                        "link": "https://pypi.org/project/dup1/1.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
+                FeedParserEntry(
+                    {
+                        "title": "dup2 1.0.0",
+                        "link": "https://pypi.org/project/dup2/1.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
             ]
             mock_parse.return_value = mock_feed
 
             with patch("pyf.aggregator.queue.inspect_project.delay"):
-                with patch("pyf.aggregator.queue.is_package_recently_queued", return_value=True):
+                with patch(
+                    "pyf.aggregator.queue.is_package_recently_queued", return_value=True
+                ):
                     result = read_rss_new_projects_and_queue()
 
                     assert result["packages_skipped"] == 2
@@ -538,23 +587,28 @@ class TestReadRssNewProjectsAndQueue:
 
     def test_dedup_failure_allows_queueing(self, celery_eager_mode):
         """Test that Redis failure during dedup doesn't block queueing."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
             mock_feed.entries = [
-                FeedParserEntry({
-                    "title": "pkg1 1.0.0",
-                    "link": "https://pypi.org/project/pkg1/1.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
+                FeedParserEntry(
+                    {
+                        "title": "pkg1 1.0.0",
+                        "link": "https://pypi.org/project/pkg1/1.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
             ]
             mock_parse.return_value = mock_feed
 
             with patch("pyf.aggregator.queue.inspect_project.delay") as mock_delay:
                 # is_package_recently_queued returns False on error (fail-open)
-                with patch("pyf.aggregator.queue.is_package_recently_queued", return_value=False):
+                with patch(
+                    "pyf.aggregator.queue.is_package_recently_queued",
+                    return_value=False,
+                ):
                     result = read_rss_new_projects_and_queue()
 
                     assert result["packages_queued"] == 1
@@ -562,22 +616,27 @@ class TestReadRssNewProjectsAndQueue:
 
     def test_passes_feed_type_new_to_dedup(self, celery_eager_mode):
         """Test that the new projects task passes feed_type='new' to dedup."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
             mock_feed.entries = [
-                FeedParserEntry({
-                    "title": "my-package 1.0.0",
-                    "link": "https://pypi.org/project/my-package/1.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
+                FeedParserEntry(
+                    {
+                        "title": "my-package 1.0.0",
+                        "link": "https://pypi.org/project/my-package/1.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
             ]
             mock_parse.return_value = mock_feed
 
             with patch("pyf.aggregator.queue.inspect_project.delay"):
-                with patch("pyf.aggregator.queue.is_package_recently_queued", return_value=False) as mock_dedup:
+                with patch(
+                    "pyf.aggregator.queue.is_package_recently_queued",
+                    return_value=False,
+                ) as mock_dedup:
                     read_rss_new_projects_and_queue()
 
                     mock_dedup.assert_called_once_with("my-package", feed_type="new")
@@ -586,6 +645,7 @@ class TestReadRssNewProjectsAndQueue:
 # ============================================================================
 # read_rss_new_releases_and_queue Task Tests
 # ============================================================================
+
 
 class TestReadRssNewReleasesAndQueue:
     """Test the read_rss_new_releases_and_queue Celery task."""
@@ -596,17 +656,19 @@ class TestReadRssNewReleasesAndQueue:
 
     def test_queues_releases_from_rss(self, celery_eager_mode):
         """Test that releases from RSS feed are queued."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
             mock_feed.entries = [
-                FeedParserEntry({
-                    "title": "updated-package 2.0.0",
-                    "link": "https://pypi.org/project/updated-package/2.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
+                FeedParserEntry(
+                    {
+                        "title": "updated-package 2.0.0",
+                        "link": "https://pypi.org/project/updated-package/2.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
             ]
             mock_parse.return_value = mock_feed
 
@@ -619,7 +681,7 @@ class TestReadRssNewReleasesAndQueue:
 
     def test_returns_zero_when_empty_feed(self, celery_eager_mode):
         """Test that empty feed returns 0 packages queued."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
@@ -633,28 +695,34 @@ class TestReadRssNewReleasesAndQueue:
 
     def test_skips_duplicate_releases(self, celery_eager_mode):
         """Test that dedup skips recently queued releases."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
             mock_feed.entries = [
-                FeedParserEntry({
-                    "title": "dup-release 2.0.0",
-                    "link": "https://pypi.org/project/dup-release/2.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
-                FeedParserEntry({
-                    "title": "new-release 1.0.0",
-                    "link": "https://pypi.org/project/new-release/1.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
+                FeedParserEntry(
+                    {
+                        "title": "dup-release 2.0.0",
+                        "link": "https://pypi.org/project/dup-release/2.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
+                FeedParserEntry(
+                    {
+                        "title": "new-release 1.0.0",
+                        "link": "https://pypi.org/project/new-release/1.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
             ]
             mock_parse.return_value = mock_feed
 
             with patch("pyf.aggregator.queue.inspect_project.delay") as mock_delay:
-                with patch("pyf.aggregator.queue.is_package_recently_queued") as mock_dedup:
+                with patch(
+                    "pyf.aggregator.queue.is_package_recently_queued"
+                ) as mock_dedup:
                     mock_dedup.side_effect = [True, False]
 
                     result = read_rss_new_releases_and_queue()
@@ -665,22 +733,26 @@ class TestReadRssNewReleasesAndQueue:
 
     def test_returns_skipped_count_in_result(self, celery_eager_mode):
         """Test that result includes packages_skipped count."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
             mock_feed.entries = [
-                FeedParserEntry({
-                    "title": "dup-pkg 1.0.0",
-                    "link": "https://pypi.org/project/dup-pkg/1.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
+                FeedParserEntry(
+                    {
+                        "title": "dup-pkg 1.0.0",
+                        "link": "https://pypi.org/project/dup-pkg/1.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
             ]
             mock_parse.return_value = mock_feed
 
             with patch("pyf.aggregator.queue.inspect_project.delay"):
-                with patch("pyf.aggregator.queue.is_package_recently_queued", return_value=True):
+                with patch(
+                    "pyf.aggregator.queue.is_package_recently_queued", return_value=True
+                ):
                     result = read_rss_new_releases_and_queue()
 
                     assert result["packages_skipped"] == 1
@@ -688,22 +760,27 @@ class TestReadRssNewReleasesAndQueue:
 
     def test_dedup_failure_allows_queueing(self, celery_eager_mode):
         """Test that Redis failure during dedup doesn't block queueing."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
             mock_feed.entries = [
-                FeedParserEntry({
-                    "title": "pkg1 1.0.0",
-                    "link": "https://pypi.org/project/pkg1/1.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
+                FeedParserEntry(
+                    {
+                        "title": "pkg1 1.0.0",
+                        "link": "https://pypi.org/project/pkg1/1.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
             ]
             mock_parse.return_value = mock_feed
 
             with patch("pyf.aggregator.queue.inspect_project.delay") as mock_delay:
-                with patch("pyf.aggregator.queue.is_package_recently_queued", return_value=False):
+                with patch(
+                    "pyf.aggregator.queue.is_package_recently_queued",
+                    return_value=False,
+                ):
                     result = read_rss_new_releases_and_queue()
 
                     assert result["packages_queued"] == 1
@@ -711,22 +788,27 @@ class TestReadRssNewReleasesAndQueue:
 
     def test_passes_release_id_to_dedup(self, celery_eager_mode):
         """Test that the releases task passes release_id and feed_type='update' to dedup."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = False
             mock_feed.bozo_exception = None
             mock_feed.entries = [
-                FeedParserEntry({
-                    "title": "my-package 2.0.0",
-                    "link": "https://pypi.org/project/my-package/2.0.0/",
-                    "summary": "",
-                    "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
-                }),
+                FeedParserEntry(
+                    {
+                        "title": "my-package 2.0.0",
+                        "link": "https://pypi.org/project/my-package/2.0.0/",
+                        "summary": "",
+                        "published_parsed": time.strptime("2023-06-15", "%Y-%m-%d"),
+                    }
+                ),
             ]
             mock_parse.return_value = mock_feed
 
             with patch("pyf.aggregator.queue.inspect_project.delay"):
-                with patch("pyf.aggregator.queue.is_package_recently_queued", return_value=False) as mock_dedup:
+                with patch(
+                    "pyf.aggregator.queue.is_package_recently_queued",
+                    return_value=False,
+                ) as mock_dedup:
                     read_rss_new_releases_and_queue()
 
                     mock_dedup.assert_called_once_with(
@@ -737,6 +819,7 @@ class TestReadRssNewReleasesAndQueue:
 # ============================================================================
 # Other Task Tests
 # ============================================================================
+
 
 class TestUpdateGithubTask:
     """Test the update_github Celery task."""
@@ -751,19 +834,29 @@ class TestUpdateGithubTask:
         assert result["status"] == "skipped"
         assert result["reason"] == "no package_id"
 
-    def test_skips_when_package_not_found_in_typesense(self, celery_eager_mode, mock_typesense_client):
+    def test_skips_when_package_not_found_in_typesense(
+        self, celery_eager_mode, mock_typesense_client
+    ):
         """Test that task skips when package document not found in Typesense."""
         # Configure mock to raise exception when retrieving document
-        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.retrieve.side_effect = Exception("Document not found")
+        mock_typesense_client.collections[
+            "test_packages"
+        ].documents.__getitem__.return_value.retrieve.side_effect = Exception(
+            "Document not found"
+        )
 
-        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
+        with patch(
+            "pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client
+        ):
             result = update_github("plone.api-2.0.0")
 
             assert result["status"] == "skipped"
             assert result["reason"] == "fetch_from_typesense_failed"
             assert result["package_id"] == "plone.api-2.0.0"
 
-    def test_skips_when_no_github_url_found(self, celery_eager_mode, mock_typesense_client):
+    def test_skips_when_no_github_url_found(
+        self, celery_eager_mode, mock_typesense_client
+    ):
         """Test that task skips when package has no GitHub URL."""
         # Mock document without GitHub URL
         mock_document = {
@@ -777,16 +870,22 @@ class TestUpdateGithubTask:
             },
         }
 
-        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.retrieve.return_value = mock_document
+        mock_typesense_client.collections[
+            "test_packages"
+        ].documents.__getitem__.return_value.retrieve.return_value = mock_document
 
-        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
+        with patch(
+            "pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client
+        ):
             result = update_github("some-package-1.0.0")
 
             assert result["status"] == "skipped"
             assert result["reason"] == "no_github_url"
             assert result["package_id"] == "some-package-1.0.0"
 
-    def test_skips_when_github_fetch_fails(self, celery_eager_mode, mock_typesense_client):
+    def test_skips_when_github_fetch_fails(
+        self, celery_eager_mode, mock_typesense_client
+    ):
         """Test that task skips when GitHub API fetch fails."""
         # Mock document with GitHub URL
         mock_document = {
@@ -798,9 +897,13 @@ class TestUpdateGithubTask:
             "project_urls": None,
         }
 
-        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.retrieve.return_value = mock_document
+        mock_typesense_client.collections[
+            "test_packages"
+        ].documents.__getitem__.return_value.retrieve.return_value = mock_document
 
-        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
+        with patch(
+            "pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client
+        ):
             with patch("pyf.aggregator.queue._get_github_data", return_value={}):
                 result = update_github("plone.api-2.0.0")
 
@@ -809,7 +912,9 @@ class TestUpdateGithubTask:
                 assert result["package_id"] == "plone.api-2.0.0"
                 assert result["repo"] == "plone/plone.api"
 
-    def test_successfully_updates_github_data(self, celery_eager_mode, mock_typesense_client):
+    def test_successfully_updates_github_data(
+        self, celery_eager_mode, mock_typesense_client
+    ):
         """Test that GitHub data is successfully fetched and updated."""
         from datetime import datetime
 
@@ -823,8 +928,12 @@ class TestUpdateGithubTask:
             "project_urls": None,
         }
 
-        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.retrieve.return_value = mock_document
-        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.update.return_value = {"success": True}
+        mock_typesense_client.collections[
+            "test_packages"
+        ].documents.__getitem__.return_value.retrieve.return_value = mock_document
+        mock_typesense_client.collections[
+            "test_packages"
+        ].documents.__getitem__.return_value.update.return_value = {"success": True}
 
         # Mock GitHub data
         mock_gh_data = {
@@ -837,8 +946,12 @@ class TestUpdateGithubTask:
             }
         }
 
-        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
-            with patch("pyf.aggregator.queue._get_github_data", return_value=mock_gh_data):
+        with patch(
+            "pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client
+        ):
+            with patch(
+                "pyf.aggregator.queue._get_github_data", return_value=mock_gh_data
+            ):
                 result = update_github("plone.api-2.0.0")
 
                 assert result["status"] == "updated"
@@ -846,7 +959,9 @@ class TestUpdateGithubTask:
                 assert result["repo"] == "plone/plone.api"
 
                 # Verify update was called with correct data
-                update_call = mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.update
+                update_call = mock_typesense_client.collections[
+                    "test_packages"
+                ].documents.__getitem__.return_value.update
                 update_call.assert_called_once()
                 update_data = update_call.call_args[0][0]
                 assert update_data["github_stars"] == 150
@@ -855,7 +970,9 @@ class TestUpdateGithubTask:
                 assert update_data["github_url"] == "https://github.com/plone/plone.api"
                 assert "github_updated" in update_data
 
-    def test_handles_rate_limit_exception(self, celery_eager_mode, mock_typesense_client):
+    def test_handles_rate_limit_exception(
+        self, celery_eager_mode, mock_typesense_client
+    ):
         """Test that rate limit exceptions are handled and retried."""
         from github import RateLimitExceededException
 
@@ -869,10 +986,17 @@ class TestUpdateGithubTask:
             "project_urls": None,
         }
 
-        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.retrieve.return_value = mock_document
+        mock_typesense_client.collections[
+            "test_packages"
+        ].documents.__getitem__.return_value.retrieve.return_value = mock_document
 
-        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
-            with patch("pyf.aggregator.queue._get_github_data", side_effect=RateLimitExceededException(429, {}, {})):
+        with patch(
+            "pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client
+        ):
+            with patch(
+                "pyf.aggregator.queue._get_github_data",
+                side_effect=RateLimitExceededException(429, {}, {}),
+            ):
                 # In eager mode with propagates=True, retry exceptions are raised
                 with pytest.raises(Exception):
                     update_github("plone.api-2.0.0")
@@ -889,15 +1013,24 @@ class TestUpdateGithubTask:
             "project_urls": None,
         }
 
-        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.retrieve.return_value = mock_document
+        mock_typesense_client.collections[
+            "test_packages"
+        ].documents.__getitem__.return_value.retrieve.return_value = mock_document
 
-        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
-            with patch("pyf.aggregator.queue._get_github_data", side_effect=Exception("Network error")):
+        with patch(
+            "pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client
+        ):
+            with patch(
+                "pyf.aggregator.queue._get_github_data",
+                side_effect=Exception("Network error"),
+            ):
                 # In eager mode with propagates=True, retry exceptions are raised
                 with pytest.raises(Exception):
                     update_github("plone.api-2.0.0")
 
-    def test_extracts_github_url_from_home_page(self, celery_eager_mode, mock_typesense_client):
+    def test_extracts_github_url_from_home_page(
+        self, celery_eager_mode, mock_typesense_client
+    ):
         """Test that GitHub URL is extracted from home_page field."""
         from datetime import datetime
 
@@ -910,8 +1043,12 @@ class TestUpdateGithubTask:
             "project_urls": None,
         }
 
-        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.retrieve.return_value = mock_document
-        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.update.return_value = {"success": True}
+        mock_typesense_client.collections[
+            "test_packages"
+        ].documents.__getitem__.return_value.retrieve.return_value = mock_document
+        mock_typesense_client.collections[
+            "test_packages"
+        ].documents.__getitem__.return_value.update.return_value = {"success": True}
 
         mock_gh_data = {
             "github": {
@@ -923,14 +1060,20 @@ class TestUpdateGithubTask:
             }
         }
 
-        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
-            with patch("pyf.aggregator.queue._get_github_data", return_value=mock_gh_data):
+        with patch(
+            "pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client
+        ):
+            with patch(
+                "pyf.aggregator.queue._get_github_data", return_value=mock_gh_data
+            ):
                 result = update_github("test-pkg-1.0.0")
 
                 assert result["status"] == "updated"
                 assert result["repo"] == "testorg/testrepo"
 
-    def test_extracts_github_url_from_project_urls(self, celery_eager_mode, mock_typesense_client):
+    def test_extracts_github_url_from_project_urls(
+        self, celery_eager_mode, mock_typesense_client
+    ):
         """Test that GitHub URL is extracted from project_urls field."""
         from datetime import datetime
 
@@ -947,8 +1090,12 @@ class TestUpdateGithubTask:
             },
         }
 
-        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.retrieve.return_value = mock_document
-        mock_typesense_client.collections["test_packages"].documents.__getitem__.return_value.update.return_value = {"success": True}
+        mock_typesense_client.collections[
+            "test_packages"
+        ].documents.__getitem__.return_value.retrieve.return_value = mock_document
+        mock_typesense_client.collections[
+            "test_packages"
+        ].documents.__getitem__.return_value.update.return_value = {"success": True}
 
         mock_gh_data = {
             "github": {
@@ -960,8 +1107,12 @@ class TestUpdateGithubTask:
             }
         }
 
-        with patch("pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client):
-            with patch("pyf.aggregator.queue._get_github_data", return_value=mock_gh_data):
+        with patch(
+            "pyf.aggregator.db.typesense.Client", return_value=mock_typesense_client
+        ):
+            with patch(
+                "pyf.aggregator.queue._get_github_data", return_value=mock_gh_data
+            ):
                 result = update_github("test-pkg-1.0.0")
 
                 assert result["status"] == "updated"
@@ -1221,6 +1372,7 @@ class TestQueueAllGithubUpdates:
 # Periodic Task Setup Tests
 # ============================================================================
 
+
 class TestParseCrontab:
     """Test the parse_crontab helper function."""
 
@@ -1278,20 +1430,20 @@ class TestPeriodicTaskSetup:
 
         # Check task names
         call_args_list = mock_sender.add_periodic_task.call_args_list
-        task_names = [call[1].get('name', '') for call in call_args_list]
+        task_names = [call[1].get("name", "") for call in call_args_list]
 
-        assert 'read RSS new projects and add to queue' in task_names
-        assert 'read RSS new releases and add to queue' in task_names
-        assert 'weekly refresh all indexed packages' in task_names
-        assert 'monthly full fetch all packages' in task_names
-        assert 'weekly download stats enrichment' in task_names
-        assert 'weekly GitHub data refresh' in task_names
+        assert "read RSS new projects and add to queue" in task_names
+        assert "read RSS new releases and add to queue" in task_names
+        assert "weekly refresh all indexed packages" in task_names
+        assert "monthly full fetch all packages" in task_names
+        assert "weekly download stats enrichment" in task_names
+        assert "weekly GitHub data refresh" in task_names
 
     def test_periodic_task_disabled_with_empty_string(self):
         """Test that tasks can be disabled by setting schedule to empty string."""
         mock_sender = MagicMock()
 
-        with patch('pyf.aggregator.queue.CELERY_SCHEDULE_MONTHLY_FETCH', ''):
+        with patch("pyf.aggregator.queue.CELERY_SCHEDULE_MONTHLY_FETCH", ""):
             setup_periodic_tasks(mock_sender)
 
         # Should have added only 5 periodic tasks (monthly disabled)
@@ -1299,16 +1451,16 @@ class TestPeriodicTaskSetup:
 
         # Check that monthly task is not in the list
         call_args_list = mock_sender.add_periodic_task.call_args_list
-        task_names = [call[1].get('name', '') for call in call_args_list]
+        task_names = [call[1].get("name", "") for call in call_args_list]
 
-        assert 'monthly full fetch all packages' not in task_names
-        assert 'read RSS new projects and add to queue' in task_names
+        assert "monthly full fetch all packages" not in task_names
+        assert "read RSS new projects and add to queue" in task_names
 
     def test_periodic_task_custom_schedule(self):
         """Test that custom schedules are applied."""
         mock_sender = MagicMock()
 
-        with patch('pyf.aggregator.queue.CELERY_SCHEDULE_RSS_PROJECTS', '*/5 * * * *'):
+        with patch("pyf.aggregator.queue.CELERY_SCHEDULE_RSS_PROJECTS", "*/5 * * * *"):
             setup_periodic_tasks(mock_sender)
 
         # Should still have 6 tasks
@@ -1318,6 +1470,7 @@ class TestPeriodicTaskSetup:
 # ============================================================================
 # Constants and App Configuration Tests
 # ============================================================================
+
 
 class TestQueueConfiguration:
     """Test queue module configuration."""
@@ -1341,6 +1494,7 @@ class TestQueueConfiguration:
 # ============================================================================
 # Task Retry Configuration Tests
 # ============================================================================
+
 
 class TestTaskRetryConfiguration:
     """Test that tasks have proper retry configuration."""
@@ -1373,6 +1527,7 @@ class TestTaskRetryConfiguration:
 # ============================================================================
 # RSS Deduplication Tests
 # ============================================================================
+
 
 class TestRSSDeduplication:
     """Test the is_package_recently_queued deduplication function."""
@@ -1493,8 +1648,12 @@ class TestRSSDeduplication:
         mock_redis.set.return_value = True
 
         with patch("pyf.aggregator.queue.get_dedup_redis", return_value=mock_redis):
-            result_v1 = is_package_recently_queued("foo", release_id="1.0", feed_type="update")
-            result_v2 = is_package_recently_queued("foo", release_id="2.0", feed_type="update")
+            result_v1 = is_package_recently_queued(
+                "foo", release_id="1.0", feed_type="update"
+            )
+            result_v2 = is_package_recently_queued(
+                "foo", release_id="2.0", feed_type="update"
+            )
 
             assert result_v1 is False
             assert result_v2 is False
@@ -1554,7 +1713,6 @@ class TestGetDedupRedis:
 
     def test_creates_redis_client(self):
         """Test that a Redis client is created and pinged on first call."""
-        import redis as redis_lib
 
         mock_client = MagicMock()
         mock_client.ping.return_value = True
@@ -1595,6 +1753,7 @@ class TestGetDedupRedis:
 # Edge Case Tests
 # ============================================================================
 
+
 class TestEdgeCases:
     """Test edge cases and error handling."""
 
@@ -1614,7 +1773,9 @@ class TestEdgeCases:
         assert result["status"] == "skipped"
 
     @responses.activate
-    def test_inspect_project_handles_package_with_no_version(self, celery_eager_mode, mock_typesense_client):
+    def test_inspect_project_handles_package_with_no_version(
+        self, celery_eager_mode, mock_typesense_client
+    ):
         """Test that packages without version are handled."""
         package_json = {
             "info": {
@@ -1654,7 +1815,6 @@ class TestEdgeCases:
     @responses.activate
     def test_update_project_handles_network_error(self, celery_eager_mode):
         """Test that network errors trigger retry behavior."""
-        from celery.exceptions import Retry
 
         responses.add(
             responses.GET,
@@ -1669,7 +1829,7 @@ class TestEdgeCases:
 
     def test_rss_task_handles_feedparser_error(self, celery_eager_mode):
         """Test that feedparser errors are handled."""
-        with patch('feedparser.parse') as mock_parse:
+        with patch("feedparser.parse") as mock_parse:
             mock_feed = MagicMock()
             mock_feed.bozo = True
             mock_feed.bozo_exception = Exception("Parse error")
@@ -1683,7 +1843,9 @@ class TestEdgeCases:
             assert "status" in result
 
     @responses.activate
-    def test_inspect_project_with_timestamp(self, celery_eager_mode, sample_pypi_json_plone, mock_typesense_client):
+    def test_inspect_project_with_timestamp(
+        self, celery_eager_mode, sample_pypi_json_plone, mock_typesense_client
+    ):
         """Test that upload_timestamp is set when provided."""
         responses.add(
             responses.GET,
@@ -1705,10 +1867,12 @@ class TestEdgeCases:
             mock_indexer.index_single.return_value = {"success": True}
             mock_indexer_class.return_value = mock_indexer
 
-            inspect_project({
-                "package_id": "plone.api",
-                "timestamp": 1686700000.0,
-            })
+            inspect_project(
+                {
+                    "package_id": "plone.api",
+                    "timestamp": 1686700000.0,
+                }
+            )
 
             # upload_timestamp should be an int64 Unix timestamp
             assert indexed_data["upload_timestamp"] == 1686700000
@@ -1717,6 +1881,7 @@ class TestEdgeCases:
 # ============================================================================
 # Refresh All Indexed Packages Task Tests
 # ============================================================================
+
 
 class TestRefreshAllIndexedPackagesTask:
     """Test the refresh_all_indexed_packages Celery task."""
@@ -1738,9 +1903,13 @@ class TestRefreshAllIndexedPackagesTask:
             mock_indexer.get_unique_package_names.return_value = set()
             mock_indexer_class.return_value = mock_indexer
 
-            with patch("pyf.aggregator.profiles.ProfileManager") as mock_profile_manager:
+            with patch(
+                "pyf.aggregator.profiles.ProfileManager"
+            ) as mock_profile_manager:
                 mock_pm = MagicMock()
-                mock_pm.get_profile.return_value = {"classifiers": ["Framework :: Plone"]}
+                mock_pm.get_profile.return_value = {
+                    "classifiers": ["Framework :: Plone"]
+                }
                 mock_profile_manager.return_value = mock_pm
 
                 result = refresh_all_indexed_packages("test_collection", "plone")
@@ -1752,6 +1921,7 @@ class TestRefreshAllIndexedPackagesTask:
 # ============================================================================
 # Full Fetch All Packages Task Tests
 # ============================================================================
+
 
 class TestFullFetchAllPackagesTask:
     """Test the full_fetch_all_packages Celery task."""
@@ -1783,6 +1953,7 @@ class TestFullFetchAllPackagesTask:
 # Enrich Downloads All Packages Task Tests
 # ============================================================================
 
+
 class TestEnrichDownloadsAllPackagesTask:
     """Test the enrich_downloads_all_packages Celery task."""
 
@@ -1803,7 +1974,9 @@ class TestEnrichDownloadsAllPackagesTask:
             mock_pm.list_profiles.return_value = ["plone", "django"]
             mock_profile_manager.return_value = mock_pm
 
-            with patch("pyf.aggregator.enrichers.downloads.Enricher") as mock_enricher_class:
+            with patch(
+                "pyf.aggregator.enrichers.downloads.Enricher"
+            ) as mock_enricher_class:
                 mock_enricher = MagicMock()
                 mock_enricher_class.return_value = mock_enricher
 
@@ -1821,7 +1994,9 @@ class TestEnrichDownloadsAllPackagesTask:
             mock_pm.list_profiles.return_value = ["plone"]
             mock_profile_manager.return_value = mock_pm
 
-            with patch("pyf.aggregator.enrichers.downloads.Enricher") as mock_enricher_class:
+            with patch(
+                "pyf.aggregator.enrichers.downloads.Enricher"
+            ) as mock_enricher_class:
                 mock_enricher = MagicMock()
                 mock_enricher.run.side_effect = Exception("API error")
                 mock_enricher_class.return_value = mock_enricher
@@ -1835,6 +2010,7 @@ class TestEnrichDownloadsAllPackagesTask:
 # ============================================================================
 # Worker Pool Configuration Tests
 # ============================================================================
+
 
 class TestWorkerPoolConfiguration:
     """Test Celery worker pool and concurrency configuration."""

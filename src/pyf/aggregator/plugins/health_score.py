@@ -59,7 +59,7 @@ def calculate_recency_score(upload_timestamp):
             upload_dt = datetime.fromtimestamp(upload_timestamp, tz=timezone.utc)
         elif isinstance(upload_timestamp, str):
             # ISO format (legacy support): "2024-01-15T10:30:00"
-            upload_dt = datetime.fromisoformat(upload_timestamp.replace('Z', '+00:00'))
+            upload_dt = datetime.fromisoformat(upload_timestamp.replace("Z", "+00:00"))
         else:
             return 0
 

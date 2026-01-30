@@ -51,9 +51,7 @@ class ProfileManager:
             )
 
         self._profiles = config["profiles"]
-        logger.info(
-            f"Loaded {len(self._profiles)} profiles from {self.config_path}"
-        )
+        logger.info(f"Loaded {len(self._profiles)} profiles from {self.config_path}")
 
     def get_profile(self, name):
         """Get profile configuration by name.

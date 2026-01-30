@@ -2,7 +2,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from dotenv import load_dotenv
 from itertools import islice
-from lxml import html
 from pathlib import Path
 from pyf.aggregator.logger import logger
 
@@ -83,7 +82,7 @@ class Aggregator:
             # Convert ISO timestamp to Unix timestamp (int64)
             if ts:
                 try:
-                    dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
                     data["upload_timestamp"] = int(dt.timestamp())
                 except (ValueError, TypeError):
                     data["upload_timestamp"] = 0
@@ -138,7 +137,9 @@ class Aggregator:
             return None
 
         # Apply classifier filter if set
-        if self.filter_troove and not self.has_classifiers(package_json, self.filter_troove):
+        if self.filter_troove and not self.has_classifiers(
+            package_json, self.filter_troove
+        ):
             logger.debug(f"Skipping {package_id} - no matching classifier")
             return None
 
@@ -178,7 +179,9 @@ class Aggregator:
         Yields:
             Tuple of (package_id, release_id, timestamp) for each release
         """
-        logger.info(f"Starting parallel fetch with {PYPI_MAX_WORKERS} threads, batch size {PYPI_BATCH_SIZE}...")
+        logger.info(
+            f"Starting parallel fetch with {PYPI_MAX_WORKERS} threads, batch size {PYPI_BATCH_SIZE}..."
+        )
 
         completed = 0
         matched = 0
@@ -204,7 +207,9 @@ class Aggregator:
                         rate = completed / elapsed if elapsed > 0 else 0
                         total = self._total_packages
                         pct = (completed / total * 100) if total > 0 else 0
-                        logger.info(f"Progress: {completed}/{total} ({pct:.1f}%) packages fetched ({rate:.1f}/sec)")
+                        logger.info(
+                            f"Progress: {completed}/{total} ({pct:.1f}%) packages fetched ({rate:.1f}/sec)"
+                        )
 
                     try:
                         results = future.result()
@@ -219,7 +224,9 @@ class Aggregator:
         elapsed = time.time() - start_time
         rate = completed / elapsed if elapsed > 0 else 0
         match_pct = (matched / completed * 100) if completed > 0 else 0
-        logger.info(f"Completed: {completed} packages in {elapsed:.1f}s ({rate:.1f}/sec), {matched} matched ({match_pct:.1f}%)")
+        logger.info(
+            f"Completed: {completed} packages in {elapsed:.1f}s ({rate:.1f}/sec), {matched} matched ({match_pct:.1f}%)"
+        )
 
     def _all_package_versions(self, releases):
         sorted_releases = sorted(releases.items())
@@ -391,16 +398,20 @@ class Aggregator:
                 logger.warning(f'Timeout fetching URL "{package_url}"')
                 retries += 1
                 if retries <= PYPI_MAX_RETRIES:
-                    backoff = PYPI_RETRY_BACKOFF ** retries
-                    logger.info(f"Retrying in {backoff:.1f}s (attempt {retries}/{PYPI_MAX_RETRIES})")
+                    backoff = PYPI_RETRY_BACKOFF**retries
+                    logger.info(
+                        f"Retrying in {backoff:.1f}s (attempt {retries}/{PYPI_MAX_RETRIES})"
+                    )
                     time.sleep(backoff)
                 continue
             except requests.exceptions.RequestException as e:
                 logger.warning(f'Request error fetching URL "{package_url}": {e}')
                 retries += 1
                 if retries <= PYPI_MAX_RETRIES:
-                    backoff = PYPI_RETRY_BACKOFF ** retries
-                    logger.info(f"Retrying in {backoff:.1f}s (attempt {retries}/{PYPI_MAX_RETRIES})")
+                    backoff = PYPI_RETRY_BACKOFF**retries
+                    logger.info(
+                        f"Retrying in {backoff:.1f}s (attempt {retries}/{PYPI_MAX_RETRIES})"
+                    )
                     time.sleep(backoff)
                 continue
 
@@ -411,21 +422,29 @@ class Aggregator:
             elif request_obj.status_code == 429:
                 # Rate limited - wait and retry
                 retry_after = int(request_obj.headers.get("Retry-After", 60))
-                logger.info(f"Rate limited by PyPI. Waiting {retry_after}s before retry.")
+                logger.info(
+                    f"Rate limited by PyPI. Waiting {retry_after}s before retry."
+                )
                 time.sleep(retry_after)
                 retries += 1
                 continue
             elif request_obj.status_code >= 500:
                 # Server error - retry with backoff
-                logger.warning(f'Server error {request_obj.status_code} for "{package_url}"')
+                logger.warning(
+                    f'Server error {request_obj.status_code} for "{package_url}"'
+                )
                 retries += 1
                 if retries <= PYPI_MAX_RETRIES:
-                    backoff = PYPI_RETRY_BACKOFF ** retries
-                    logger.info(f"Retrying in {backoff:.1f}s (attempt {retries}/{PYPI_MAX_RETRIES})")
+                    backoff = PYPI_RETRY_BACKOFF**retries
+                    logger.info(
+                        f"Retrying in {backoff:.1f}s (attempt {retries}/{PYPI_MAX_RETRIES})"
+                    )
                     time.sleep(backoff)
                 continue
             elif request_obj.status_code != 200:
-                logger.warning(f'Unexpected status {request_obj.status_code} for "{package_url}"')
+                logger.warning(
+                    f'Unexpected status {request_obj.status_code} for "{package_url}"'
+                )
                 return None
 
             # Parse JSON response
@@ -514,8 +533,10 @@ class Aggregator:
                 logger.warning(f"Error parsing RSS feed {feed_url}: {e}")
                 retries += 1
                 if retries <= PYPI_MAX_RETRIES:
-                    backoff = PYPI_RETRY_BACKOFF ** retries
-                    logger.info(f"Retrying in {backoff:.1f}s (attempt {retries}/{PYPI_MAX_RETRIES})")
+                    backoff = PYPI_RETRY_BACKOFF**retries
+                    logger.info(
+                        f"Retrying in {backoff:.1f}s (attempt {retries}/{PYPI_MAX_RETRIES})"
+                    )
                     time.sleep(backoff)
                 continue
 

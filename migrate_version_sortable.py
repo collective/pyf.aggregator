@@ -185,7 +185,9 @@ def migrate_collection(collection_name, dry_run=False, verbose=False):
             if not is_old_format(old_sortable):
                 stats["skipped"] += 1
                 if verbose:
-                    print(f"  SKIP: {name} {version} (already new format: {old_sortable})")
+                    print(
+                        f"  SKIP: {name} {version} (already new format: {old_sortable})"
+                    )
                 continue
 
             # Parse version and calculate new sortable
@@ -208,7 +210,9 @@ def migrate_collection(collection_name, dry_run=False, verbose=False):
             # Update document if format changed
             if old_sortable != new_sortable:
                 if verbose:
-                    print(f"  UPDATE: {name} {version}: {old_sortable} -> {new_sortable}")
+                    print(
+                        f"  UPDATE: {name} {version}: {old_sortable} -> {new_sortable}"
+                    )
 
                 if not dry_run:
                     try:

@@ -13,7 +13,9 @@ class Indexer(TypesenceConnection, TypesensePackagesCollection):
         if keywords:
             if isinstance(keywords, str):
                 # Split by comma and whitespace, strip, filter empty
-                data["keywords"] = [k.strip() for k in re.split(r'[,\s]+', keywords) if k.strip()]
+                data["keywords"] = [
+                    k.strip() for k in re.split(r"[,\s]+", keywords) if k.strip()
+                ]
             elif isinstance(keywords, list):
                 data["keywords"] = [k.strip() for k in keywords if k and k.strip()]
 

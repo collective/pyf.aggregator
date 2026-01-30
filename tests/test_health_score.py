@@ -11,7 +11,6 @@ This module tests:
 
 import pytest
 from datetime import datetime, timezone, timedelta
-from unittest.mock import patch
 import time
 
 from pyf.aggregator.plugins.health_score import (
@@ -28,10 +27,12 @@ from pyf.aggregator.enrichers.health_calculator import HealthEnricher
 # Test Fixtures
 # ============================================================================
 
+
 @pytest.fixture
 def sample_package_data_complete():
     """Sample package data with all fields for maximum score (using Unix timestamp)."""
     import time
+
     return {
         "name": "plone.api",
         "version": "2.0.0",
@@ -66,6 +67,7 @@ def sample_package_data_minimal():
 def sample_package_data_old_release():
     """Sample package data with old release (>5 years ago) using Unix timestamp."""
     import time
+
     # 2000 days ago in seconds
     old_timestamp = int(time.time()) - (2000 * 86400)
     return {
@@ -79,6 +81,7 @@ def sample_package_data_old_release():
 # ============================================================================
 # Process Function Tests
 # ============================================================================
+
 
 class TestProcess:
     """Test the main process function."""
@@ -157,6 +160,7 @@ class TestProcess:
 # Recency Score Tests
 # ============================================================================
 
+
 class TestCalculateRecencyScore:
     """Test the calculate_recency_score function."""
 
@@ -233,6 +237,7 @@ class TestCalculateRecencyScore:
     def test_returns_40_for_recent_unix_timestamp(self):
         """Test that recent Unix timestamps (int64) get 40 points."""
         import time
+
         # 3 months ago (90 days in seconds)
         recent_timestamp = int(time.time()) - (90 * 86400)
         score = calculate_recency_score(recent_timestamp)
@@ -241,6 +246,7 @@ class TestCalculateRecencyScore:
     def test_returns_30_for_6_to_12_month_old_unix_timestamp(self):
         """Test that 6-12 month old Unix timestamps get 30 points."""
         import time
+
         # 9 months ago (270 days in seconds)
         medium_old_timestamp = int(time.time()) - (270 * 86400)
         score = calculate_recency_score(medium_old_timestamp)
@@ -254,6 +260,7 @@ class TestCalculateRecencyScore:
     def test_returns_0_for_very_old_unix_timestamp(self):
         """Test that very old Unix timestamps (> 5 years) get 0 points."""
         import time
+
         # 6 years ago (2190 days in seconds)
         ancient_timestamp = int(time.time()) - (2190 * 86400)
         score = calculate_recency_score(ancient_timestamp)
@@ -275,6 +282,7 @@ class TestCalculateRecencyScore:
 # ============================================================================
 # Documentation Score Tests
 # ============================================================================
+
 
 class TestCalculateDocsScore:
     """Test the calculate_docs_score function."""
@@ -394,6 +402,7 @@ class TestCalculateDocsScore:
 # Metadata Score Tests
 # ============================================================================
 
+
 class TestCalculateMetadataScore:
     """Test the calculate_metadata_score function."""
 
@@ -491,6 +500,7 @@ class TestCalculateMetadataScore:
 # Load Function Tests
 # ============================================================================
 
+
 class TestLoad:
     """Test the load function."""
 
@@ -516,12 +526,14 @@ class TestLoad:
 # Integration Tests
 # ============================================================================
 
+
 class TestIntegration:
     """Integration tests combining multiple factors."""
 
     def test_perfect_score_scenario(self):
         """Test a package that should get nearly perfect score."""
         import time
+
         data = {
             "upload_timestamp": int(time.time()),  # Unix timestamp (int64)
             "docs_url": "https://docs.example.com",
@@ -560,6 +572,7 @@ class TestIntegration:
     def test_recent_but_poor_metadata_scenario(self):
         """Test a recent package with poor metadata."""
         import time
+
         data = {
             "upload_timestamp": int(time.time()),  # Unix timestamp (int64)
             "description": "Short",
@@ -571,6 +584,7 @@ class TestIntegration:
     def test_score_consistency_on_multiple_calls(self):
         """Test that calling process multiple times updates the score consistently."""
         import time as time_module
+
         data = {"name": "test", "maintainer": "Team"}
 
         process("test-id", data)
@@ -593,12 +607,14 @@ class TestIntegration:
 # Health Score Integration Tests (Full Pipeline)
 # ============================================================================
 
+
 class TestHealthScoreIntegration:
     """Integration tests for the full health scoring pipeline."""
 
     def test_real_world_plone_package_simulation(self):
         """Test realistic Plone package with typical PyPI data (using Unix timestamp)."""
         import time as time_module
+
         # 30 days ago in seconds
         recent_timestamp = int(time_module.time()) - (30 * 86400)
         data = {
@@ -642,8 +658,12 @@ class TestHealthScoreIntegration:
         # Verify score components
         breakdown = data["health_score_breakdown"]
         assert breakdown["recency"] == 40  # Recent upload
-        assert breakdown["documentation"] == 30  # Has docs_url, long description, and project_urls
-        assert breakdown["metadata"] == 30  # Has maintainer, license, and 3+ classifiers
+        assert (
+            breakdown["documentation"] == 30
+        )  # Has docs_url, long description, and project_urls
+        assert (
+            breakdown["metadata"] == 30
+        )  # Has maintainer, license, and 3+ classifiers
 
         # Verify total score
         assert data["health_score"] == 100
@@ -651,6 +671,7 @@ class TestHealthScoreIntegration:
     def test_legacy_package_with_minimal_metadata(self):
         """Test old package with minimal metadata (common for legacy packages, using Unix timestamp)."""
         import time as time_module
+
         # 1500 days ago in seconds (approx 4.1 years)
         old_timestamp = int(time_module.time()) - (1500 * 86400)
         data = {
@@ -668,8 +689,12 @@ class TestHealthScoreIntegration:
 
         # Verify scoring for legacy package
         breakdown = data["health_score_breakdown"]
-        assert breakdown["recency"] == 5  # Old release (3-5 years, 1500 days ≈ 4.1 years)
-        assert breakdown["documentation"] == 0  # No docs_url, short description, no project_urls
+        assert (
+            breakdown["recency"] == 5
+        )  # Old release (3-5 years, 1500 days ≈ 4.1 years)
+        assert (
+            breakdown["documentation"] == 0
+        )  # No docs_url, short description, no project_urls
         assert breakdown["metadata"] == 10  # Has author, no license, < 3 classifiers
 
         assert data["health_score"] == 15
@@ -677,6 +702,7 @@ class TestHealthScoreIntegration:
     def test_brand_new_package_with_incomplete_setup(self):
         """Test newly released package with incomplete metadata (using Unix timestamp)."""
         import time as time_module
+
         data = {
             "name": "experimental.plone.feature",
             "version": "0.1.0",
@@ -698,6 +724,7 @@ class TestHealthScoreIntegration:
     def test_well_documented_but_old_package(self):
         """Test package with excellent documentation but old release (using Unix timestamp)."""
         import time as time_module
+
         # 729 days ago in seconds (just under 2 years)
         old_timestamp = int(time_module.time()) - (729 * 86400)
         data = {
@@ -737,6 +764,7 @@ class TestHealthScoreIntegration:
     def test_multiple_packages_processed_independently(self):
         """Test that multiple packages can be scored independently (using Unix timestamps)."""
         import time as time_module
+
         # 400 days ago in seconds
         old_timestamp = int(time_module.time()) - (400 * 86400)
 
@@ -773,6 +801,7 @@ class TestHealthScoreIntegration:
     def test_pipeline_with_plugin_load_function(self):
         """Test the full pipeline using the load function (using Unix timestamp)."""
         import time as time_module
+
         # Get the processor through load function
         processor = load({})
 
@@ -785,7 +814,11 @@ class TestHealthScoreIntegration:
             "project_urls": {"Documentation": "https://docs.test.com"},
             "maintainer": "Test Team",
             "license": "BSD",
-            "classifiers": ["Framework :: Plone", "Programming :: Python", "License :: OSI"],
+            "classifiers": [
+                "Framework :: Plone",
+                "Programming :: Python",
+                "License :: OSI",
+            ],
         }
 
         # Process through loaded function
@@ -800,6 +833,7 @@ class TestHealthScoreIntegration:
     def test_pipeline_preserves_original_package_data(self):
         """Test that pipeline doesn't modify original package fields (using Unix timestamp)."""
         import time as time_module
+
         original_data = {
             "name": "preserve.test",
             "version": "1.0.0",
@@ -832,6 +866,7 @@ class TestHealthScoreIntegration:
     def test_pipeline_handles_mixed_data_quality(self):
         """Test pipeline with package having some good and some missing data (using Unix timestamp)."""
         import time as time_module
+
         # 200 days ago in seconds
         old_timestamp = int(time_module.time()) - (200 * 86400)
         data = {
@@ -861,7 +896,9 @@ class TestHealthScoreIntegration:
         # Test with ISO format with Z
         data1 = {
             "name": "test1",
-            "upload_timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "upload_timestamp": datetime.now(timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z"),
         }
         process("test1", data1)
         assert "health_score" in data1
@@ -888,6 +925,7 @@ class TestHealthScoreIntegration:
     def test_pipeline_scoring_boundaries(self):
         """Test pipeline with boundary cases for each scoring category (using Unix timestamp)."""
         import time as time_module
+
         # Exactly 180 days ago in seconds (boundary between 40 and 30 points)
         exactly_6_months_timestamp = int(time_module.time()) - (180 * 86400)
         data = {
@@ -932,6 +970,7 @@ class TestHealthScoreIntegration:
     def test_pipeline_performance_with_large_data(self):
         """Test pipeline performance with large metadata (using Unix timestamp)."""
         import time as time_module
+
         data = {
             "name": "large.package",
             "version": "1.0.0",
@@ -940,11 +979,13 @@ class TestHealthScoreIntegration:
             "description": "A" * 10000,  # Very long description
             "project_urls": {
                 "Documentation": "https://docs.example.com",
-                **{f"URL{i}": f"https://url{i}.com" for i in range(100)}
+                **{f"URL{i}": f"https://url{i}.com" for i in range(100)},
             },  # Many URLs including documentation
             "maintainer": "Team",
             "license": "MIT",
-            "classifiers": [f"Classifier :: {i}" for i in range(100)],  # Many classifiers
+            "classifiers": [
+                f"Classifier :: {i}" for i in range(100)
+            ],  # Many classifiers
         }
 
         # Should complete quickly
@@ -961,6 +1002,7 @@ class TestHealthScoreIntegration:
     def test_pipeline_idempotency(self):
         """Test that running pipeline multiple times produces consistent results (using Unix timestamp)."""
         import time as time_module
+
         data = {
             "name": "idempotent.test",
             "version": "1.0.0",
@@ -993,6 +1035,7 @@ class TestHealthScoreIntegration:
 # ============================================================================
 # Health Calculator Enricher Tests
 # ============================================================================
+
 
 class TestHealthCalculatorEnricher:
     """Test the HealthEnricher class bonus calculation methods."""
@@ -1146,11 +1189,13 @@ class TestHealthCalculatorEnricher:
     def test_calculate_enhanced_health_score_with_github_data(self, enricher_instance):
         """Test enhanced score calculation with GitHub bonuses."""
         import time as time_module
+
         data = {
             "health_score": 60,
             "health_score_breakdown": {"recency": 30, "docs": 20, "metadata": 10},
             "github_stars": 500,  # +7 bonus
-            "github_updated": time_module.time() - (20 * 86400),  # 20 days ago = +10 bonus
+            "github_updated": time_module.time()
+            - (20 * 86400),  # 20 days ago = +10 bonus
             "github_open_issues": 10,  # 10/500 = 0.02 ratio = +10 bonus
         }
 
@@ -1166,6 +1211,7 @@ class TestHealthCalculatorEnricher:
     def test_calculate_enhanced_health_score_capped_at_100(self, enricher_instance):
         """Test that final score is capped at 100."""
         import time as time_module
+
         data = {
             "health_score": 95,
             "health_score_breakdown": {},
@@ -1179,7 +1225,9 @@ class TestHealthCalculatorEnricher:
         assert result["health_score"] == 100  # Capped, not 125
         assert result["health_score_breakdown"]["github_bonus_total"] == 30
 
-    def test_calculate_enhanced_health_score_returns_none_for_missing_base_score(self, enricher_instance):
+    def test_calculate_enhanced_health_score_returns_none_for_missing_base_score(
+        self, enricher_instance
+    ):
         """Test that packages without base score are skipped."""
         data = {
             "name": "test-package",
@@ -1191,7 +1239,9 @@ class TestHealthCalculatorEnricher:
 
         assert result is None
 
-    def test_calculate_enhanced_health_score_with_partial_github_data(self, enricher_instance):
+    def test_calculate_enhanced_health_score_with_partial_github_data(
+        self, enricher_instance
+    ):
         """Test enhanced score with only some GitHub fields."""
         data = {
             "health_score": 50,
@@ -1206,7 +1256,9 @@ class TestHealthCalculatorEnricher:
         assert "github_stars_bonus" in result["health_score_breakdown"]
         assert "github_activity_bonus" not in result["health_score_breakdown"]
 
-    def test_calculate_enhanced_health_score_with_no_github_data(self, enricher_instance):
+    def test_calculate_enhanced_health_score_with_no_github_data(
+        self, enricher_instance
+    ):
         """Test that packages without any GitHub data still get base score."""
         data = {
             "health_score": 70,

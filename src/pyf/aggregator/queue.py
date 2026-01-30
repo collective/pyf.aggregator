@@ -6,7 +6,7 @@ from github import Github
 from github import RateLimitExceededException
 from github import UnknownObjectException
 from pyf.aggregator.db import TypesenceConnection, TypesensePackagesCollection
-from pyf.aggregator.fetcher import Aggregator, PLONE_CLASSIFIER
+from pyf.aggregator.fetcher import Aggregator
 from pyf.aggregator.logger import logger
 
 import os
@@ -31,21 +31,29 @@ CELERY_TASK_RATE_LIMIT = os.getenv("CELERY_TASK_RATE_LIMIT", None)
 # Set to empty string to disable a task
 CELERY_SCHEDULE_RSS_PROJECTS = os.getenv("CELERY_SCHEDULE_RSS_PROJECTS", "*/1 * * * *")
 CELERY_SCHEDULE_RSS_RELEASES = os.getenv("CELERY_SCHEDULE_RSS_RELEASES", "*/1 * * * *")
-CELERY_SCHEDULE_WEEKLY_REFRESH = os.getenv("CELERY_SCHEDULE_WEEKLY_REFRESH", "0 2 * * 0")
+CELERY_SCHEDULE_WEEKLY_REFRESH = os.getenv(
+    "CELERY_SCHEDULE_WEEKLY_REFRESH", "0 2 * * 0"
+)
 CELERY_SCHEDULE_MONTHLY_FETCH = os.getenv("CELERY_SCHEDULE_MONTHLY_FETCH", "0 3 1 * *")
-CELERY_SCHEDULE_WEEKLY_DOWNLOADS = os.getenv("CELERY_SCHEDULE_WEEKLY_DOWNLOADS", "0 4 * * 0")
+CELERY_SCHEDULE_WEEKLY_DOWNLOADS = os.getenv(
+    "CELERY_SCHEDULE_WEEKLY_DOWNLOADS", "0 4 * * 0"
+)
 CELERY_SCHEDULE_WEEKLY_GITHUB = os.getenv("CELERY_SCHEDULE_WEEKLY_GITHUB", "0 5 * * 0")
 
 # RSS deduplication TTL in seconds (0 to disable)
 # Separate TTLs for new-package vs update feeds; legacy env var used as fallback
 _RSS_DEDUP_TTL_LEGACY = os.getenv("RSS_DEDUP_TTL")
 RSS_DEDUP_TTL_NEW = int(os.getenv("RSS_DEDUP_TTL_NEW", _RSS_DEDUP_TTL_LEGACY or 86400))
-RSS_DEDUP_TTL_UPDATE = int(os.getenv("RSS_DEDUP_TTL_UPDATE", _RSS_DEDUP_TTL_LEGACY or 86400))
+RSS_DEDUP_TTL_UPDATE = int(
+    os.getenv("RSS_DEDUP_TTL_UPDATE", _RSS_DEDUP_TTL_LEGACY or 86400)
+)
 
 # Worker pool and concurrency
 CELERY_WORKER_POOL = os.getenv("CELERY_WORKER_POOL", "threads")
 CELERY_WORKER_CONCURRENCY = int(os.getenv("CELERY_WORKER_CONCURRENCY", 20))
-CELERY_WORKER_PREFETCH_MULTIPLIER = int(os.getenv("CELERY_WORKER_PREFETCH_MULTIPLIER", 4))
+CELERY_WORKER_PREFETCH_MULTIPLIER = int(
+    os.getenv("CELERY_WORKER_PREFETCH_MULTIPLIER", 4)
+)
 CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", 300))
 CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", 600))
 
@@ -54,8 +62,12 @@ github_regex = re.compile(r"^(http[s]{0,1}:\/\/|www\.)github\.com/(.+/.+)")
 
 # Fields to preserve during refresh (not available from PyPI)
 GITHUB_FIELDS = [
-    'github_stars', 'github_watchers', 'github_updated',
-    'github_open_issues', 'github_url', 'contributors'
+    "github_stars",
+    "github_watchers",
+    "github_updated",
+    "github_open_issues",
+    "github_url",
+    "contributors",
 ]
 
 # GitHub API field mapping
@@ -70,7 +82,7 @@ GH_KEYS_MAP = {
 
 app = Celery(
     "pyf-aggregator",
-    broker=os.getenv('REDIS_HOST'),
+    broker=os.getenv("REDIS_HOST"),
     broker_connection_retry_on_startup=True,
     broker_channel_error_retry=True,
 )
@@ -87,6 +99,7 @@ app.conf.update(
 
 
 #### Celery tasks
+
 
 class PackageIndexer(TypesenceConnection, TypesensePackagesCollection):
     """Helper class for indexing packages to Typesense within Celery tasks."""
@@ -126,7 +139,9 @@ class PackageIndexer(TypesenceConnection, TypesensePackagesCollection):
             raise
 
 
-@app.task(bind=True, max_retries=3, default_retry_delay=60, rate_limit=CELERY_TASK_RATE_LIMIT)
+@app.task(
+    bind=True, max_retries=3, default_retry_delay=60, rate_limit=CELERY_TASK_RATE_LIMIT
+)
 def inspect_project(self, package_data):
     """
     Inspect a project and insert if it has the Framework :: Plone classifier.
@@ -159,12 +174,22 @@ def inspect_project(self, package_data):
 
         if not package_json:
             logger.warning(f"Could not fetch package JSON for: {package_id}")
-            return {"status": "skipped", "reason": "fetch_failed", "package_id": package_id}
+            return {
+                "status": "skipped",
+                "reason": "fetch_failed",
+                "package_id": package_id,
+            }
 
         # Check if package has Plone classifier
         if not aggregator.has_plone_classifier(package_json):
-            logger.debug(f"Package {package_id} does not have Plone classifier, skipping")
-            return {"status": "skipped", "reason": "no_plone_classifier", "package_id": package_id}
+            logger.debug(
+                f"Package {package_id} does not have Plone classifier, skipping"
+            )
+            return {
+                "status": "skipped",
+                "reason": "no_plone_classifier",
+                "package_id": package_id,
+            }
 
         logger.info(f"Package {package_id} has Plone classifier, indexing...")
 
@@ -215,7 +240,10 @@ def inspect_project(self, package_data):
             logger.error(f"Max retries exceeded for package {package_id}")
             return {"status": "failed", "reason": str(e), "package_id": package_id}
 
-@app.task(bind=True, max_retries=3, default_retry_delay=60, rate_limit=CELERY_TASK_RATE_LIMIT)
+
+@app.task(
+    bind=True, max_retries=3, default_retry_delay=60, rate_limit=CELERY_TASK_RATE_LIMIT
+)
 def update_project(self, package_id):
     """
     Update/re-index a known Plone package from PyPI.
@@ -246,7 +274,11 @@ def update_project(self, package_id):
 
         if not package_json:
             logger.warning(f"Could not fetch package JSON for: {package_id}")
-            return {"status": "skipped", "reason": "fetch_failed", "package_id": package_id}
+            return {
+                "status": "skipped",
+                "reason": "fetch_failed",
+                "package_id": package_id,
+            }
 
         # Extract and prepare data for indexing (following fetcher._get_pypi pattern)
         data = package_json.get("info")
@@ -289,7 +321,10 @@ def update_project(self, package_id):
             logger.error(f"Max retries exceeded for package {package_id}")
             return {"status": "failed", "reason": str(e), "package_id": package_id}
 
-@app.task(bind=True, max_retries=3, default_retry_delay=60, rate_limit=CELERY_TASK_RATE_LIMIT)
+
+@app.task(
+    bind=True, max_retries=3, default_retry_delay=60, rate_limit=CELERY_TASK_RATE_LIMIT
+)
 def update_github(self, package_id):
     """
     Fetch GitHub repository data and update package in Typesense.
@@ -316,17 +351,29 @@ def update_github(self, package_id):
         indexer = PackageIndexer()
 
         try:
-            document = indexer.client.collections[TYPESENSE_COLLECTION].documents[package_id].retrieve()
+            document = (
+                indexer.client.collections[TYPESENSE_COLLECTION]
+                .documents[package_id]
+                .retrieve()
+            )
         except Exception as e:
             logger.warning(f"Could not fetch document {package_id} from Typesense: {e}")
-            return {"status": "skipped", "reason": "fetch_from_typesense_failed", "package_id": package_id}
+            return {
+                "status": "skipped",
+                "reason": "fetch_from_typesense_failed",
+                "package_id": package_id,
+            }
 
         # Extract GitHub repository identifier from package metadata
         repo_identifier = _get_package_repo_identifier(document)
 
         if not repo_identifier:
             logger.debug(f"No GitHub URL found for package: {package_id}")
-            return {"status": "skipped", "reason": "no_github_url", "package_id": package_id}
+            return {
+                "status": "skipped",
+                "reason": "no_github_url",
+                "package_id": package_id,
+            }
 
         logger.info(f"Found GitHub repo for {package_id}: {repo_identifier}")
 
@@ -335,18 +382,25 @@ def update_github(self, package_id):
 
         if not gh_data:
             logger.warning(f"Could not fetch GitHub data for repo: {repo_identifier}")
-            return {"status": "skipped", "reason": "github_fetch_failed", "package_id": package_id, "repo": repo_identifier}
+            return {
+                "status": "skipped",
+                "reason": "github_fetch_failed",
+                "package_id": package_id,
+                "repo": repo_identifier,
+            }
 
         # Update Typesense document with GitHub data
         update_document = {
-            'github_stars': gh_data["github"]["stars"],
-            'github_watchers': gh_data["github"]["watchers"],
-            'github_updated': gh_data["github"]["updated"].timestamp(),
-            'github_open_issues': gh_data["github"]["open_issues"],
-            'github_url': gh_data["github"]["gh_url"],
+            "github_stars": gh_data["github"]["stars"],
+            "github_watchers": gh_data["github"]["watchers"],
+            "github_updated": gh_data["github"]["updated"].timestamp(),
+            "github_open_issues": gh_data["github"]["open_issues"],
+            "github_url": gh_data["github"]["gh_url"],
         }
 
-        indexer.client.collections[TYPESENSE_COLLECTION].documents[package_id].update(update_document)
+        indexer.client.collections[TYPESENSE_COLLECTION].documents[package_id].update(
+            update_document
+        )
 
         logger.info(f"Successfully updated GitHub data for package: {package_id}")
         return {"status": "updated", "package_id": package_id, "repo": repo_identifier}
@@ -357,8 +411,14 @@ def update_github(self, package_id):
         try:
             raise self.retry(exc=e, countdown=300)  # Retry after 5 minutes
         except self.MaxRetriesExceededError:
-            logger.error(f"Max retries exceeded for package {package_id} due to rate limits")
-            return {"status": "failed", "reason": "rate_limit_exceeded", "package_id": package_id}
+            logger.error(
+                f"Max retries exceeded for package {package_id} due to rate limits"
+            )
+            return {
+                "status": "failed",
+                "reason": "rate_limit_exceeded",
+                "package_id": package_id,
+            }
 
     except Exception as e:
         logger.error(f"Error updating GitHub data for {package_id}: {e}")
@@ -431,6 +491,7 @@ def _get_github_data(repo_identifier):
                 data["github"][key] = getattr(repo, key_github)
             return data
 
+
 #### RSS deduplication helpers
 
 _dedup_redis_client = None
@@ -462,7 +523,9 @@ def get_dedup_redis():
         _dedup_redis_client = client
         return client
     except Exception:
-        logger.debug("Redis unavailable for RSS deduplication, proceeding without dedup")
+        logger.debug(
+            "Redis unavailable for RSS deduplication, proceeding without dedup"
+        )
         return None
 
 
@@ -566,8 +629,14 @@ def read_rss_new_projects_and_queue(self):
             queued_count += 1
             logger.debug(f"Queued inspect_project for new package: {package_id}")
 
-        logger.info(f"RSS new projects scan complete: {queued_count} queued, {skipped_count} skipped (dedup)")
-        return {"status": "completed", "packages_queued": queued_count, "packages_skipped": skipped_count}
+        logger.info(
+            f"RSS new projects scan complete: {queued_count} queued, {skipped_count} skipped (dedup)"
+        )
+        return {
+            "status": "completed",
+            "packages_queued": queued_count,
+            "packages_skipped": skipped_count,
+        }
 
     except Exception as e:
         logger.error(f"Error reading RSS new projects feed: {e}")
@@ -576,6 +645,7 @@ def read_rss_new_projects_and_queue(self):
         except self.MaxRetriesExceededError:
             logger.error("Max retries exceeded for RSS new projects scan")
             return {"status": "failed", "reason": str(e)}
+
 
 @app.task(bind=True, max_retries=3, default_retry_delay=120)
 def read_rss_new_releases_and_queue(self):
@@ -612,7 +682,9 @@ def read_rss_new_releases_and_queue(self):
                 continue
 
             release_id = entry.get("release_id")
-            if is_package_recently_queued(package_id, release_id=release_id, feed_type="update"):
+            if is_package_recently_queued(
+                package_id, release_id=release_id, feed_type="update"
+            ):
                 skipped_count += 1
                 logger.debug(f"Skipping duplicate release: {package_id}")
                 continue
@@ -627,8 +699,14 @@ def read_rss_new_releases_and_queue(self):
             queued_count += 1
             logger.debug(f"Queued inspect_project for release: {package_id}")
 
-        logger.info(f"RSS new releases scan complete: {queued_count} queued, {skipped_count} skipped (dedup)")
-        return {"status": "completed", "packages_queued": queued_count, "packages_skipped": skipped_count}
+        logger.info(
+            f"RSS new releases scan complete: {queued_count} queued, {skipped_count} skipped (dedup)"
+        )
+        return {
+            "status": "completed",
+            "packages_queued": queued_count,
+            "packages_skipped": skipped_count,
+        }
 
     except Exception as e:
         logger.error(f"Error reading RSS new releases feed: {e}")
@@ -637,6 +715,7 @@ def read_rss_new_releases_and_queue(self):
         except self.MaxRetriesExceededError:
             logger.error("Max retries exceeded for RSS new releases scan")
             return {"status": "failed", "reason": str(e)}
+
 
 @app.task(bind=True, soft_time_limit=3600, time_limit=3900)
 def queue_all_github_updates(self, collection_name=None):
@@ -677,7 +756,9 @@ def queue_all_github_updates(self, collection_name=None):
         return {"status": "completed", "queued": queued, "collection": collection}
 
     except SoftTimeLimitExceeded:
-        logger.warning(f"GitHub queue task hit soft time limit, queued {queued} packages")
+        logger.warning(
+            f"GitHub queue task hit soft time limit, queued {queued} packages"
+        )
         return {"status": "partial", "queued": queued, "collection": collection}
 
     except Exception as e:
@@ -685,7 +766,13 @@ def queue_all_github_updates(self, collection_name=None):
         return {"status": "failed", "reason": str(e), "collection": collection}
 
 
-@app.task(bind=True, max_retries=2, default_retry_delay=300, soft_time_limit=3600, time_limit=3900)
+@app.task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300,
+    soft_time_limit=3600,
+    time_limit=3900,
+)
 def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
     """
     Weekly task: Refresh all indexed packages from PyPI.
@@ -709,7 +796,9 @@ def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
     collection = collection_name or TYPESENSE_COLLECTION
     profile = profile_name or "plone"
 
-    logger.info(f"Starting weekly refresh task for collection '{collection}' with profile '{profile}'")
+    logger.info(
+        f"Starting weekly refresh task for collection '{collection}' with profile '{profile}'"
+    )
 
     try:
         # Load profile classifiers
@@ -719,7 +808,9 @@ def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
             profile_config = profile_manager.get_profile(profile)
             if profile_config:
                 filter_troove = profile_config.get("classifiers", [])
-                logger.info(f"Using {len(filter_troove)} classifiers from profile '{profile}'")
+                logger.info(
+                    f"Using {len(filter_troove)} classifiers from profile '{profile}'"
+                )
 
         # Setup settings and register plugins
         settings = {"filter_troove": filter_troove}
@@ -746,17 +837,29 @@ def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
                 package_json = aggregator._get_pypi_json(package_name)
 
                 if package_json is None:
-                    return {"status": "delete", "package": package_name, "reason": "not_found"}
+                    return {
+                        "status": "delete",
+                        "package": package_name,
+                        "reason": "not_found",
+                    }
 
                 # Check classifier filter if specified
                 if filter_troove:
                     if not aggregator.has_classifiers(package_json, filter_troove):
-                        return {"status": "delete", "package": package_name, "reason": "no_classifier"}
+                        return {
+                            "status": "delete",
+                            "package": package_name,
+                            "reason": "no_classifier",
+                        }
 
                 # Extract and prepare data for indexing
                 data = package_json.get("info")
                 if not data:
-                    return {"status": "skip", "package": package_name, "reason": "no_info"}
+                    return {
+                        "status": "skip",
+                        "package": package_name,
+                        "reason": "no_info",
+                    }
 
                 data["urls"] = package_json.get("urls", [])
 
@@ -782,7 +885,9 @@ def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
 
                 # Preserve existing GitHub fields
                 try:
-                    existing_docs = indexer.get_documents_by_name(collection, package_name)
+                    existing_docs = indexer.get_documents_by_name(
+                        collection, package_name
+                    )
                     if existing_docs:
                         newest_doc = existing_docs[0]
                         for field in GITHUB_FIELDS:
@@ -790,9 +895,16 @@ def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
                                 if field not in data or not data.get(field):
                                     data[field] = newest_doc[field]
                 except Exception as e:
-                    logger.debug(f"Could not fetch existing GitHub data for {package_name}: {e}")
+                    logger.debug(
+                        f"Could not fetch existing GitHub data for {package_name}: {e}"
+                    )
 
-                return {"status": "update", "package": package_name, "identifier": identifier, "data": data}
+                return {
+                    "status": "update",
+                    "package": package_name,
+                    "identifier": identifier,
+                    "data": data,
+                }
 
             except Exception as e:
                 return {"status": "error", "package": package_name, "error": str(e)}
@@ -801,7 +913,9 @@ def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
         logger.info(f"Processing packages with {max_workers} workers...")
         try:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = {executor.submit(process_package, pkg): pkg for pkg in package_names}
+                futures = {
+                    executor.submit(process_package, pkg): pkg for pkg in package_names
+                }
 
                 for i, future in enumerate(as_completed(futures), 1):
                     result = future.result()
@@ -810,7 +924,9 @@ def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
                     if result["status"] == "update":
                         try:
                             cleaned_data = indexer.clean_data(result["data"])
-                            indexer.client.collections[collection].documents.upsert(cleaned_data)
+                            indexer.client.collections[collection].documents.upsert(
+                                cleaned_data
+                            )
                             stats["updated"] += 1
                             if i % 100 == 0:
                                 logger.info(f"[{i}/{total}] Progress: {stats}")
@@ -826,9 +942,13 @@ def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
 
                     elif result["status"] == "error":
                         stats["failed"] += 1
-                        logger.error(f"Error processing {package_name}: {result['error']}")
+                        logger.error(
+                            f"Error processing {package_name}: {result['error']}"
+                        )
         except SoftTimeLimitExceeded:
-            logger.warning(f"Weekly refresh hit soft time limit, returning partial stats: {stats}")
+            logger.warning(
+                f"Weekly refresh hit soft time limit, returning partial stats: {stats}"
+            )
             return {"status": "partial", "stats": stats}
 
         # Delete packages that are no longer valid
@@ -854,7 +974,13 @@ def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
             return {"status": "failed", "reason": str(e)}
 
 
-@app.task(bind=True, max_retries=2, default_retry_delay=600, soft_time_limit=7200, time_limit=7500)
+@app.task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=600,
+    soft_time_limit=7200,
+    time_limit=7500,
+)
 def full_fetch_all_packages(self, collection_name=None, profile_name=None):
     """
     Monthly task: Full fetch of all packages matching the profile.
@@ -877,7 +1003,9 @@ def full_fetch_all_packages(self, collection_name=None, profile_name=None):
     profile = profile_name or "plone"
     collection = collection_name or profile
 
-    logger.info(f"Starting monthly full fetch for collection '{collection}' with profile '{profile}'")
+    logger.info(
+        f"Starting monthly full fetch for collection '{collection}' with profile '{profile}'"
+    )
 
     try:
         # Load profile
@@ -923,7 +1051,9 @@ def full_fetch_all_packages(self, collection_name=None, profile_name=None):
         try:
             indexer(agg, collection)
         except SoftTimeLimitExceeded:
-            logger.warning(f"Monthly full fetch hit soft time limit for collection '{collection}'")
+            logger.warning(
+                f"Monthly full fetch hit soft time limit for collection '{collection}'"
+            )
             return {"status": "partial", "collection": collection, "profile": profile}
 
         logger.info(f"Monthly full fetch complete for collection '{collection}'")
@@ -938,7 +1068,13 @@ def full_fetch_all_packages(self, collection_name=None, profile_name=None):
             return {"status": "failed", "reason": str(e)}
 
 
-@app.task(bind=True, max_retries=3, default_retry_delay=60, soft_time_limit=3600, time_limit=3900)
+@app.task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+    soft_time_limit=3600,
+    time_limit=3900,
+)
 def enrich_downloads_all_packages(self):
     """Enrich all indexed packages with download statistics from pypistats.org."""
     from pyf.aggregator.enrichers.downloads import Enricher
@@ -999,7 +1135,7 @@ def setup_periodic_tasks(sender, **kw):
         sender.add_periodic_task(
             schedule,
             read_rss_new_projects_and_queue.s(),
-            name='read RSS new projects and add to queue'
+            name="read RSS new projects and add to queue",
         )
     else:
         logger.info("RSS new projects task disabled")
@@ -1010,7 +1146,7 @@ def setup_periodic_tasks(sender, **kw):
         sender.add_periodic_task(
             schedule,
             read_rss_new_releases_and_queue.s(),
-            name='read RSS new releases and add to queue'
+            name="read RSS new releases and add to queue",
         )
     else:
         logger.info("RSS new releases task disabled")
@@ -1021,7 +1157,7 @@ def setup_periodic_tasks(sender, **kw):
         sender.add_periodic_task(
             schedule,
             refresh_all_indexed_packages.s(),
-            name='weekly refresh all indexed packages'
+            name="weekly refresh all indexed packages",
         )
     else:
         logger.info("Weekly refresh task disabled")
@@ -1032,7 +1168,7 @@ def setup_periodic_tasks(sender, **kw):
         sender.add_periodic_task(
             schedule,
             full_fetch_all_packages.s(),
-            name='monthly full fetch all packages'
+            name="monthly full fetch all packages",
         )
     else:
         logger.info("Monthly full fetch task disabled")
@@ -1043,7 +1179,7 @@ def setup_periodic_tasks(sender, **kw):
         sender.add_periodic_task(
             schedule,
             enrich_downloads_all_packages.s(),
-            name='weekly download stats enrichment'
+            name="weekly download stats enrichment",
         )
     else:
         logger.info("Weekly download stats enrichment task disabled")
@@ -1052,9 +1188,7 @@ def setup_periodic_tasks(sender, **kw):
     schedule = parse_crontab(CELERY_SCHEDULE_WEEKLY_GITHUB)
     if schedule:
         sender.add_periodic_task(
-            schedule,
-            queue_all_github_updates.s(),
-            name='weekly GitHub data refresh'
+            schedule, queue_all_github_updates.s(), name="weekly GitHub data refresh"
         )
     else:
         logger.info("Weekly GitHub data refresh task disabled")
