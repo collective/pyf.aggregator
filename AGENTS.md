@@ -199,3 +199,14 @@ When `DEFAULT_PROFILE` is set, all CLI commands (`pyfaggregator`, `pyfgithub`, `
 - All CLI commands must be run with `uv run` prefix (e.g., `uv run pyfgithub -p plone`)
 - run tests in a subagent
 - always update README when things change or new features are added
+
+## Stop Hook Behavior (MANDATORY)
+
+A stop hook runs `ruff format`, `ruff check --fix`, and `pytest` before allowing you to stop.
+
+When the stop hook blocks you:
+1. **DO NOT ask the user for permission** - fix issues immediately
+2. **DO NOT stop** until all checks pass
+3. **Automatically continue fixing** and retry stopping after each fix
+4. **Loop until clean** - treat a blocked stop as a command to fix and retry
+5. After 3+ failed attempts, provide a status update but **keep fixing**
