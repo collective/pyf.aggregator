@@ -118,7 +118,7 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
         if data["downloads"].get("total") is not None:
             document["download_total"] = data["downloads"]["total"]
 
-        doc = self.client.collections[target].documents[id].update(document)
+        self.client.collections[target].documents[id].update(document)
         logger.info(f"[{page}/{enrich_counter}] Updated document {id}")
 
     def ts_search(self, target, search_parameters, page=1):
