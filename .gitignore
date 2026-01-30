@@ -15,6 +15,7 @@ data
 # exclude
 !.gitattributes
 !.gitignore
+!.github/
 /development-local.ini
 
 # Ignore build folder
