@@ -102,7 +102,7 @@ Plugins are registered in `plugins/__init__.py` and called for each package duri
 - `framework_versions` - Extracts framework version classifiers
 - `python_versions` - Extracts Python version classifiers
 - `rst_to_html` - Converts RST descriptions to HTML and shifts headings down one level (UI provides H1)
-- `description_splitter` - Splits HTML description into weighted search fields (title, first_chapter, main_content, changelog)
+- `description_splitter` - Splits HTML description into weighted search fields (title, first_chapter, main_content, changelog) using all heading levels (H1-H6) as section markers
 - `health_score` - Calculates package health metrics
 
 ### Profile System
