@@ -405,6 +405,41 @@ This adds the following fields to each package:
 - `download_total` - Total downloads (if available)
 - `download_updated` - Timestamp when stats were updated
 
+### pyfhealth
+
+Calculates comprehensive health scores for indexed packages, including GitHub bonuses.
+
+```shell
+uv run pyfhealth [options]
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `-p`, `--profile` | Use a profile (auto-sets target collection name) |
+| `-t`, `--target` | Target Typesense collection name (auto-set from profile if not specified) |
+| `-l`, `--limit` | Limit number of packages to process (useful for testing) |
+
+**Examples:**
+
+```shell
+# Calculate health scores using profile (recommended)
+uv run pyfhealth -p plone
+
+# Calculate for Django packages
+uv run pyfhealth -p django
+
+# Test with limited packages
+uv run pyfhealth -p plone -l 100
+```
+
+This calculates health scores based on:
+- **Base score (0-100)**: Release recency, documentation, metadata quality
+- **GitHub bonuses (+30 max)**: Stars, activity, issue management
+
+Run this command AFTER `pyfgithub` to include GitHub bonuses in the score breakdown.
+
 ## Quickstart
 
 ### Using Profiles (Recommended)
@@ -416,7 +451,7 @@ This adds the following fields to each package:
 
 2. Aggregate packages using a profile:
    ```shell
-   # For Plone packages
+   # For Plone packages (PyPI)
    uv run pyfaggregator -f -p plone
 
    # For Django packages
@@ -438,7 +473,7 @@ This adds the following fields to each package:
    uv run pyfgithub -p flask
    ```
 
-4. Enrich with download statistics:
+5. Enrich with download statistics (PyPI only):
    ```shell
    # For Plone
    uv run pyfdownloads -p plone
@@ -450,7 +485,19 @@ This adds the following fields to each package:
    uv run pyfdownloads -p flask
    ```
 
-5. Create a search-only API key for clients:
+6. Calculate comprehensive health scores (after GitHub data is available):
+   ```shell
+   # For Plone
+   uv run pyfhealth -p plone
+
+   # For Django
+   uv run pyfhealth -p django
+
+   # For Flask
+   uv run pyfhealth -p flask
+   ```
+
+7. Create a search-only API key for clients:
    ```shell
    # For Plone
    uv run pyfupdater --add-search-only-apikey -p plone
@@ -502,6 +549,7 @@ The aggregator supports tracking multiple Python framework ecosystems simultaneo
 - **Shared GitHub Cache**: GitHub enrichment data is cached and shared across all profiles, reducing API calls
 - **Simplified Configuration**: Pre-defined classifier sets for popular frameworks
 - **Collection Auto-Naming**: Collections are automatically named after their profile (e.g., `django`, `flask`, `plone`)
+- **Multi-Registry Support**: Combine PyPI and npm packages in the same collection (e.g., Plone backend and @plone/* frontend packages)
 
 ### Working with Multiple Profiles
 
@@ -602,6 +650,95 @@ To query for the "newest" version of a package, sort by `version_sortable:desc`.
 **Download Statistics:**
 - `download_last_day`, `download_last_week`, `download_last_month`
 - `download_total`, `download_updated`
+
+### Health Score Calculation
+
+The health score is a 0-100 metric that indicates package quality and maintenance status. It's calculated by the `pyfhealth` command, which should be run after `pyfgithub` to include GitHub bonuses.
+
+**Recommended workflow:**
+```shell
+pyfaggregator -f -p plone    # Index packages
+pyfgithub -p plone           # Fetch GitHub data
+pyfdownloads -p plone        # Fetch download stats
+pyfhealth -p plone           # Calculate health scores (with GitHub bonuses)
+```
+
+#### Base Score (100 points max)
+
+**Release Recency (40 points max):**
+
+| Age | Points |
+|-----|--------|
+| < 6 months | 40 |
+| 6-12 months | 30 |
+| 1-2 years | 20 |
+| 2-3 years | 10 |
+| 3-5 years | 5 |
+| > 5 years | 0 |
+
+**Documentation Presence (30 points max):**
+
+| Criterion | Points |
+|-----------|--------|
+| Has `docs_url` | 5 |
+| Has meaningful description (>150 chars) | 20 |
+| Has documentation links in `project_urls` | 5 |
+
+**Metadata Quality (30 points max):**
+
+| Criterion | Points |
+|-----------|--------|
+| Has maintainer or author info | 10 |
+| Has license | 10 |
+| Has at least 3 classifiers | 10 |
+
+#### GitHub Bonus (up to +30 points)
+
+When GitHub data is available, bonus points are added. The final score is capped at 100.
+
+**Stars Bonus (up to +10 points):**
+
+| Stars | Bonus |
+|-------|-------|
+| 1000+ | +10 |
+| 500-999 | +7 |
+| 100-499 | +5 |
+| 50-99 | +3 |
+| 10-49 | +1 |
+| < 10 | 0 |
+
+**Activity Bonus (up to +10 points):**
+
+| Last GitHub Update | Bonus |
+|--------------------|-------|
+| Within 30 days | +10 |
+| Within 90 days | +7 |
+| Within 180 days | +5 |
+| Within 365 days | +3 |
+| > 1 year | 0 |
+
+**Issue Management Bonus (up to +10 points):**
+
+Based on the ratio of open issues to stars (lower is better):
+
+| Issues/Stars Ratio | Bonus |
+|--------------------|-------|
+| < 0.1 (Excellent) | +10 |
+| 0.1-0.3 (Good) | +7 |
+| 0.3-0.5 (Fair) | +5 |
+| 0.5-1.0 (Poor) | +3 |
+| > 1.0 (Very poor) | 0 |
+
+#### Score Breakdown Fields
+
+The breakdown is stored in `health_score_breakdown` as an object with these fields:
+- `recency` - Points from release recency (0-40)
+- `documentation` - Points from documentation presence (0-30)
+- `metadata` - Points from metadata quality (0-30)
+- `github_stars_bonus` - Bonus from GitHub stars (0-10)
+- `github_activity_bonus` - Bonus from GitHub activity (0-10)
+- `github_issue_bonus` - Bonus from issue management (0-10)
+- `github_bonus_total` - Total GitHub bonus applied
 
 ### Queue-Based Processing
 

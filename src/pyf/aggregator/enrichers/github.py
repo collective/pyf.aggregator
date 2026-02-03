@@ -47,7 +47,21 @@ parser.add_argument(
     action="store_true",
 )
 
+# Regex patterns for extracting GitHub repository from various URL formats
+# Standard HTTPS/HTTP URLs
 github_regex = re.compile(r"^(http[s]{0,1}:\/\/|www\.)github\.com/(.+/.+)")
+# Git protocol URLs (git://github.com/owner/repo.git)
+github_git_regex = re.compile(r"^git:\/\/github\.com/([^/]+/[^/]+?)(?:\.git)?$")
+# Git+HTTPS URLs (git+https://github.com/owner/repo.git)
+github_git_https_regex = re.compile(
+    r"^git\+https:\/\/github\.com/([^/]+/[^/]+?)(?:\.git)?$"
+)
+# Git+SSH URLs (git+ssh://git@github.com/owner/repo.git)
+github_git_ssh_regex = re.compile(
+    r"^git\+ssh:\/\/git@github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$"
+)
+# SSH URLs (git@github.com:owner/repo.git)
+github_ssh_regex = re.compile(r"^git@github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$")
 
 GH_KEYS_MAP = {
     "stars": "stargazers_count",
@@ -189,20 +203,47 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
         return self.client.collections[target].documents.search(search_parameters)
 
     def get_package_repo_identifier(self, data):
-        urls = [data.get("home_page"), data.get("project_url"), data.get("url")] + list(
-            (data.get("project_urls") or {}).values()
-        )
+        # Collect all potential URLs including npm-specific repository_url
+        urls = [
+            data.get("home_page"),
+            data.get("project_url"),
+            data.get("url"),
+            data.get("repository_url"),  # npm packages often have this
+        ] + list((data.get("project_urls") or {}).values())
+
         for url in urls:
             if not url:
                 continue
+
+            # Try standard HTTPS/HTTP URL first
             match = github_regex.match(url)
             if match:
                 repo_identifier_parts = match.groups()[-1].split("/")
                 repo_identifier = "/".join(repo_identifier_parts[0:2])
                 return repo_identifier
-        else:
-            logger.info(f"no github url repository found for {data.get('name')}")
-            return
+
+            # Try git:// URL (common in npm packages)
+            match = github_git_regex.match(url)
+            if match:
+                return match.group(1)
+
+            # Try git+https:// URL (common in npm packages)
+            match = github_git_https_regex.match(url)
+            if match:
+                return match.group(1)
+
+            # Try git+ssh:// URL
+            match = github_git_ssh_regex.match(url)
+            if match:
+                return match.group(1)
+
+            # Try git@github.com: URL (SSH format)
+            match = github_ssh_regex.match(url)
+            if match:
+                return match.group(1)
+
+        logger.info(f"no github url repository found for {data.get('name')}")
+        return None
 
     def _get_top_contributors(self, repo, limit=5):
         """Get top N contributors from a GitHub repository.

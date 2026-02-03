@@ -16,8 +16,11 @@ import time
 from pyf.aggregator.plugins.health_score import (
     process,
     calculate_recency_score,
+    calculate_recency_score_with_problems,
     calculate_docs_score,
+    calculate_docs_score_with_problems,
     calculate_metadata_score,
+    calculate_metadata_score_with_problems,
     load,
 )
 from pyf.aggregator.enrichers.health_calculator import HealthEnricher
@@ -287,21 +290,21 @@ class TestCalculateRecencyScore:
 class TestCalculateDocsScore:
     """Test the calculate_docs_score function."""
 
-    def test_returns_15_for_docs_url(self):
-        """Test that having docs_url gives 15 points."""
+    def test_returns_5_for_docs_url(self):
+        """Test that having docs_url gives 5 points."""
         data = {"docs_url": "https://docs.example.com"}
         score = calculate_docs_score(data)
-        assert score == 15
+        assert score == 5
 
-    def test_returns_10_for_meaningful_description(self):
-        """Test that description > 100 chars gives 10 points."""
-        data = {"description": "A" * 101}
+    def test_returns_20_for_meaningful_description(self):
+        """Test that description > 150 chars gives 20 points."""
+        data = {"description": "A" * 151}
         score = calculate_docs_score(data)
-        assert score == 10
+        assert score == 20
 
     def test_returns_0_for_short_description(self):
-        """Test that description <= 100 chars gives 0 points."""
-        data = {"description": "A" * 100}
+        """Test that description <= 150 chars gives 0 points."""
+        data = {"description": "A" * 150}
         score = calculate_docs_score(data)
         assert score == 0
 
@@ -351,7 +354,7 @@ class TestCalculateDocsScore:
         """Test that having all documentation factors gives 30 points."""
         data = {
             "docs_url": "https://docs.example.com",
-            "description": "A" * 150,
+            "description": "A" * 151,  # >150 chars for 20 points
             "project_urls": {"Documentation": "https://docs.example.com"},
         }
         score = calculate_docs_score(data)
@@ -559,14 +562,14 @@ class TestIntegration:
         data = {
             "upload_timestamp": old_date.isoformat(),
             "docs_url": "https://docs.example.com",
-            "description": "A" * 150,
+            "description": "A" * 151,  # >150 chars for 20 points
             "project_urls": {"Documentation": "https://docs.example.com"},
             "maintainer": "Team",
             "license": "MIT",
             "classifiers": ["A", "B", "C"],
         }
         process("test-id", data)
-        # Should get 0 + 30 + 30 = 60
+        # Should get 0 (recency) + 30 (docs) + 30 (metadata) = 60
         assert data["health_score"] == 60
 
     def test_recent_but_poor_metadata_scenario(self):
@@ -780,7 +783,8 @@ class TestHealthScoreIntegration:
             "version": "2.0.0",
             "upload_timestamp": old_timestamp,  # Unix timestamp (int64)
             "docs_url": "https://docs.example.com",
-            "description": "A" * 150,
+            "description": "A" * 151,  # >150 chars for 20 points
+            "project_urls": {"Documentation": "https://docs.example.com"},  # 5 points
             "maintainer": "Team Two",
             "license": "MIT",
             "classifiers": ["A", "B", "C"],
@@ -792,7 +796,7 @@ class TestHealthScoreIntegration:
 
         # Verify they have different scores
         assert package1["health_score"] == 50  # 40 recency + 10 metadata
-        assert package2["health_score"] == 75  # 20 recency + 25 docs + 30 metadata
+        assert package2["health_score"] == 80  # 20 recency + 30 docs + 30 metadata
 
         # Verify they don't interfere with each other
         assert package1["name"] == "package-one"
@@ -810,7 +814,7 @@ class TestHealthScoreIntegration:
             "version": "1.0.0",
             "upload_timestamp": int(time_module.time()),  # Unix timestamp (int64)
             "docs_url": "https://docs.test.com",
-            "description": "A" * 120,
+            "description": "A" * 151,  # >150 chars for 20 points
             "project_urls": {"Documentation": "https://docs.test.com"},
             "maintainer": "Test Team",
             "license": "BSD",
@@ -874,7 +878,7 @@ class TestHealthScoreIntegration:
             "version": "1.5.0",
             "upload_timestamp": old_timestamp,  # Unix timestamp (int64)
             "docs_url": "https://docs.example.com",  # Good
-            "description": "Short desc",  # Too short
+            "description": "Short desc",  # Too short (<150 chars)
             "project_urls": None,  # Missing
             "maintainer": "Team",  # Good
             "license": "",  # Empty
@@ -886,10 +890,10 @@ class TestHealthScoreIntegration:
         # Verify partial scoring
         breakdown = data["health_score_breakdown"]
         assert breakdown["recency"] == 30  # 6-12 months
-        assert breakdown["documentation"] == 15  # Only docs_url
+        assert breakdown["documentation"] == 5  # Only docs_url (5 points)
         assert breakdown["metadata"] == 10  # Only maintainer
 
-        assert data["health_score"] == 55
+        assert data["health_score"] == 45
 
     def test_pipeline_with_timestamp_variations(self):
         """Test pipeline handles different timestamp formats."""
@@ -1190,9 +1194,18 @@ class TestHealthCalculatorEnricher:
         """Test enhanced score calculation with GitHub bonuses."""
         import time as time_module
 
+        # Provide data for from-scratch calculation
+        # Recent timestamp (40 points), docs_url + description + project_urls (30 points),
+        # maintainer + license + classifiers (30 points) = 100 base
         data = {
-            "health_score": 60,
-            "health_score_breakdown": {"recency": 30, "docs": 20, "metadata": 10},
+            "upload_timestamp": int(time_module.time())
+            - (30 * 86400),  # 30 days = 40 points
+            "docs_url": "https://docs.example.com",  # 5 points
+            "description": "A" * 151,  # 20 points
+            "project_urls": {"Documentation": "https://docs.example.com"},  # 5 points
+            "maintainer": "Team",  # 10 points
+            "license": "MIT",  # 10 points
+            "classifiers": ["A", "B", "C"],  # 10 points
             "github_stars": 500,  # +7 bonus
             "github_updated": time_module.time()
             - (20 * 86400),  # 20 days ago = +10 bonus
@@ -1202,7 +1215,8 @@ class TestHealthCalculatorEnricher:
         result = enricher_instance._calculate_enhanced_health_score(data)
 
         assert result is not None
-        assert result["health_score"] == 87  # 60 + 7 + 10 + 10 = 87
+        # Base: 40+30+30 = 100, capped at 100 even with +27 bonus
+        assert result["health_score"] == 100
         assert "github_stars_bonus" in result["health_score_breakdown"]
         assert "github_activity_bonus" in result["health_score_breakdown"]
         assert "github_issue_bonus" in result["health_score_breakdown"]
@@ -1212,9 +1226,16 @@ class TestHealthCalculatorEnricher:
         """Test that final score is capped at 100."""
         import time as time_module
 
+        # Provide data for from-scratch calculation - full base score of 100
         data = {
-            "health_score": 95,
-            "health_score_breakdown": {},
+            "upload_timestamp": int(time_module.time()),  # Recent = 40 points
+            "docs_url": "https://docs.example.com",  # 5 points
+            "description": "A" * 151,  # 20 points
+            "project_urls": {"Documentation": "https://docs.example.com"},  # 5 points
+            "maintainer": "Team",  # 10 points
+            "license": "MIT",  # 10 points
+            "classifiers": ["A", "B", "C"],  # 10 points
+            # Total base: 40 + 30 + 30 = 100
             "github_stars": 2000,  # +10 bonus
             "github_updated": time_module.time() - (10 * 86400),  # +10 bonus
             "github_open_issues": 5,  # 5/2000 = 0.0025 ratio = +10 bonus
@@ -1222,37 +1243,44 @@ class TestHealthCalculatorEnricher:
 
         result = enricher_instance._calculate_enhanced_health_score(data)
 
-        assert result["health_score"] == 100  # Capped, not 125
+        assert result["health_score"] == 100  # Capped, not 130
         assert result["health_score_breakdown"]["github_bonus_total"] == 30
 
-    def test_calculate_enhanced_health_score_returns_none_for_missing_base_score(
-        self, enricher_instance
-    ):
-        """Test that packages without base score are skipped."""
+    def test_calculate_enhanced_health_score_minimal_data(self, enricher_instance):
+        """Test that packages with minimal data get calculated from scratch."""
         data = {
             "name": "test-package",
             "version": "1.0.0",
-            # No health_score or breakdown
+            # No other metadata - will get 0 for all categories
         }
 
         result = enricher_instance._calculate_enhanced_health_score(data)
 
-        assert result is None
+        # Now calculates from scratch rather than skipping
+        assert result is not None
+        assert result["health_score"] == 0
+        assert result["health_score_breakdown"]["recency"] == 0
+        assert result["health_score_breakdown"]["documentation"] == 0
+        assert result["health_score_breakdown"]["metadata"] == 0
 
     def test_calculate_enhanced_health_score_with_partial_github_data(
         self, enricher_instance
     ):
         """Test enhanced score with only some GitHub fields."""
+        import time as time_module
+
+        # 400 days = 1-2 years = 20 points recency, maintainer = 10 metadata
+        # Total base: 20 + 0 + 10 = 30
         data = {
-            "health_score": 50,
-            "health_score_breakdown": {},
+            "upload_timestamp": int(time_module.time()) - (400 * 86400),  # 20 points
+            "maintainer": "Team",  # 10 points
             "github_stars": 100,  # +5 bonus
             # No github_updated or github_open_issues
         }
 
         result = enricher_instance._calculate_enhanced_health_score(data)
 
-        assert result["health_score"] == 55  # 50 + 5
+        assert result["health_score"] == 35  # 30 + 5
         assert "github_stars_bonus" in result["health_score_breakdown"]
         assert "github_activity_bonus" not in result["health_score_breakdown"]
 
@@ -1260,16 +1288,332 @@ class TestHealthCalculatorEnricher:
         self, enricher_instance
     ):
         """Test that packages without any GitHub data still get base score."""
+        import time as time_module
+
+        # Recent + maintainer + license + classifiers = 40 + 0 + 30 = 70
         data = {
-            "health_score": 70,
-            "health_score_breakdown": {"recency": 40, "docs": 30},
+            "upload_timestamp": int(time_module.time()),  # 40 points
+            "maintainer": "Team",  # 10 points
+            "license": "MIT",  # 10 points
+            "classifiers": ["A", "B", "C"],  # 10 points
             # No GitHub fields at all
         }
 
         result = enricher_instance._calculate_enhanced_health_score(data)
 
-        assert result["health_score"] == 70  # No change
+        assert result["health_score"] == 70
         assert "github_stars_bonus" not in result["health_score_breakdown"]
         assert "github_activity_bonus" not in result["health_score_breakdown"]
         assert "github_issue_bonus" not in result["health_score_breakdown"]
         assert "github_bonus_total" not in result["health_score_breakdown"]
+
+
+# ============================================================================
+# Health Score Problems Tests
+# ============================================================================
+
+
+class TestHealthScoreProblems:
+    """Test the health score problem tracking functionality."""
+
+    def test_complete_package_has_no_problems(self):
+        """Test that a complete package has empty problem arrays."""
+        import time as time_module
+
+        data = {
+            "name": "complete.package",
+            "version": "1.0.0",
+            "upload_timestamp": int(time_module.time()),  # Recent
+            "docs_url": "https://docs.example.com",
+            "description": "A" * 151,  # >150 chars
+            "project_urls": {"Documentation": "https://docs.example.com"},
+            "maintainer": "Team",
+            "author": "Developer",
+            "license": "MIT",
+            "classifiers": ["A", "B", "C"],
+        }
+
+        process("complete.package", data)
+
+        assert data["health_problems_documentation"] == []
+        assert data["health_problems_metadata"] == []
+        assert data["health_problems_recency"] == []
+        assert data["health_score"] == 100
+
+    def test_minimal_package_has_all_problems(self):
+        """Test that a minimal package has all relevant problems detected."""
+        data = {
+            "name": "minimal.package",
+            "version": "1.0.0",
+        }
+
+        process("minimal.package", data)
+
+        # Check documentation problems
+        assert "no docs_url" in data["health_problems_documentation"]
+        assert (
+            "description too short (<150 chars)"
+            in data["health_problems_documentation"]
+        )
+        assert "no documentation project URLs" in data["health_problems_documentation"]
+
+        # Check metadata problems
+        assert "no maintainer info" in data["health_problems_metadata"]
+        assert "no author info" in data["health_problems_metadata"]
+        assert "no license" in data["health_problems_metadata"]
+        assert "fewer than 3 classifiers" in data["health_problems_metadata"]
+
+        # Check recency problems
+        assert "no release timestamp" in data["health_problems_recency"]
+
+        assert data["health_score"] == 0
+
+    def test_recency_problem_thresholds(self):
+        """Test that recency problems are correctly detected at each threshold."""
+        import time as time_module
+
+        # Recent package (< 6 months) - no problems
+        recent_ts = int(time_module.time()) - (90 * 86400)  # 90 days
+        score, problems = calculate_recency_score_with_problems(recent_ts)
+        assert score == 40
+        assert problems == []
+
+        # 6-12 months - "last release over 6 months ago"
+        six_month_ts = int(time_module.time()) - (200 * 86400)  # 200 days
+        score, problems = calculate_recency_score_with_problems(six_month_ts)
+        assert score == 30
+        assert "last release over 6 months ago" in problems
+
+        # 1-2 years - "last release over 1 year ago"
+        one_year_ts = int(time_module.time()) - (400 * 86400)  # 400 days
+        score, problems = calculate_recency_score_with_problems(one_year_ts)
+        assert score == 20
+        assert "last release over 1 year ago" in problems
+
+        # 2-3 years - "last release over 2 years ago"
+        two_year_ts = int(time_module.time()) - (900 * 86400)  # 900 days
+        score, problems = calculate_recency_score_with_problems(two_year_ts)
+        assert score == 10
+        assert "last release over 2 years ago" in problems
+
+        # 3-5 years - "last release over 3 years ago"
+        three_year_ts = int(time_module.time()) - (1200 * 86400)  # 1200 days
+        score, problems = calculate_recency_score_with_problems(three_year_ts)
+        assert score == 5
+        assert "last release over 3 years ago" in problems
+
+        # > 5 years - "last release over 5 years ago"
+        five_year_ts = int(time_module.time()) - (2000 * 86400)  # 2000 days
+        score, problems = calculate_recency_score_with_problems(five_year_ts)
+        assert score == 0
+        assert "last release over 5 years ago" in problems
+
+    def test_partial_documentation_problems(self):
+        """Test that only missing documentation items are reported as problems."""
+        # Has docs_url but nothing else
+        data1 = {"docs_url": "https://docs.example.com"}
+        score, problems = calculate_docs_score_with_problems(data1)
+        assert score == 5  # Only docs_url gives 5 points
+        assert "no docs_url" not in problems
+        assert "description too short (<150 chars)" in problems
+        assert "no documentation project URLs" in problems
+
+        # Has long description but nothing else
+        data2 = {"description": "A" * 151}  # >150 chars
+        score, problems = calculate_docs_score_with_problems(data2)
+        assert score == 20  # Description gives 20 points
+        assert "no docs_url" in problems
+        assert "description too short (<150 chars)" not in problems
+        assert "no documentation project URLs" in problems
+
+        # Has project URLs with documentation link but nothing else
+        data3 = {"project_urls": {"Documentation": "https://docs.example.com"}}
+        score, problems = calculate_docs_score_with_problems(data3)
+        assert score == 5
+        assert "no docs_url" in problems
+        assert "description too short (<150 chars)" in problems
+        assert "no documentation project URLs" not in problems
+
+    def test_partial_metadata_problems(self):
+        """Test that only missing metadata items are reported as problems."""
+        # Has maintainer but nothing else
+        data1 = {"maintainer": "Team"}
+        score, problems = calculate_metadata_score_with_problems(data1)
+        assert score == 10
+        assert "no maintainer info" not in problems
+        assert "no author info" not in problems
+        assert "no license" in problems
+        assert "fewer than 3 classifiers" in problems
+
+        # Has author but nothing else
+        data2 = {"author": "Developer"}
+        score, problems = calculate_metadata_score_with_problems(data2)
+        assert score == 10
+        assert "no maintainer info" not in problems
+        assert "no author info" not in problems
+        assert "no license" in problems
+        assert "fewer than 3 classifiers" in problems
+
+        # Has license but no maintainer/author
+        data3 = {"license": "MIT"}
+        score, problems = calculate_metadata_score_with_problems(data3)
+        assert score == 10
+        assert "no maintainer info" in problems
+        assert "no author info" in problems
+        assert "no license" not in problems
+        assert "fewer than 3 classifiers" in problems
+
+        # Has 3+ classifiers but nothing else
+        data4 = {"classifiers": ["A", "B", "C"]}
+        score, problems = calculate_metadata_score_with_problems(data4)
+        assert score == 10
+        assert "no maintainer info" in problems
+        assert "no author info" in problems
+        assert "no license" in problems
+        assert "fewer than 3 classifiers" not in problems
+
+    def test_process_stores_problems_in_data(self):
+        """Test that process() correctly stores problems arrays in data."""
+        import time as time_module
+
+        # Old package with some issues
+        old_ts = int(time_module.time()) - (400 * 86400)  # 400 days ago
+        data = {
+            "name": "test.package",
+            "version": "1.0.0",
+            "upload_timestamp": old_ts,
+            "docs_url": "https://docs.example.com",
+            "description": "Short",  # < 150 chars
+            "maintainer": "Team",
+            "license": "MIT",
+            "classifiers": ["A"],  # < 3
+        }
+
+        process("test.package", data)
+
+        # Verify problems arrays exist
+        assert "health_problems_documentation" in data
+        assert "health_problems_metadata" in data
+        assert "health_problems_recency" in data
+
+        # Verify correct problems
+        assert (
+            "description too short (<150 chars)"
+            in data["health_problems_documentation"]
+        )
+        assert "no documentation project URLs" in data["health_problems_documentation"]
+        assert "fewer than 3 classifiers" in data["health_problems_metadata"]
+        assert "last release over 1 year ago" in data["health_problems_recency"]
+
+    def test_enricher_calculates_problems_with_github_ones(self):
+        """Test that the enricher calculates problems from scratch and adds GitHub ones."""
+        import time as time_module
+
+        # Create enricher instance without connecting to Typesense
+        enricher = HealthEnricher.__new__(HealthEnricher)
+
+        # Simulate data for from-scratch calculation with GitHub data showing issues
+        old_upload_ts = int(time_module.time()) - (
+            400 * 86400
+        )  # 400 days ago = 1-2 years
+        old_github_ts = time_module.time() - (400 * 86400)  # 400 days ago
+        data = {
+            "upload_timestamp": old_upload_ts,  # 1-2 years = 20 points
+            # No docs_url, short description - documentation problems
+            "description": "Short",
+            # maintainer only - metadata problems
+            "maintainer": "Team",
+            # No license, no classifiers
+            "github_stars": 100,
+            "github_updated": old_github_ts,  # Old GitHub activity
+            "github_open_issues": 200,  # High ratio (200/100 = 2.0)
+        }
+
+        result = enricher._calculate_enhanced_health_score(data)
+
+        # Verify problems are calculated from scratch
+        assert "no docs_url" in result["health_problems_documentation"]
+        assert "no license" in result["health_problems_metadata"]
+        assert "last release over 1 year ago" in result["health_problems_recency"]
+
+        # Verify GitHub problems are added
+        assert "no GitHub activity in 1+ year" in result["health_problems_recency"]
+        assert (
+            "high open issues to stars ratio (>1.0)"
+            in result["health_problems_metadata"]
+        )
+
+    def test_enricher_github_problems_calculated_once(self):
+        """Test that GitHub problems are calculated once from scratch."""
+        import time as time_module
+
+        enricher = HealthEnricher.__new__(HealthEnricher)
+
+        old_github_ts = time_module.time() - (400 * 86400)
+        old_upload_ts = int(time_module.time()) - (400 * 86400)
+        data = {
+            "upload_timestamp": old_upload_ts,
+            "maintainer": "Team",  # For some base score
+            "github_stars": 100,
+            "github_updated": old_github_ts,
+            "github_open_issues": 200,
+        }
+
+        result = enricher._calculate_enhanced_health_score(data)
+
+        # Count occurrences - should be exactly 1 (fresh calculation)
+        assert (
+            result["health_problems_recency"].count("no GitHub activity in 1+ year")
+            == 1
+        )
+        assert (
+            result["health_problems_metadata"].count(
+                "high open issues to stars ratio (>1.0)"
+            )
+            == 1
+        )
+
+    def test_enricher_limited_github_activity_problem(self):
+        """Test that limited GitHub activity (6+ months) is detected."""
+        import time as time_module
+
+        enricher = HealthEnricher.__new__(HealthEnricher)
+
+        # 200 days ago - should be "limited activity"
+        limited_github_ts = time_module.time() - (200 * 86400)
+        data = {
+            "upload_timestamp": int(time_module.time()),  # Recent upload
+            "maintainer": "Team",  # For some base score
+            "github_stars": 100,
+            "github_updated": limited_github_ts,
+            "github_open_issues": 10,  # Good ratio
+        }
+
+        result = enricher._calculate_enhanced_health_score(data)
+
+        # Activity bonus should be 3 (365 day range)
+        assert result["health_score_breakdown"]["github_activity_bonus"] == 3
+        assert (
+            "limited GitHub activity (6+ months)" in result["health_problems_recency"]
+        )
+
+    def test_enricher_elevated_issues_ratio_problem(self):
+        """Test that elevated issues ratio (>0.5) is detected."""
+        import time as time_module
+
+        enricher = HealthEnricher.__new__(HealthEnricher)
+
+        recent_github_ts = time_module.time() - (10 * 86400)  # 10 days ago
+        data = {
+            "upload_timestamp": int(time_module.time()),  # Recent upload
+            "maintainer": "Team",  # For some base score
+            "github_stars": 100,
+            "github_updated": recent_github_ts,
+            "github_open_issues": 70,  # 0.7 ratio - elevated
+        }
+
+        result = enricher._calculate_enhanced_health_score(data)
+
+        # Issue bonus should be 3 (0.5-1.0 range)
+        assert result["health_score_breakdown"]["github_issue_bonus"] == 3
+        assert "elevated open issues ratio (>0.5)" in result["health_problems_metadata"]

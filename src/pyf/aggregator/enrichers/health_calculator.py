@@ -1,24 +1,58 @@
 from argparse import ArgumentParser
 from datetime import datetime
-from pyf.aggregator.db import TypesenceConnection, TypesensePackagesCollection
-from pyf.aggregator.logger import logger
+from dotenv import load_dotenv
+import os
+import sys
 import time
 
+from pyf.aggregator.db import TypesenceConnection, TypesensePackagesCollection
+from pyf.aggregator.logger import logger
+from pyf.aggregator.plugins.health_score import (
+    calculate_recency_score_with_problems,
+    calculate_docs_score_with_problems,
+    calculate_metadata_score_with_problems,
+)
+from pyf.aggregator.profiles import ProfileManager
+
+load_dotenv()
+
+DEFAULT_PROFILE = os.getenv("DEFAULT_PROFILE")
+
 parser = ArgumentParser(
-    description="Recalculates package health scores with GitHub activity data"
+    description="Calculates comprehensive health scores for packages (base + GitHub bonuses)"
 )
 parser.add_argument("-t", "--target", nargs="?", type=str)
+parser.add_argument(
+    "-p",
+    "--profile",
+    help="Profile name (overrides DEFAULT_PROFILE env var)",
+    nargs="?",
+    type=str,
+)
+parser.add_argument(
+    "-l",
+    "--limit",
+    help="Limit number of packages to process (for testing)",
+    nargs="?",
+    type=int,
+)
 
 
 class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
     """
-    Enrich health scores with GitHub activity data.
+    Calculate comprehensive health scores for packages.
 
-    Enhances the basic health score (calculated by the health_score plugin)
-    with additional GitHub metrics:
-    - GitHub activity (commit recency, stars)
-    - Issue management (open issues ratio)
+    Calculates the complete health score from scratch:
+    - Base score (100 points max): recency, documentation, metadata
+    - GitHub bonuses (up to +30 points): stars, activity, issue management
+
+    This is the standalone command for health score calculation,
+    replacing the plugin-based approach to ensure GitHub data is available.
     """
+
+    def __init__(self, limit=None):
+        super().__init__()
+        self.limit = limit
 
     def run(self, target=None):
         search_parameters = {
@@ -42,7 +76,12 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
                 for item in group["hits"]:
                     data = item["document"]
 
-                    # Recalculate health score with GitHub data
+                    # Check limit if set
+                    if self.limit and enrich_counter >= self.limit:
+                        logger.info(f"Reached limit of {self.limit} packages")
+                        return
+
+                    # Calculate complete health score (base + GitHub bonuses)
                     health_data = self._calculate_enhanced_health_score(data)
 
                     if health_data:
@@ -57,6 +96,11 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
             "health_score": data["health_score"],
             "health_score_breakdown": data["health_score_breakdown"],
             "health_score_last_calculated": data["health_score_last_calculated"],
+            "health_problems_documentation": data.get(
+                "health_problems_documentation", []
+            ),
+            "health_problems_metadata": data.get("health_problems_metadata", []),
+            "health_problems_recency": data.get("health_problems_recency", []),
         }
         self.client.collections[target].documents[id].update(document)
         logger.info(
@@ -68,7 +112,7 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
         return self.client.collections[target].documents.search(search_parameters)
 
     def _calculate_enhanced_health_score(self, data):
-        """Calculate enhanced health score using GitHub data.
+        """Calculate complete health score from scratch including GitHub bonuses.
 
         The basic score (0-100) comes from:
         - Release recency (40 points)
@@ -81,16 +125,29 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
         - Issue management bonus (up to +10)
 
         Final score is capped at 100.
-        """
-        # Start with existing basic score, or calculate from scratch if missing
-        base_score = data.get("health_score", 0)
-        breakdown = data.get("health_score_breakdown", {})
 
-        # If there's no basic score, we can't enhance it meaningfully
-        # (The plugin should have set this during indexing)
-        if base_score == 0 and not breakdown:
-            # Return None to skip this document
-            return None
+        Also tracks problems for each category.
+        """
+        # Always calculate base score from scratch to ensure consistency
+        base_score = 0
+        breakdown = {}
+
+        # Factor 1: Release recency (40 points max)
+        recency_score, problems_recency = calculate_recency_score_with_problems(
+            data.get("upload_timestamp")
+        )
+        base_score += recency_score
+        breakdown["recency"] = recency_score
+
+        # Factor 2: Documentation presence (30 points max)
+        docs_score, problems_documentation = calculate_docs_score_with_problems(data)
+        base_score += docs_score
+        breakdown["documentation"] = docs_score
+
+        # Factor 3: Metadata quality (30 points max)
+        metadata_score, problems_metadata = calculate_metadata_score_with_problems(data)
+        base_score += metadata_score
+        breakdown["metadata"] = metadata_score
 
         # Calculate GitHub enhancement bonuses
         github_bonus = 0
@@ -109,6 +166,14 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
             github_bonus += activity_bonus
             breakdown["github_activity_bonus"] = activity_bonus
 
+            # Add GitHub activity problems
+            if activity_bonus == 0:
+                if "no GitHub activity in 1+ year" not in problems_recency:
+                    problems_recency.append("no GitHub activity in 1+ year")
+            elif activity_bonus <= 3:
+                if "limited GitHub activity (6+ months)" not in problems_recency:
+                    problems_recency.append("limited GitHub activity (6+ months)")
+
         # Bonus 3: Issue management (up to +10 points)
         # Only calculate if we have both stars and open_issues data
         if "github_open_issues" in data and "github_stars" in data:
@@ -121,6 +186,19 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
                 github_bonus += issue_bonus
                 breakdown["github_issue_bonus"] = issue_bonus
 
+                # Add issue ratio problems
+                if issue_bonus == 0:
+                    if (
+                        "high open issues to stars ratio (>1.0)"
+                        not in problems_metadata
+                    ):
+                        problems_metadata.append(
+                            "high open issues to stars ratio (>1.0)"
+                        )
+                elif issue_bonus <= 3:
+                    if "elevated open issues ratio (>0.5)" not in problems_metadata:
+                        problems_metadata.append("elevated open issues ratio (>0.5)")
+
         # Add GitHub bonus to breakdown
         if github_bonus > 0:
             breakdown["github_bonus_total"] = github_bonus
@@ -132,6 +210,9 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
             "health_score": int(final_score),
             "health_score_breakdown": breakdown,
             "health_score_last_calculated": int(time.time()),
+            "health_problems_documentation": problems_documentation,
+            "health_problems_metadata": problems_metadata,
+            "health_problems_recency": problems_recency,
         }
 
     def _calculate_stars_bonus(self, stars):
@@ -235,5 +316,43 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
 
 def main():
     args = parser.parse_args()
-    enricher = HealthEnricher()
+
+    # Handle profile (CLI argument or DEFAULT_PROFILE env var)
+    effective_profile = args.profile or DEFAULT_PROFILE
+    profile_source = "from CLI" if args.profile else "from DEFAULT_PROFILE"
+
+    if effective_profile:
+        profile_manager = ProfileManager()
+        profile = profile_manager.get_profile(effective_profile)
+
+        if not profile:
+            available_profiles = profile_manager.list_profiles()
+            logger.error(
+                f"Profile '{effective_profile}' not found. "
+                f"Available profiles: {', '.join(available_profiles)}"
+            )
+            sys.exit(1)
+
+        if not profile_manager.validate_profile(effective_profile):
+            logger.error(f"Profile '{effective_profile}' is invalid")
+            sys.exit(1)
+
+        # Auto-set collection name from profile if not specified
+        if not args.target:
+            args.target = effective_profile
+            logger.info(f"Auto-setting target collection from profile: {args.target}")
+
+        logger.info(
+            f"Using profile '{effective_profile}' ({profile_source}) for target collection '{args.target}'"
+        )
+
+    # Validate target is specified
+    if not args.target:
+        logger.error(
+            "Target collection name is required. "
+            "Use -t <collection_name>, -p <profile_name>, or set DEFAULT_PROFILE env var"
+        )
+        sys.exit(1)
+
+    enricher = HealthEnricher(limit=args.limit)
     enricher.run(target=args.target)
