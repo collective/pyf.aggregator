@@ -76,6 +76,15 @@ REDIS_HOST=localhost:6379
 # Celery Task Configuration
 TYPESENSE_COLLECTION=plone
 
+# npm Registry Configuration
+# npm registry: 1000 req/hr unauthenticated, 5000 with token
+NPM_RATE_LIMIT_DELAY=0.72              # Default 0.72s for authenticated (~5000 req/hr)
+NPM_AUTH_TOKEN=                        # Optional: for 5000 req/hr limit
+NPM_MAX_RETRIES=3
+NPM_RETRY_BACKOFF=2.0
+NPM_MAX_WORKERS=10                     # Parallel threads for fetching
+NPM_BATCH_SIZE=100                     # Batch size for memory-efficient fetching
+
 # Celery Periodic Task Schedules (crontab format: minute hour day_of_month month day_of_week)
 # Set to empty string to disable a task
 CELERY_SCHEDULE_RSS_PROJECTS=*/1 * * * *    # Check for new projects
@@ -103,9 +112,24 @@ CELERY_TASK_TIME_LIMIT=600             # Hard time limit in seconds (10 min)
 # DEFAULT_PROFILE=plone
 ```
 
+### npm Registry Rate Limits
+
+The official npm registry enforces the following rate limits:
+
+| Authentication | Rate Limit | Recommended Delay |
+|----------------|------------|-------------------|
+| None | 1,000 req/hour | 3.6s (`NPM_RATE_LIMIT_DELAY=3.6`) |
+| With token | 5,000 req/hour | 0.72s (default) |
+
+**Default Configuration**: The default delay of `0.72s` is calibrated for authenticated requests (5000 req/hr). If you're fetching without an `NPM_AUTH_TOKEN`, increase the delay to `3.6` to avoid rate limiting.
+
+**HTTP 429 Handling**: If the npm registry returns a 429 (Too Many Requests), the fetcher automatically reads the `Retry-After` header and waits before retrying.
+
+**Getting an npm Token**: Generate a token at [npmjs.com/settings/tokens](https://www.npmjs.com/settings/tokens) with read-only access.
+
 ### Profile Configuration
 
-The aggregator supports multiple framework ecosystems through **profiles**. Each profile defines a set of PyPI trove classifiers to track packages from different Python frameworks (Django, Flask, FastAPI, etc.).
+The aggregator supports multiple framework ecosystems through **profiles**. Each profile defines a set of PyPI trove classifiers to track packages from different Python frameworks (Django, Flask, FastAPI, etc.). Profiles can also include npm registry configuration for frontend packages.
 
 Profiles are defined in `src/pyf/aggregator/profiles.yaml`:
 
@@ -117,6 +141,13 @@ profiles:
       - "Framework :: Plone"
       - "Framework :: Plone :: 6.0"
       # ... more classifiers
+    npm:
+      keywords:
+        - plone
+      scopes:
+        - "@plone"
+        - "@plone-collective"
+        - "@eeacms"
 
   django:
     name: "Django"
@@ -132,7 +163,7 @@ profiles:
 ```
 
 **Built-in Profiles:**
-- `plone` - Plone CMS packages
+- `plone` - Plone CMS packages (includes npm configuration for @plone/* packages)
 - `django` - Django framework packages
 - `flask` - Flask framework packages
 
@@ -148,7 +179,25 @@ profiles:
       - "Framework :: FastAPI"
 ```
 
-Each profile automatically creates its own Typesense collection (using the profile key as the collection name), while sharing the GitHub enrichment cache across all profiles to save API calls.
+**Adding npm Support to a Profile:**
+
+To include npm packages in a profile, add an `npm` section with keywords and/or scopes:
+
+```yaml
+profiles:
+  myprofile:
+    name: "My Profile"
+    classifiers:
+      - "Framework :: MyFramework"
+    npm:
+      keywords:
+        - myframework          # Search for packages with this keyword
+      scopes:
+        - "@myframework"       # Search for scoped packages
+        - "@myorg"
+```
+
+Each profile automatically creates its own Typesense collection (using the profile key as the collection name), while sharing the GitHub enrichment cache across all profiles to save API calls. npm and PyPI packages are stored in the same collection with a `registry` field to distinguish them.
 
 
 ## CLI Commands
@@ -232,6 +281,68 @@ uv run pyfaggregator -f              # Uses plone profile from DEFAULT_PROFILE
 uv run pyfaggregator -f -p plone     # Explicit profile (same result)
 uv run pyfaggregator -f -p django    # CLI -p overrides DEFAULT_PROFILE
 ```
+
+### pyfnpm
+
+Fetches package information from the npm registry and indexes it into Typesense. npm packages are stored in the same collection as PyPI packages, distinguished by a `registry` field.
+
+```shell
+uv run pyfnpm [options]
+```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `-f`, `--first` | Full download: fetch all npm packages matching profile |
+| `-i`, `--incremental` | Incremental update: fetch recent package updates |
+| `-l`, `--limit` | Limit the number of packages to process |
+| `-p`, `--profile` | Profile name for npm filtering (required, must have npm config) |
+| `-t`, `--target` | Target Typesense collection name (auto-set from profile if not specified) |
+| `--show PACKAGE_NAME` | Show indexed data for an npm package by name (for debugging) |
+| `--all-versions` | Show all versions when using --show (default: only newest) |
+| `--recreate-collection` | Zero-downtime collection recreation with alias switching |
+| `--force` | Skip confirmation prompts for destructive operations |
+
+**Examples:**
+
+```shell
+# Full fetch of npm packages using the Plone profile
+uv run pyfnpm -f -p plone
+
+# Full fetch with limit (for testing)
+uv run pyfnpm -f -p plone -l 10
+
+# Show indexed data for an npm package
+uv run pyfnpm --show @plone/volto -p plone
+
+# Show all versions of an npm package
+uv run pyfnpm --show @plone/volto -p plone --all-versions
+
+# Incremental update
+uv run pyfnpm -i -p plone
+
+# Full fetch with custom collection name
+uv run pyfnpm -f -p plone -t plone-test
+```
+
+**npm Search Criteria:**
+
+The `pyfnpm` command searches the npm registry based on the profile's npm configuration:
+
+- **Keywords**: Packages with matching keywords (e.g., `plone`)
+- **Scopes**: Scoped packages like `@plone/*`, `@plone-collective/*`
+
+**npm-Specific Fields:**
+
+npm packages include additional fields:
+- `registry` - Set to `"npm"` to distinguish from PyPI packages
+- `npm_scope` - The package scope (e.g., `"plone"` for `@plone/volto`)
+- `npm_quality_score` - npm quality score (0-1)
+- `npm_popularity_score` - npm popularity score (0-1)
+- `npm_maintenance_score` - npm maintenance score (0-1)
+- `npm_final_score` - Combined npm score (0-1)
+- `repository_url` - Git repository URL (handles various formats)
 
 ### pyfgithub
 
@@ -461,9 +572,15 @@ Run this command AFTER `pyfgithub` to include GitHub bonuses in the score breakd
    uv run pyfaggregator -f -p flask
    ```
 
-3. Enrich with GitHub data (includes contributors):
+3. (Optional) Aggregate npm packages:
    ```shell
-   # For Plone
+   # For Plone npm packages (@plone/*, @plone-collective/*, etc.)
+   uv run pyfnpm -f -p plone
+   ```
+
+4. Enrich with GitHub data (includes contributors):
+   ```shell
+   # For Plone (works for both PyPI and npm packages)
    uv run pyfgithub -p plone
 
    # For Django
@@ -571,6 +688,47 @@ uv run pyfupdater --add-search-only-apikey -p django
 uv run pyfupdater --add-search-only-apikey -p flask
 ```
 
+### Working with PyPI and npm Packages
+
+Profiles that include npm configuration can aggregate packages from both registries into the same collection:
+
+**Example: Full Plone ecosystem (backend + frontend)**
+
+```shell
+# Aggregate Plone PyPI packages (backend, add-ons)
+uv run pyfaggregator -f -p plone
+
+# Aggregate Plone npm packages (@plone/*, @plone-collective/*, @eeacms/*)
+uv run pyfnpm -f -p plone
+
+# Enrich all packages with GitHub data (works for both registries)
+uv run pyfgithub -p plone
+
+# Enrich PyPI packages with download stats
+uv run pyfdownloads -p plone
+```
+
+**Querying by Registry:**
+
+In Typesense, you can filter packages by their registry:
+
+```json
+{
+  "q": "volto",
+  "query_by": "name,summary",
+  "filter_by": "registry:=npm"
+}
+```
+
+Or get all packages regardless of registry:
+
+```json
+{
+  "q": "plone",
+  "query_by": "name,summary"
+}
+```
+
 **List all profile collections:**
 
 ```shell
@@ -650,6 +808,12 @@ To query for the "newest" version of a package, sort by `version_sortable:desc`.
 **Download Statistics:**
 - `download_last_day`, `download_last_week`, `download_last_month`
 - `download_total`, `download_updated`
+
+**npm-Specific Fields:**
+- `registry` - Package registry source: `"pypi"` or `"npm"`
+- `npm_scope` - npm package scope (e.g., `"plone"` for `@plone/volto`)
+- `npm_quality_score`, `npm_popularity_score`, `npm_maintenance_score`, `npm_final_score` - npm registry scores (0-1)
+- `repository_url` - Git repository URL (handles git+https://, git://, ssh:// formats)
 
 ### Health Score Calculation
 

@@ -108,3 +108,49 @@ class ProfileManager:
             return False
 
         return True
+
+    def get_npm_config(self, name):
+        """Get npm configuration for a profile.
+
+        Args:
+            name: Profile identifier (e.g., 'plone')
+
+        Returns:
+            dict: npm configuration with 'keywords' and 'scopes' lists,
+                  or None if profile not found or has no npm config
+        """
+        profile = self.get_profile(name)
+        if not profile:
+            return None
+
+        npm_config = profile.get("npm")
+        if not npm_config:
+            logger.info(f"Profile '{name}' has no npm configuration")
+            return None
+
+        return {
+            "keywords": npm_config.get("keywords", []),
+            "scopes": npm_config.get("scopes", []),
+        }
+
+    def validate_npm_profile(self, name):
+        """Validate that a profile exists and has valid npm configuration.
+
+        Args:
+            name: Profile identifier to validate
+
+        Returns:
+            bool: True if profile has valid npm config, False otherwise
+        """
+        npm_config = self.get_npm_config(name)
+        if not npm_config:
+            return False
+
+        # Must have at least one keyword or scope
+        if not npm_config.get("keywords") and not npm_config.get("scopes"):
+            logger.error(
+                f"Profile '{name}' npm config must have at least one keyword or scope"
+            )
+            return False
+
+        return True
