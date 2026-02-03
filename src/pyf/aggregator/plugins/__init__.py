@@ -4,7 +4,9 @@ from . import framwork_versions
 from . import python_versions
 from . import rst_to_html
 from . import description_splitter
-from . import health_score
+
+# Note: health_score plugin removed - use `pyfhealth` command instead
+# This ensures health scores are calculated after GitHub data is available
 
 
 def register_plugins(PLUGINS, settings):
@@ -14,4 +16,3 @@ def register_plugins(PLUGINS, settings):
     PLUGINS.append(python_versions.load(settings))
     PLUGINS.append(rst_to_html.load(settings))
     PLUGINS.append(description_splitter.load(settings))
-    PLUGINS.append(health_score.load(settings))

@@ -162,6 +162,45 @@ class TypesensePackagesCollection:
                 },
                 {"name": "version_raw", "type": "string", "sort": True, "facet": True},
                 {"name": "yanked", "type": "bool"},
+                # Registry identification (pypi or npm)
+                {"name": "registry", "type": "string", "facet": True, "optional": True},
+                # npm-specific fields
+                {
+                    "name": "npm_scope",
+                    "type": "string",
+                    "facet": True,
+                    "optional": True,
+                },
+                {
+                    "name": "npm_quality_score",
+                    "type": "float",
+                    "sort": True,
+                    "optional": True,
+                },
+                {
+                    "name": "npm_popularity_score",
+                    "type": "float",
+                    "sort": True,
+                    "optional": True,
+                },
+                {
+                    "name": "npm_maintenance_score",
+                    "type": "float",
+                    "sort": True,
+                    "optional": True,
+                },
+                {
+                    "name": "npm_final_score",
+                    "type": "float",
+                    "sort": True,
+                    "optional": True,
+                },
+                {
+                    "name": "repository_url",
+                    "type": "string",
+                    "index": False,
+                    "optional": True,
+                },
                 {"name": "github_stars", "type": "auto", "facet": True},
                 {"name": "github_watchers", "type": "auto", "facet": True},
                 {"name": "github_updated", "type": "auto", "facet": True},
@@ -188,9 +227,28 @@ class TypesensePackagesCollection:
                     "optional": True,
                     "index": False,
                 },
+                # Health score problem tracking
+                {
+                    "name": "health_problems_documentation",
+                    "type": "string[]",
+                    "facet": True,
+                    "optional": True,
+                },
+                {
+                    "name": "health_problems_metadata",
+                    "type": "string[]",
+                    "facet": True,
+                    "optional": True,
+                },
+                {
+                    "name": "health_problems_recency",
+                    "type": "string[]",
+                    "facet": True,
+                    "optional": True,
+                },
             ],
             "enable_nested_fields": True,
-            "token_separators": [".", "-", "_"],
+            "token_separators": [".", "-", "_", "@", "/"],
             "default_sorting_field": "name_sortable",
         }
         self.client.collections.create(schema)

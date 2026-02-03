@@ -16,6 +16,13 @@ profiles:
       - "Framework :: Plone :: 4.3"
       - "Framework :: Plone :: Core"
       - "Framework :: Plone :: Addon"
+    npm:
+      keywords:
+        - plone
+      scopes:
+        - "@plone"
+        - "@plone-collective"
+        - "@eeacms"
 
   django:
     name: "Django"

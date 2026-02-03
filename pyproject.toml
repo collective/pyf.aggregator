@@ -46,9 +46,11 @@ typecheck = [
 
 [project.scripts]
 pyfaggregator = "pyf.aggregator.main:main"
+pyfnpm = "pyf.aggregator.npm_main:main"
 pyfupdater = "pyf.aggregator.typesense_util:main"
 pyfgithub = "pyf.aggregator.enrichers.github:main"
 pyfdownloads = "pyf.aggregator.enrichers.downloads:main"
+pyfhealth = "pyf.aggregator.enrichers.health_calculator:main"
 
 [build-system]
 requires = ["hatchling"]
