@@ -5,6 +5,8 @@ import os
 import sys
 import time
 
+import typesense.exceptions
+
 from pyf.aggregator.db import TypesenceConnection, TypesensePackagesCollection
 from pyf.aggregator.logger import logger
 from pyf.aggregator.plugins.health_score import (
@@ -102,10 +104,15 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
             "health_problems_metadata": data.get("health_problems_metadata", []),
             "health_problems_recency": data.get("health_problems_recency", []),
         }
-        self.client.collections[target].documents[id].update(document)
-        logger.info(
-            f"[{page}/{enrich_counter}] Updated health score for document {id}: {data['health_score']}"
-        )
+        try:
+            self.client.collections[target].documents[id].update(document)
+            logger.info(
+                f"[{page}/{enrich_counter}] Updated health score for document {id}: {data['health_score']}"
+            )
+        except typesense.exceptions.ObjectNotFound:
+            logger.warning(
+                f"[{page}/{enrich_counter}] Document {id} not found, skipping health score update"
+            )
 
     def ts_search(self, target, search_parameters, page=1):
         search_parameters["page"] = page
