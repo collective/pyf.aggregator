@@ -19,6 +19,10 @@ class Indexer(TypesenceConnection, TypesensePackagesCollection):
             elif isinstance(keywords, list):
                 data["keywords"] = [k.strip() for k in keywords if k and k.strip()]
 
+        # Ensure registry is set
+        if "registry" not in data:
+            data["registry"] = "pypi"
+
         for key, value in data.items():
             if key in list_fields and value is None:
                 data[key] = []
