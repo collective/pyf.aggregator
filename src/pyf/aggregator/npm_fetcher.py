@@ -87,7 +87,9 @@ class NpmAggregator:
                 return
             count += 1
 
-            identifier = f"{package_id}-{release_id}"
+            # Sanitize package_id for Typesense document ID (replace / with --)
+            safe_package_id = package_id.replace("/", "--")
+            identifier = f"{safe_package_id}-{release_id}"
             data = self._get_npm_version(package_id, release_id)
             if not data:
                 continue

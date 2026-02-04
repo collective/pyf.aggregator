@@ -374,7 +374,9 @@ def run_npm_refresh_mode(settings):
                     transformed[field] = value
 
                 # Create identifier
-                identifier = f"npm:{pkg_name}:{version}"
+                # Sanitize package name for Typesense document ID (replace / with --)
+                safe_pkg_name = pkg_name.replace("/", "--")
+                identifier = f"npm:{safe_pkg_name}:{version}"
                 transformed["id"] = identifier
                 transformed["identifier"] = identifier
 
