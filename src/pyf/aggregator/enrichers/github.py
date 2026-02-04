@@ -15,6 +15,8 @@ import sys
 import time
 import os
 
+import typesense.exceptions
+
 load_dotenv()
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
@@ -195,8 +197,13 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
         if data["github"].get("contributors"):
             document["contributors"] = data["github"]["contributors"]
 
-        self.client.collections[target].documents[id].update(document)
-        logger.info(f"[{page}/{enrich_counter}] Updated document {id}")
+        try:
+            self.client.collections[target].documents[id].update(document)
+            logger.info(f"[{page}/{enrich_counter}] Updated document {id}")
+        except typesense.exceptions.ObjectNotFound:
+            logger.warning(
+                f"[{page}/{enrich_counter}] Document {id} not found, skipping update"
+            )
 
     def ts_search(self, target, search_parameters, page=1):
         search_parameters["page"] = page

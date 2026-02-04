@@ -199,6 +199,7 @@ When `DEFAULT_PROFILE` is set, all CLI commands (`pyfaggregator`, `pyfgithub`, `
 - All CLI commands must be run with `uv run` prefix (e.g., `uv run pyfgithub -p plone`)
 - run tests in a subagent
 - always update README when things change or new features are added
+- documentation is written in the README not in doc strings!
 - prefer using skills over web search or perplexity mcp
 
 ## Stop Hook Behavior (MANDATORY)

@@ -25,6 +25,7 @@ dependencies = [
     "readme-renderer[md]",
     "feedparser",
     "celery[redis]",
+    "Pillow",
 ]
 
 [project.urls]

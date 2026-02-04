@@ -296,7 +296,9 @@ uv run pyfnpm [options]
 |--------|-------------|
 | `-f`, `--first` | Full download: fetch all npm packages matching profile |
 | `-i`, `--incremental` | Incremental update: fetch recent package updates |
+| `--refresh-from-npm` | Refresh indexed npm packages from npm registry (updates existing, removes 404s and non-matching) |
 | `-l`, `--limit` | Limit the number of packages to process |
+| `-fn`, `--filter-name` | Filter packages by name (substring match) |
 | `-p`, `--profile` | Profile name for npm filtering (required, must have npm config) |
 | `-t`, `--target` | Target Typesense collection name (auto-set from profile if not specified) |
 | `--show PACKAGE_NAME` | Show indexed data for an npm package by name (for debugging) |
@@ -324,7 +326,26 @@ uv run pyfnpm -i -p plone
 
 # Full fetch with custom collection name
 uv run pyfnpm -f -p plone -t plone-test
+
+# Refresh existing indexed npm packages (fetches fresh data, removes 404s)
+uv run pyfnpm --refresh-from-npm -p plone
+
+# Refresh with limit for testing
+uv run pyfnpm --refresh-from-npm -p plone -l 100
+
+# Refresh specific packages by name filter
+uv run pyfnpm --refresh-from-npm -p plone -fn volto
 ```
+
+**Refresh Mode:**
+
+The `--refresh-from-npm` option iterates over all indexed npm packages and:
+1. Fetches fresh metadata from npm registry for each package
+2. Validates packages still match profile keywords/scopes
+3. Removes packages that return 404 or no longer match filters
+4. Preserves GitHub enrichment fields (stars, watchers, etc.) during refresh
+
+This is useful for keeping indexed data up-to-date and cleaning up packages that have been removed from npm or renamed.
 
 **npm Search Criteria:**
 
@@ -778,6 +799,10 @@ The Typesense collection schema includes the following field categories:
 - `version_sortable` - Sortable string for correct version ordering (see below)
 - `health_score` - Package health metric (0-100)
 - `health_score_breakdown` - Detailed scoring factors (recency, documentation, metadata)
+- `health_score_last_calculated` - Unix timestamp of when the health score was last calculated
+- `health_problems_documentation` - Array of documentation-related issues found
+- `health_problems_metadata` - Array of metadata-related issues found
+- `health_problems_recency` - Array of recency-related issues found
 
 **Version Sorting:**
 
@@ -844,9 +869,12 @@ pyfhealth -p plone           # Calculate health scores (with GitHub bonuses)
 
 | Criterion | Points |
 |-----------|--------|
-| Has `docs_url` | 5 |
-| Has meaningful description (>150 chars) | 20 |
-| Has documentation links in `project_urls` | 5 |
+| Has `docs_url` | 4 |
+| Has meaningful description (>150 chars) | 18 |
+| Has documentation links in `project_urls` | 3 |
+| Has meaningful screenshots in documentation | 5 |
+
+*Screenshot Detection:* Images in the package description HTML are analyzed to find documentation-worthy visuals. Badge images (from shields.io, codecov.io, etc.) are filtered out, and only images with a width of at least 200 pixels are counted as meaningful screenshots.
 
 **Metadata Quality (30 points max):**
 
@@ -903,6 +931,16 @@ The breakdown is stored in `health_score_breakdown` as an object with these fiel
 - `github_activity_bonus` - Bonus from GitHub activity (0-10)
 - `github_issue_bonus` - Bonus from issue management (0-10)
 - `github_bonus_total` - Total GitHub bonus applied
+
+#### Health Problems
+
+The health score also tracks specific issues found during calculation. These are stored as arrays of problem descriptions:
+
+- `health_problems_documentation` - Documentation issues (e.g., "no docs_url", "description too short (<150 chars)", "no meaningful screenshots in documentation")
+- `health_problems_metadata` - Metadata issues (e.g., "no license", "fewer than 3 classifiers", "no author info")
+- `health_problems_recency` - Release recency issues (e.g., "last release over 1 year ago", "no release timestamp")
+
+These problem fields can be used by frontends to show users actionable feedback on how to improve their package's health score.
 
 ### Queue-Based Processing
 

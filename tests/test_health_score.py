@@ -41,7 +41,8 @@ def sample_package_data_complete():
         "version": "2.0.0",
         "upload_timestamp": int(time.time()),  # Unix timestamp (int64)
         "docs_url": "https://ploneapi.readthedocs.io/",
-        "description": "A" * 150,  # >100 chars
+        "description": "A" * 151,  # >150 chars for 18 points
+        "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
         "project_urls": {
             "Documentation": "https://ploneapi.readthedocs.io/",
             "Homepage": "https://github.com/plone/plone.api",
@@ -290,17 +291,17 @@ class TestCalculateRecencyScore:
 class TestCalculateDocsScore:
     """Test the calculate_docs_score function."""
 
-    def test_returns_5_for_docs_url(self):
-        """Test that having docs_url gives 5 points."""
+    def test_returns_4_for_docs_url(self):
+        """Test that having docs_url gives 4 points."""
         data = {"docs_url": "https://docs.example.com"}
         score = calculate_docs_score(data)
-        assert score == 5
+        assert score == 4
 
-    def test_returns_20_for_meaningful_description(self):
-        """Test that description > 150 chars gives 20 points."""
+    def test_returns_18_for_meaningful_description(self):
+        """Test that description > 150 chars gives 18 points."""
         data = {"description": "A" * 151}
         score = calculate_docs_score(data)
-        assert score == 20
+        assert score == 18
 
     def test_returns_0_for_short_description(self):
         """Test that description <= 150 chars gives 0 points."""
@@ -308,38 +309,38 @@ class TestCalculateDocsScore:
         score = calculate_docs_score(data)
         assert score == 0
 
-    def test_returns_5_for_documentation_project_url(self):
-        """Test that project_urls with 'documentation' gives 5 points."""
+    def test_returns_3_for_documentation_project_url(self):
+        """Test that project_urls with 'documentation' gives 3 points."""
         data = {"project_urls": {"Documentation": "https://docs.example.com"}}
         score = calculate_docs_score(data)
-        assert score == 5
+        assert score == 3
 
-    def test_returns_5_for_docs_project_url(self):
-        """Test that project_urls with 'docs' gives 5 points."""
+    def test_returns_3_for_docs_project_url(self):
+        """Test that project_urls with 'docs' gives 3 points."""
         data = {"project_urls": {"Docs": "https://docs.example.com"}}
         score = calculate_docs_score(data)
-        assert score == 5
+        assert score == 3
 
-    def test_returns_5_for_homepage_project_url(self):
-        """Test that project_urls with 'homepage' gives 5 points."""
+    def test_returns_3_for_homepage_project_url(self):
+        """Test that project_urls with 'homepage' gives 3 points."""
         data = {"project_urls": {"Homepage": "https://example.com"}}
         score = calculate_docs_score(data)
-        assert score == 5
+        assert score == 3
 
-    def test_returns_5_for_home_project_url(self):
-        """Test that project_urls with 'home' gives 5 points."""
+    def test_returns_3_for_home_project_url(self):
+        """Test that project_urls with 'home' gives 3 points."""
         data = {"project_urls": {"Home": "https://example.com"}}
         score = calculate_docs_score(data)
-        assert score == 5
+        assert score == 3
 
     def test_case_insensitive_project_url_matching(self):
         """Test that project URL matching is case insensitive."""
         data = {"project_urls": {"DOCUMENTATION": "https://docs.example.com"}}
         score = calculate_docs_score(data)
-        assert score == 5
+        assert score == 3
 
     def test_only_counts_project_urls_once(self):
-        """Test that multiple matching project URLs only give 5 points total."""
+        """Test that multiple matching project URLs only give 3 points total."""
         data = {
             "project_urls": {
                 "Documentation": "https://docs.example.com",
@@ -348,17 +349,44 @@ class TestCalculateDocsScore:
             }
         }
         score = calculate_docs_score(data)
-        assert score == 5  # Only 5 points, not 15
+        assert score == 3  # Only 3 points, not 9
 
     def test_returns_30_for_all_documentation_factors(self):
         """Test that having all documentation factors gives 30 points."""
         data = {
             "docs_url": "https://docs.example.com",
-            "description": "A" * 151,  # >150 chars for 20 points
+            "description": "A" * 151,  # >150 chars for 18 points
+            "project_urls": {"Documentation": "https://docs.example.com"},  # 3 points
+            "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
+        }
+        score = calculate_docs_score(data)
+        assert score == 30  # 4 + 18 + 3 + 5 = 30
+
+    def test_returns_25_without_screenshot(self):
+        """Test that without screenshot, max docs score is 25 points."""
+        data = {
+            "docs_url": "https://docs.example.com",
+            "description": "A" * 151,
             "project_urls": {"Documentation": "https://docs.example.com"},
         }
         score = calculate_docs_score(data)
-        assert score == 30
+        assert score == 25  # 4 + 18 + 3 = 25 (no screenshot)
+
+    def test_returns_5_for_screenshot_only(self):
+        """Test that having only a screenshot gives 5 points."""
+        data = {
+            "description_html": '<img src="https://example.com/screenshot.png" width="400">',
+        }
+        score = calculate_docs_score(data)
+        assert score == 5
+
+    def test_badges_dont_count_as_screenshots(self):
+        """Test that badge images don't give screenshot points."""
+        data = {
+            "description_html": '<img src="https://img.shields.io/badge/test.svg" width="400">',
+        }
+        score = calculate_docs_score(data)
+        assert score == 0  # Badge is filtered out
 
     def test_returns_0_for_empty_data(self):
         """Test that empty data returns 0."""
@@ -541,6 +569,7 @@ class TestIntegration:
             "upload_timestamp": int(time.time()),  # Unix timestamp (int64)
             "docs_url": "https://docs.example.com",
             "description": "A" * 200,
+            "description_html": '<img src="https://example.com/screenshot.png" width="400">',
             "project_urls": {"Documentation": "https://docs.example.com"},
             "maintainer": "Team",
             "license": "MIT",
@@ -562,14 +591,15 @@ class TestIntegration:
         data = {
             "upload_timestamp": old_date.isoformat(),
             "docs_url": "https://docs.example.com",
-            "description": "A" * 151,  # >150 chars for 20 points
-            "project_urls": {"Documentation": "https://docs.example.com"},
+            "description": "A" * 151,  # >150 chars for 18 points
+            "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
+            "project_urls": {"Documentation": "https://docs.example.com"},  # 3 points
             "maintainer": "Team",
             "license": "MIT",
             "classifiers": ["A", "B", "C"],
         }
         process("test-id", data)
-        # Should get 0 (recency) + 30 (docs) + 30 (metadata) = 60
+        # Should get 0 (recency) + 30 (docs: 4+18+3+5) + 30 (metadata) = 60
         assert data["health_score"] == 60
 
     def test_recent_but_poor_metadata_scenario(self):
@@ -630,6 +660,7 @@ class TestHealthScoreIntegration:
                 "It provides a high-level API to access Plone functionality. "
                 "The goal is to make working with Plone easier."
             ),
+            "description_html": '<img src="https://example.com/screenshot.png" width="400">',
             "project_urls": {
                 "Documentation": "https://ploneapi.readthedocs.io/",
                 "Source": "https://github.com/plone/plone.api",
@@ -663,7 +694,7 @@ class TestHealthScoreIntegration:
         assert breakdown["recency"] == 40  # Recent upload
         assert (
             breakdown["documentation"] == 30
-        )  # Has docs_url, long description, and project_urls
+        )  # Has docs_url (4), long description (18), project_urls (3), screenshot (5)
         assert (
             breakdown["metadata"] == 30
         )  # Has maintainer, license, and 3+ classifiers
@@ -740,6 +771,7 @@ class TestHealthScoreIntegration:
                 "It provides a powerful form builder with validation, custom actions, "
                 "and a variety of field types. Extensive documentation available online."
             ),
+            "description_html": '<img src="https://example.com/screenshot.png" width="400">',
             "project_urls": {
                 "Documentation": "https://collectiveeasyform.readthedocs.io/",
                 "Source": "https://github.com/collective/collective.easyform",
@@ -759,7 +791,7 @@ class TestHealthScoreIntegration:
         # Old but well-maintained documentation
         breakdown = data["health_score_breakdown"]
         assert breakdown["recency"] == 20  # Just under 2 years (729 days)
-        assert breakdown["documentation"] == 30  # Full docs
+        assert breakdown["documentation"] == 30  # Full docs (4+18+3+5)
         assert breakdown["metadata"] == 30  # Complete metadata
 
         assert data["health_score"] == 80
@@ -782,9 +814,10 @@ class TestHealthScoreIntegration:
             "name": "package-two",
             "version": "2.0.0",
             "upload_timestamp": old_timestamp,  # Unix timestamp (int64)
-            "docs_url": "https://docs.example.com",
-            "description": "A" * 151,  # >150 chars for 20 points
-            "project_urls": {"Documentation": "https://docs.example.com"},  # 5 points
+            "docs_url": "https://docs.example.com",  # 4 points
+            "description": "A" * 151,  # >150 chars for 18 points
+            "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
+            "project_urls": {"Documentation": "https://docs.example.com"},  # 3 points
             "maintainer": "Team Two",
             "license": "MIT",
             "classifiers": ["A", "B", "C"],
@@ -796,7 +829,9 @@ class TestHealthScoreIntegration:
 
         # Verify they have different scores
         assert package1["health_score"] == 50  # 40 recency + 10 metadata
-        assert package2["health_score"] == 80  # 20 recency + 30 docs + 30 metadata
+        assert (
+            package2["health_score"] == 80
+        )  # 20 recency + 30 docs (4+18+3+5) + 30 metadata
 
         # Verify they don't interfere with each other
         assert package1["name"] == "package-one"
@@ -813,9 +848,10 @@ class TestHealthScoreIntegration:
             "name": "test.package",
             "version": "1.0.0",
             "upload_timestamp": int(time_module.time()),  # Unix timestamp (int64)
-            "docs_url": "https://docs.test.com",
-            "description": "A" * 151,  # >150 chars for 20 points
-            "project_urls": {"Documentation": "https://docs.test.com"},
+            "docs_url": "https://docs.test.com",  # 4 points
+            "description": "A" * 151,  # >150 chars for 18 points
+            "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
+            "project_urls": {"Documentation": "https://docs.test.com"},  # 3 points
             "maintainer": "Test Team",
             "license": "BSD",
             "classifiers": [
@@ -877,7 +913,7 @@ class TestHealthScoreIntegration:
             "name": "mixed.quality",
             "version": "1.5.0",
             "upload_timestamp": old_timestamp,  # Unix timestamp (int64)
-            "docs_url": "https://docs.example.com",  # Good
+            "docs_url": "https://docs.example.com",  # Good (4 points)
             "description": "Short desc",  # Too short (<150 chars)
             "project_urls": None,  # Missing
             "maintainer": "Team",  # Good
@@ -890,10 +926,10 @@ class TestHealthScoreIntegration:
         # Verify partial scoring
         breakdown = data["health_score_breakdown"]
         assert breakdown["recency"] == 30  # 6-12 months
-        assert breakdown["documentation"] == 5  # Only docs_url (5 points)
+        assert breakdown["documentation"] == 4  # Only docs_url (4 points)
         assert breakdown["metadata"] == 10  # Only maintainer
 
-        assert data["health_score"] == 45
+        assert data["health_score"] == 44
 
     def test_pipeline_with_timestamp_variations(self):
         """Test pipeline handles different timestamp formats."""
@@ -979,12 +1015,13 @@ class TestHealthScoreIntegration:
             "name": "large.package",
             "version": "1.0.0",
             "upload_timestamp": int(time_module.time()),  # Unix timestamp (int64)
-            "docs_url": "https://docs.example.com",
-            "description": "A" * 10000,  # Very long description
+            "docs_url": "https://docs.example.com",  # 4 points
+            "description": "A" * 10000,  # Very long description (18 points)
+            "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
             "project_urls": {
                 "Documentation": "https://docs.example.com",
                 **{f"URL{i}": f"https://url{i}.com" for i in range(100)},
-            },  # Many URLs including documentation
+            },  # Many URLs including documentation (3 points)
             "maintainer": "Team",
             "license": "MIT",
             "classifiers": [
@@ -1195,14 +1232,15 @@ class TestHealthCalculatorEnricher:
         import time as time_module
 
         # Provide data for from-scratch calculation
-        # Recent timestamp (40 points), docs_url + description + project_urls (30 points),
+        # Recent timestamp (40 points), docs_url + description + project_urls + screenshot (30 points),
         # maintainer + license + classifiers (30 points) = 100 base
         data = {
             "upload_timestamp": int(time_module.time())
             - (30 * 86400),  # 30 days = 40 points
-            "docs_url": "https://docs.example.com",  # 5 points
-            "description": "A" * 151,  # 20 points
-            "project_urls": {"Documentation": "https://docs.example.com"},  # 5 points
+            "docs_url": "https://docs.example.com",  # 4 points
+            "description": "A" * 151,  # 18 points
+            "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
+            "project_urls": {"Documentation": "https://docs.example.com"},  # 3 points
             "maintainer": "Team",  # 10 points
             "license": "MIT",  # 10 points
             "classifiers": ["A", "B", "C"],  # 10 points
@@ -1229,9 +1267,10 @@ class TestHealthCalculatorEnricher:
         # Provide data for from-scratch calculation - full base score of 100
         data = {
             "upload_timestamp": int(time_module.time()),  # Recent = 40 points
-            "docs_url": "https://docs.example.com",  # 5 points
-            "description": "A" * 151,  # 20 points
-            "project_urls": {"Documentation": "https://docs.example.com"},  # 5 points
+            "docs_url": "https://docs.example.com",  # 4 points
+            "description": "A" * 151,  # 18 points
+            "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
+            "project_urls": {"Documentation": "https://docs.example.com"},  # 3 points
             "maintainer": "Team",  # 10 points
             "license": "MIT",  # 10 points
             "classifiers": ["A", "B", "C"],  # 10 points
@@ -1324,9 +1363,10 @@ class TestHealthScoreProblems:
             "name": "complete.package",
             "version": "1.0.0",
             "upload_timestamp": int(time_module.time()),  # Recent
-            "docs_url": "https://docs.example.com",
-            "description": "A" * 151,  # >150 chars
-            "project_urls": {"Documentation": "https://docs.example.com"},
+            "docs_url": "https://docs.example.com",  # 4 points
+            "description": "A" * 151,  # >150 chars (18 points)
+            "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
+            "project_urls": {"Documentation": "https://docs.example.com"},  # 3 points
             "maintainer": "Team",
             "author": "Developer",
             "license": "MIT",
@@ -1356,6 +1396,10 @@ class TestHealthScoreProblems:
             in data["health_problems_documentation"]
         )
         assert "no documentation project URLs" in data["health_problems_documentation"]
+        assert (
+            "no meaningful screenshots in documentation"
+            in data["health_problems_documentation"]
+        )
 
         # Check metadata problems
         assert "no maintainer info" in data["health_problems_metadata"]
@@ -1413,26 +1457,40 @@ class TestHealthScoreProblems:
         # Has docs_url but nothing else
         data1 = {"docs_url": "https://docs.example.com"}
         score, problems = calculate_docs_score_with_problems(data1)
-        assert score == 5  # Only docs_url gives 5 points
+        assert score == 4  # Only docs_url gives 4 points
         assert "no docs_url" not in problems
         assert "description too short (<150 chars)" in problems
         assert "no documentation project URLs" in problems
+        assert "no meaningful screenshots in documentation" in problems
 
         # Has long description but nothing else
         data2 = {"description": "A" * 151}  # >150 chars
         score, problems = calculate_docs_score_with_problems(data2)
-        assert score == 20  # Description gives 20 points
+        assert score == 18  # Description gives 18 points
         assert "no docs_url" in problems
         assert "description too short (<150 chars)" not in problems
         assert "no documentation project URLs" in problems
+        assert "no meaningful screenshots in documentation" in problems
 
         # Has project URLs with documentation link but nothing else
         data3 = {"project_urls": {"Documentation": "https://docs.example.com"}}
         score, problems = calculate_docs_score_with_problems(data3)
-        assert score == 5
+        assert score == 3  # Project URLs gives 3 points
         assert "no docs_url" in problems
         assert "description too short (<150 chars)" in problems
         assert "no documentation project URLs" not in problems
+        assert "no meaningful screenshots in documentation" in problems
+
+        # Has screenshot but nothing else
+        data4 = {
+            "description_html": '<img src="https://example.com/screenshot.png" width="400">'
+        }
+        score, problems = calculate_docs_score_with_problems(data4)
+        assert score == 5  # Screenshot gives 5 points
+        assert "no docs_url" in problems
+        assert "description too short (<150 chars)" in problems
+        assert "no documentation project URLs" in problems
+        assert "no meaningful screenshots in documentation" not in problems
 
     def test_partial_metadata_problems(self):
         """Test that only missing metadata items are reported as problems."""
@@ -1502,6 +1560,10 @@ class TestHealthScoreProblems:
             in data["health_problems_documentation"]
         )
         assert "no documentation project URLs" in data["health_problems_documentation"]
+        assert (
+            "no meaningful screenshots in documentation"
+            in data["health_problems_documentation"]
+        )
         assert "fewer than 3 classifiers" in data["health_problems_metadata"]
         assert "last release over 1 year ago" in data["health_problems_recency"]
 

@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 import time
 
+from pyf.aggregator.plugins.screenshot_detector import detect_screenshots
+
 
 def process(identifier, data):
     """Calculate a basic health score (0-100) for a package.
@@ -127,27 +129,28 @@ def calculate_docs_score_with_problems(data):
     Returns:
         tuple: (score, problems_list)
         Score is 0-30 points:
-        - 5 points: Has docs_url
-        - 20 points: Has meaningful description (>150 chars)
-        - 5 points: Has project_urls with documentation links
+        - 4 points: Has docs_url
+        - 18 points: Has meaningful description (>150 chars)
+        - 3 points: Has project_urls with documentation links
+        - 5 points: Has meaningful screenshots in documentation
     """
     score = 0
     problems = []
 
-    # Check for dedicated docs URL
+    # Check for dedicated docs URL (4 points)
     if data.get("docs_url"):
-        score += 5
+        score += 4
     else:
         problems.append("no docs_url")
 
-    # Check for meaningful description
+    # Check for meaningful description (18 points)
     description = data.get("description", "")
     if description and len(description) > 150:
-        score += 20
+        score += 18
     else:
         problems.append("description too short (<150 chars)")
 
-    # Check for project URLs (documentation, homepage, etc.)
+    # Check for project URLs (documentation, homepage, etc.) (3 points)
     project_urls = data.get("project_urls", {})
     has_doc_url = False
     if project_urls:
@@ -156,11 +159,22 @@ def calculate_docs_score_with_problems(data):
         for key in project_urls.keys():
             if any(kw in key.lower() for kw in doc_keywords):
                 has_doc_url = True
-                score += 5
+                score += 3
                 break
 
     if not has_doc_url:
         problems.append("no documentation project URLs")
+
+    # Check for meaningful screenshots (5 points)
+    description_html = data.get("description_html", "")
+    if description_html:
+        screenshot_result = detect_screenshots(description_html)
+        if screenshot_result["has_screenshots"]:
+            score += 5
+        else:
+            problems.append("no meaningful screenshots in documentation")
+    else:
+        problems.append("no meaningful screenshots in documentation")
 
     return score, problems
 

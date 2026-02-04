@@ -582,3 +582,187 @@ class TestNpmAggregatorIntegration:
         # Should deduplicate packages found by both keyword and scope
         assert "@plone/volto" in packages
         assert "@plone/registry" in packages
+
+
+# ============================================================================
+# Package Filtering Tests
+# ============================================================================
+
+
+class TestPackageFiltering:
+    """Test package filtering by keywords and scopes."""
+
+    def test_is_valid_package_with_matching_keyword(self):
+        """Test that package with matching keyword is valid."""
+        aggregator = NpmAggregator(
+            mode="first",
+            filter_keywords=["plone"],
+            filter_scopes=["@plone"],
+        )
+        pkg = {
+            "package": {
+                "name": "some-plone-addon",
+                "keywords": ["plone", "addon"],
+            }
+        }
+        assert aggregator._is_valid_package(pkg) is True
+
+    def test_is_valid_package_with_matching_scope(self):
+        """Test that package in matching scope is valid."""
+        aggregator = NpmAggregator(
+            mode="first",
+            filter_keywords=["plone"],
+            filter_scopes=["@plone"],
+        )
+        pkg = {
+            "package": {
+                "name": "@plone/volto",
+                "keywords": [],
+            }
+        }
+        assert aggregator._is_valid_package(pkg) is True
+
+    def test_is_valid_package_case_insensitive_keyword(self):
+        """Test that keyword matching is case-insensitive."""
+        aggregator = NpmAggregator(
+            mode="first",
+            filter_keywords=["plone"],
+            filter_scopes=[],
+        )
+        pkg = {
+            "package": {
+                "name": "some-addon",
+                "keywords": ["PLONE", "React"],
+            }
+        }
+        assert aggregator._is_valid_package(pkg) is True
+
+    def test_is_valid_package_rejects_non_matching(self):
+        """Test that package without matching keyword/scope is rejected."""
+        aggregator = NpmAggregator(
+            mode="first",
+            filter_keywords=["plone"],
+            filter_scopes=["@plone"],
+        )
+        pkg = {
+            "package": {
+                "name": "svelte-kit",
+                "keywords": ["svelte", "kit", "framework"],
+            }
+        }
+        assert aggregator._is_valid_package(pkg) is False
+
+    def test_is_valid_package_rejects_package_mentioning_plone_in_name_only(self):
+        """Test that package is rejected if plone only in name, not keywords."""
+        aggregator = NpmAggregator(
+            mode="first",
+            filter_keywords=["plone"],
+            filter_scopes=["@plone"],
+        )
+        pkg = {
+            "package": {
+                "name": "plone-like-framework",
+                "keywords": ["framework", "web"],
+            }
+        }
+        assert aggregator._is_valid_package(pkg) is False
+
+    def test_is_valid_package_handles_empty_keywords(self):
+        """Test that package with empty/missing keywords is handled."""
+        aggregator = NpmAggregator(
+            mode="first",
+            filter_keywords=["plone"],
+            filter_scopes=["@plone"],
+        )
+        pkg = {
+            "package": {
+                "name": "random-package",
+            }
+        }
+        assert aggregator._is_valid_package(pkg) is False
+
+    def test_is_valid_package_handles_non_string_keywords(self):
+        """Test that non-string keywords are handled gracefully."""
+        aggregator = NpmAggregator(
+            mode="first",
+            filter_keywords=["plone"],
+            filter_scopes=[],
+        )
+        pkg = {
+            "package": {
+                "name": "some-package",
+                "keywords": ["plone", None, 123, "other"],
+            }
+        }
+        assert aggregator._is_valid_package(pkg) is True
+
+    def test_is_valid_package_multiple_scopes(self):
+        """Test filtering with multiple scopes."""
+        aggregator = NpmAggregator(
+            mode="first",
+            filter_keywords=[],
+            filter_scopes=["@plone", "@plone-collective", "@eeacms"],
+        )
+        pkg_plone = {"package": {"name": "@plone/volto", "keywords": []}}
+        pkg_collective = {
+            "package": {"name": "@plone-collective/addon", "keywords": []}
+        }
+        pkg_eeacms = {"package": {"name": "@eeacms/volto-addon", "keywords": []}}
+        pkg_other = {"package": {"name": "@other/package", "keywords": []}}
+
+        assert aggregator._is_valid_package(pkg_plone) is True
+        assert aggregator._is_valid_package(pkg_collective) is True
+        assert aggregator._is_valid_package(pkg_eeacms) is True
+        assert aggregator._is_valid_package(pkg_other) is False
+
+    @responses.activate
+    def test_search_packages_filters_non_matching(self):
+        """Test that _search_packages filters out non-matching packages."""
+        # Create a search response with both valid and invalid packages
+        search_response = {
+            "objects": [
+                {
+                    "package": {
+                        "name": "@plone/volto",
+                        "keywords": ["plone", "volto"],
+                    },
+                    "score": {"final": 0.9},
+                },
+                {
+                    "package": {
+                        "name": "svelte-kit",
+                        "keywords": ["svelte", "framework"],
+                    },
+                    "score": {"final": 0.8},
+                },
+                {
+                    "package": {
+                        "name": "plone-react-addon",
+                        "keywords": ["plone", "react"],
+                    },
+                    "score": {"final": 0.7},
+                },
+            ],
+            "total": 3,
+        }
+
+        responses.add(
+            responses.GET,
+            re.compile(r"https://registry\.npmjs\.org/-/v1/search.*keywords%3Aplone"),
+            json=search_response,
+            status=200,
+        )
+
+        aggregator = NpmAggregator(
+            mode="first",
+            filter_keywords=["plone"],
+            filter_scopes=["@plone"],
+        )
+        packages = aggregator._search_packages()
+
+        # Should include valid packages
+        assert "@plone/volto" in packages
+        assert "plone-react-addon" in packages
+        # Should reject svelte-kit (no plone keyword, not in @plone scope)
+        assert "svelte-kit" not in packages
+        assert len(packages) == 2

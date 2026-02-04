@@ -135,6 +135,32 @@ class NpmAggregator:
                 break
             yield batch
 
+    def _is_valid_package(self, pkg):
+        """Check if package matches filter criteria (keyword or scope).
+
+        Args:
+            pkg: Search result package object
+
+        Returns:
+            True if package has valid keyword or is in valid scope
+        """
+        pkg_data = pkg.get("package", {})
+        name = pkg_data.get("name", "")
+        keywords = pkg_data.get("keywords", [])
+
+        # Check if package is in a configured scope
+        for scope in self.filter_scopes:
+            if name.startswith(f"{scope}/"):
+                return True
+
+        # Check if package has a configured keyword (case-insensitive)
+        pkg_keywords_lower = {k.lower() for k in keywords if isinstance(k, str)}
+        for keyword in self.filter_keywords:
+            if keyword.lower() in pkg_keywords_lower:
+                return True
+
+        return False
+
     def _search_packages(self):
         """Search for packages by keywords and scopes.
 
@@ -142,6 +168,7 @@ class NpmAggregator:
             Dict mapping package name to search result data (includes scores)
         """
         packages = {}
+        rejected_count = 0
 
         # Search by keywords
         for keyword in self.filter_keywords:
@@ -150,7 +177,13 @@ class NpmAggregator:
             for pkg in results:
                 name = pkg.get("package", {}).get("name")
                 if name and name not in packages:
-                    packages[name] = pkg
+                    if self._is_valid_package(pkg):
+                        packages[name] = pkg
+                    else:
+                        rejected_count += 1
+                        logger.debug(
+                            f"Rejected package {name}: no matching keyword/scope"
+                        )
 
         # Search by scopes
         for scope in self.filter_scopes:
@@ -159,9 +192,17 @@ class NpmAggregator:
             for pkg in results:
                 name = pkg.get("package", {}).get("name")
                 if name and name not in packages:
-                    packages[name] = pkg
+                    if self._is_valid_package(pkg):
+                        packages[name] = pkg
+                    else:
+                        rejected_count += 1
+                        logger.debug(
+                            f"Rejected package {name}: no matching keyword/scope"
+                        )
 
-        logger.info(f"Found {len(packages)} unique packages from npm search")
+        logger.info(
+            f"Found {len(packages)} valid packages, rejected {rejected_count} non-matching"
+        )
         return packages
 
     def _search_by_keyword(self, keyword):

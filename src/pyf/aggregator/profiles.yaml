@@ -9,6 +9,8 @@ profiles:
     name: "Plone"
     classifiers:
       - "Framework :: Plone"
+      - "Framework :: Plone :: 6.2"
+      - "Framework :: Plone :: 6.1"
       - "Framework :: Plone :: 6.0"
       - "Framework :: Plone :: 5.2"
       - "Framework :: Plone :: 5.1"
@@ -19,6 +21,7 @@ profiles:
     npm:
       keywords:
         - plone
+        - volto
       scopes:
         - "@plone"
         - "@plone-collective"
