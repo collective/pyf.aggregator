@@ -98,11 +98,6 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
             "health_score": data["health_score"],
             "health_score_breakdown": data["health_score_breakdown"],
             "health_score_last_calculated": data["health_score_last_calculated"],
-            "health_problems_documentation": data.get(
-                "health_problems_documentation", []
-            ),
-            "health_problems_metadata": data.get("health_problems_metadata", []),
-            "health_problems_recency": data.get("health_problems_recency", []),
         }
         try:
             self.client.collections[target].documents[id].update(document)
@@ -133,45 +128,45 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
 
         Final score is capped at 100.
 
-        Also tracks problems for each category.
+        Also tracks problems and bonuses for each category.
         """
         # Always calculate base score from scratch to ensure consistency
         base_score = 0
-        breakdown = {}
 
         # Factor 1: Release recency (40 points max)
-        recency_score, problems_recency = calculate_recency_score_with_problems(
-            data.get("upload_timestamp")
+        recency_score, problems_recency, bonuses_recency = (
+            calculate_recency_score_with_problems(data.get("upload_timestamp"))
         )
         base_score += recency_score
-        breakdown["recency"] = recency_score
 
         # Factor 2: Documentation presence (30 points max)
-        docs_score, problems_documentation = calculate_docs_score_with_problems(data)
+        docs_score, problems_documentation, bonuses_documentation = (
+            calculate_docs_score_with_problems(data)
+        )
         base_score += docs_score
-        breakdown["documentation"] = docs_score
 
         # Factor 3: Metadata quality (30 points max)
-        metadata_score, problems_metadata = calculate_metadata_score_with_problems(data)
+        metadata_score, problems_metadata, bonuses_metadata = (
+            calculate_metadata_score_with_problems(data)
+        )
         base_score += metadata_score
-        breakdown["metadata"] = metadata_score
 
         # Calculate GitHub enhancement bonuses
         github_bonus = 0
 
         # Bonus 1: Stars (popularity indicator, up to +10 points)
         stars = data.get("github_stars", 0)
+        stars_bonus = 0
         if stars:
             stars_bonus = self._calculate_stars_bonus(stars)
             github_bonus += stars_bonus
-            breakdown["github_stars_bonus"] = stars_bonus
 
         # Bonus 2: Recent activity (up to +10 points)
         github_updated = data.get("github_updated")
+        activity_bonus = 0
         if github_updated:
             activity_bonus = self._calculate_activity_bonus(github_updated)
             github_bonus += activity_bonus
-            breakdown["github_activity_bonus"] = activity_bonus
 
             # Add GitHub activity problems
             if activity_bonus == 0:
@@ -183,6 +178,7 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
 
         # Bonus 3: Issue management (up to +10 points)
         # Only calculate if we have both stars and open_issues data
+        issue_bonus = 0
         if "github_open_issues" in data and "github_stars" in data:
             open_issues = data.get("github_open_issues", 0)
             stars_for_ratio = data.get("github_stars", 0)
@@ -191,7 +187,6 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
                     open_issues, stars_for_ratio
                 )
                 github_bonus += issue_bonus
-                breakdown["github_issue_bonus"] = issue_bonus
 
                 # Add issue ratio problems
                 if issue_bonus == 0:
@@ -206,7 +201,32 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
                     if "elevated open issues ratio (>0.5)" not in problems_metadata:
                         problems_metadata.append("elevated open issues ratio (>0.5)")
 
-        # Add GitHub bonus to breakdown
+        # Build new breakdown structure with points, problems, and bonuses
+        breakdown = {
+            "recency": {
+                "points": recency_score,
+                "problems": problems_recency,
+                "bonuses": bonuses_recency,
+            },
+            "documentation": {
+                "points": docs_score,
+                "problems": problems_documentation,
+                "bonuses": bonuses_documentation,
+            },
+            "metadata": {
+                "points": metadata_score,
+                "problems": problems_metadata,
+                "bonuses": bonuses_metadata,
+            },
+        }
+
+        # Add GitHub bonuses to breakdown at top level
+        if stars_bonus > 0:
+            breakdown["github_stars_bonus"] = stars_bonus
+        if activity_bonus > 0:
+            breakdown["github_activity_bonus"] = activity_bonus
+        if issue_bonus > 0:
+            breakdown["github_issue_bonus"] = issue_bonus
         if github_bonus > 0:
             breakdown["github_bonus_total"] = github_bonus
 
@@ -217,9 +237,6 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
             "health_score": int(final_score),
             "health_score_breakdown": breakdown,
             "health_score_last_calculated": int(time.time()),
-            "health_problems_documentation": problems_documentation,
-            "health_problems_metadata": problems_metadata,
-            "health_problems_recency": problems_recency,
         }
 
     def _calculate_stars_bonus(self, stars):

@@ -798,11 +798,8 @@ The Typesense collection schema includes the following field categories:
 - `version_major`, `version_minor`, `version_bugfix` - Parsed version components
 - `version_sortable` - Sortable string for correct version ordering (see below)
 - `health_score` - Package health metric (0-100)
-- `health_score_breakdown` - Detailed scoring factors (recency, documentation, metadata)
+- `health_score_breakdown` - Detailed scoring with points, problems, and bonuses per category (see Health Score section)
 - `health_score_last_calculated` - Unix timestamp of when the health score was last calculated
-- `health_problems_documentation` - Array of documentation-related issues found
-- `health_problems_metadata` - Array of metadata-related issues found
-- `health_problems_recency` - Array of recency-related issues found
 
 **Version Sorting:**
 
@@ -869,10 +866,12 @@ pyfhealth -p plone           # Calculate health scores (with GitHub bonuses)
 
 | Criterion | Points |
 |-----------|--------|
-| Has `docs_url` | 4 |
 | Has meaningful description (>150 chars) | 18 |
-| Has documentation links in `project_urls` | 3 |
-| Has meaningful screenshots in documentation | 5 |
+| Has `docs_url` | +4 (bonus) |
+| Has documentation links in `project_urls` | +3 (bonus) |
+| Has meaningful screenshots in documentation | +5 (bonus) |
+
+*Documentation Link Requirement:* If the README has fewer than 500 words, at least one external documentation link (`docs_url` or a documentation URL in `project_urls`) is recommended. Packages with comprehensive READMEs (500+ words) don't require external documentation links.
 
 *Screenshot Detection:* Images in the package description HTML are analyzed to find documentation-worthy visuals. Badge images (from shields.io, codecov.io, etc.) are filtered out, and only images with a width of at least 200 pixels are counted as meaningful screenshots.
 
@@ -921,26 +920,55 @@ Based on the ratio of open issues to stars (lower is better):
 | 0.5-1.0 (Poor) | +3 |
 | > 1.0 (Very poor) | 0 |
 
-#### Score Breakdown Fields
+#### Score Breakdown Structure
 
-The breakdown is stored in `health_score_breakdown` as an object with these fields:
-- `recency` - Points from release recency (0-40)
-- `documentation` - Points from documentation presence (0-30)
-- `metadata` - Points from metadata quality (0-30)
+The `health_score_breakdown` field contains detailed scoring information organized by category. Each category includes points earned, problems found, and bonuses applied:
+
+```json
+{
+  "recency": {
+    "points": 40,
+    "problems": [],
+    "bonuses": []
+  },
+  "documentation": {
+    "points": 25,
+    "problems": [],
+    "bonuses": [
+      {"reason": "has dedicated docs URL", "points": 4},
+      {"reason": "has documentation project URL", "points": 3}
+    ]
+  },
+  "metadata": {
+    "points": 30,
+    "problems": [],
+    "bonuses": []
+  },
+  "github_stars_bonus": 5,
+  "github_activity_bonus": 10,
+  "github_issue_bonus": 7,
+  "github_bonus_total": 22
+}
+```
+
+**Category Fields:**
+- `recency.points` - Points from release recency (0-40)
+- `recency.problems` - Issues like "last release over 1 year ago", "no release timestamp"
+- `recency.bonuses` - Currently empty (no recency bonuses defined)
+- `documentation.points` - Points from documentation presence (0-30)
+- `documentation.problems` - Issues like "description too short (<150 chars)", "not enough documentation (extend README to 500+ words or add documentation link)"
+- `documentation.bonuses` - Array of `{reason, points}` objects for bonuses: "has dedicated docs URL" (+4), "has documentation project URL" (+3), "has meaningful screenshots" (+5)
+- `metadata.points` - Points from metadata quality (0-30)
+- `metadata.problems` - Issues like "no license", "fewer than 3 classifiers", "no author info"
+- `metadata.bonuses` - Currently empty (metadata criteria are requirements, not bonuses)
+
+**GitHub Bonus Fields (only present when GitHub data is available):**
 - `github_stars_bonus` - Bonus from GitHub stars (0-10)
 - `github_activity_bonus` - Bonus from GitHub activity (0-10)
 - `github_issue_bonus` - Bonus from issue management (0-10)
 - `github_bonus_total` - Total GitHub bonus applied
 
-#### Health Problems
-
-The health score also tracks specific issues found during calculation. These are stored as arrays of problem descriptions:
-
-- `health_problems_documentation` - Documentation issues (e.g., "no docs_url", "description too short (<150 chars)", "no meaningful screenshots in documentation")
-- `health_problems_metadata` - Metadata issues (e.g., "no license", "fewer than 3 classifiers", "no author info")
-- `health_problems_recency` - Release recency issues (e.g., "last release over 1 year ago", "no release timestamp")
-
-These problem fields can be used by frontends to show users actionable feedback on how to improve their package's health score.
+The problems arrays can be used by frontends to show users actionable feedback on how to improve their package's health score.
 
 ### Queue-Based Processing
 
