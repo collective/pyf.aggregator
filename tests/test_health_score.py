@@ -22,6 +22,7 @@ from pyf.aggregator.plugins.health_score import (
     calculate_metadata_score,
     calculate_metadata_score_with_problems,
     count_words,
+    is_meaningful_docs_url,
     load,
 )
 from pyf.aggregator.enrichers.health_calculator import HealthEnricher
@@ -42,11 +43,12 @@ def sample_package_data_complete():
         "version": "2.0.0",
         "upload_timestamp": int(time.time()),  # Unix timestamp (int64)
         "docs_url": "https://ploneapi.readthedocs.io/",
-        "description": "A" * 151,  # >150 chars for 18 points
-        "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
+        # >150 chars for 18 points + screenshot for 5 points
+        "description": "A" * 151
+        + '<img src="https://example.com/screenshot.png" width="400">',
         "project_urls": {
             "Documentation": "https://ploneapi.readthedocs.io/",
-            "Homepage": "https://github.com/plone/plone.api",
+            "Homepage": "https://plone.org/",
         },
         "maintainer": "Plone Foundation",
         "author": "Plone Team",
@@ -122,6 +124,19 @@ class TestProcess:
         assert "recency" in breakdown
         assert "documentation" in breakdown
         assert "metadata" in breakdown
+
+    def test_breakdown_includes_max_points(self, sample_package_data_complete):
+        """Test that breakdown includes max_points for each category."""
+        data = sample_package_data_complete.copy()
+        process("test-id", data)
+
+        breakdown = data["health_score_breakdown"]
+        # Check max_points for each category
+        assert breakdown["recency"]["max_points"] == 40
+        assert (
+            breakdown["documentation"]["max_points"] == 18
+        )  # Base only, bonuses are extra
+        assert breakdown["metadata"]["max_points"] == 30
 
     def test_breakdown_scores_sum_to_total(self, sample_package_data_complete):
         """Test that breakdown scores sum to total score."""
@@ -324,6 +339,114 @@ class TestCountWords:
 
 
 # ============================================================================
+# URL Validation Tests
+# ============================================================================
+
+
+class TestIsMeaningfulDocsUrl:
+    """Tests for is_meaningful_docs_url helper function."""
+
+    def test_rejects_pypi_url(self):
+        """Test that PyPI detail pages are rejected."""
+        assert is_meaningful_docs_url("https://pypi.org/project/mypackage/") is False
+
+    def test_rejects_github_repo_root(self):
+        """Test that GitHub repo root URLs are rejected."""
+        assert is_meaningful_docs_url("https://github.com/user/repo") is False
+        assert is_meaningful_docs_url("https://github.com/user/repo/") is False
+
+    def test_rejects_github_readme_anchor(self):
+        """Test that GitHub README anchor URLs are rejected."""
+        assert is_meaningful_docs_url("https://github.com/user/repo#readme") is False
+
+    def test_rejects_gitlab_repo_root(self):
+        """Test that GitLab repo root URLs are rejected."""
+        assert is_meaningful_docs_url("https://gitlab.com/user/repo") is False
+
+    def test_accepts_readthedocs(self):
+        """Test that ReadTheDocs URLs are accepted."""
+        assert is_meaningful_docs_url("https://myproject.readthedocs.io/") is True
+
+    def test_accepts_github_wiki(self):
+        """Test that GitHub wiki URLs are accepted."""
+        assert is_meaningful_docs_url("https://github.com/user/repo/wiki") is True
+
+    def test_accepts_github_docs_page(self):
+        """Test that GitHub docs pages are accepted."""
+        assert (
+            is_meaningful_docs_url(
+                "https://github.com/user/repo/blob/main/docs/index.md"
+            )
+            is True
+        )
+
+    def test_accepts_external_homepage(self):
+        """Test that external homepages are accepted."""
+        assert is_meaningful_docs_url("https://example.com/docs/") is True
+
+    def test_rejects_empty_url(self):
+        """Test that empty URLs are rejected."""
+        assert is_meaningful_docs_url("") is False
+        assert is_meaningful_docs_url(None) is False
+
+
+class TestDocsUrlFiltering:
+    """Tests for URL filtering in docs score calculation."""
+
+    def test_docs_url_not_counted_for_pypi(self):
+        """Test that PyPI URLs don't count as docs_url."""
+        data = {"docs_url": "https://pypi.org/project/mypackage/"}
+        score = calculate_docs_score(data)
+        assert score == 0  # Was 4, now 0
+
+    def test_docs_url_not_counted_for_github_readme(self):
+        """Test that GitHub README URLs don't count as docs_url."""
+        data = {"docs_url": "https://github.com/user/repo"}
+        score = calculate_docs_score(data)
+        assert score == 0  # Was 4, now 0
+
+    def test_project_url_not_counted_for_pypi(self):
+        """Test that PyPI URLs in project_urls don't count."""
+        data = {"project_urls": {"Homepage": "https://pypi.org/project/mypackage/"}}
+        score = calculate_docs_score(data)
+        assert score == 0  # Was 3, now 0
+
+    def test_project_url_not_counted_for_github_repo_root(self):
+        """Test that GitHub repo root URLs in project_urls don't count."""
+        data = {"project_urls": {"Homepage": "https://github.com/user/repo"}}
+        score = calculate_docs_score(data)
+        assert score == 0  # Was 3, now 0
+
+    def test_valid_readthedocs_docs_url_counted(self):
+        """Test that valid ReadTheDocs URL counts as docs_url."""
+        data = {"docs_url": "https://myproject.readthedocs.io/"}
+        score = calculate_docs_score(data)
+        assert score == 4
+
+    def test_valid_external_homepage_counted(self):
+        """Test that valid external homepage URL counts."""
+        data = {"project_urls": {"Homepage": "https://example.com"}}
+        score = calculate_docs_score(data)
+        assert score == 3
+
+    def test_github_wiki_url_counted(self):
+        """Test that GitHub wiki URL counts."""
+        data = {"project_urls": {"Documentation": "https://github.com/user/repo/wiki"}}
+        score = calculate_docs_score(data)
+        assert score == 3
+
+    def test_github_docs_folder_url_counted(self):
+        """Test that GitHub docs folder URL counts."""
+        data = {
+            "project_urls": {
+                "Documentation": "https://github.com/user/repo/blob/main/docs/index.md"
+            }
+        }
+        score = calculate_docs_score(data)
+        assert score == 3
+
+
+# ============================================================================
 # Documentation Score Tests
 # ============================================================================
 
@@ -395,9 +518,10 @@ class TestCalculateDocsScore:
         """Test that having all documentation factors gives 30 points."""
         data = {
             "docs_url": "https://docs.example.com",
-            "description": "A" * 151,  # >150 chars for 18 points
+            # >150 chars for 18 points + screenshot for 5 points
+            "description": "A" * 151
+            + '<img src="https://example.com/screenshot.png" width="400">',
             "project_urls": {"Documentation": "https://docs.example.com"},  # 3 points
-            "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
         }
         score = calculate_docs_score(data)
         assert score == 30  # 4 + 18 + 3 + 5 = 30
@@ -415,7 +539,7 @@ class TestCalculateDocsScore:
     def test_returns_5_for_screenshot_only(self):
         """Test that having only a screenshot gives 5 points."""
         data = {
-            "description_html": '<img src="https://example.com/screenshot.png" width="400">',
+            "description": '<img src="https://example.com/screenshot.png" width="400">',
         }
         score = calculate_docs_score(data)
         assert score == 5
@@ -423,7 +547,7 @@ class TestCalculateDocsScore:
     def test_badges_dont_count_as_screenshots(self):
         """Test that badge images don't give screenshot points."""
         data = {
-            "description_html": '<img src="https://img.shields.io/badge/test.svg" width="400">',
+            "description": '<img src="https://img.shields.io/badge/test.svg" width="400">',
         }
         score = calculate_docs_score(data)
         assert score == 0  # Badge is filtered out
@@ -485,7 +609,7 @@ class TestDocumentationLinkRequirement:
             "main_content": f"<p>{long_content}</p>",
             "description": "A" * 151,  # Meet description requirement
         }
-        score, problems, bonuses = calculate_docs_score_with_problems(data)
+        score, problems, bonuses, _ = calculate_docs_score_with_problems(data)
         # Should NOT report "not enough documentation" because README is comprehensive
         assert (
             "not enough documentation (extend README to 500+ words or add documentation link)"
@@ -499,7 +623,7 @@ class TestDocumentationLinkRequirement:
             "docs_url": "https://docs.example.com",
             "description": "A" * 151,
         }
-        score, problems, bonuses = calculate_docs_score_with_problems(data)
+        score, problems, bonuses, _ = calculate_docs_score_with_problems(data)
         # Should NOT report "not enough documentation" because docs_url is present
         assert (
             "not enough documentation (extend README to 500+ words or add documentation link)"
@@ -513,7 +637,7 @@ class TestDocumentationLinkRequirement:
             "project_urls": {"Documentation": "https://docs.example.com"},
             "description": "A" * 151,
         }
-        score, problems, bonuses = calculate_docs_score_with_problems(data)
+        score, problems, bonuses, _ = calculate_docs_score_with_problems(data)
         # Should NOT report "not enough documentation" because documentation link is present
         assert (
             "not enough documentation (extend README to 500+ words or add documentation link)"
@@ -527,7 +651,7 @@ class TestDocumentationLinkRequirement:
             "description": "A" * 151,
             # No docs_url, no documentation project_urls
         }
-        score, problems, bonuses = calculate_docs_score_with_problems(data)
+        score, problems, bonuses, _ = calculate_docs_score_with_problems(data)
         # Should report "not enough documentation"
         assert (
             "not enough documentation (extend README to 500+ words or add documentation link)"
@@ -540,7 +664,7 @@ class TestDocumentationLinkRequirement:
             "main_content": "",
             "description": "A" * 151,
         }
-        score, problems, bonuses = calculate_docs_score_with_problems(data)
+        score, problems, bonuses, _ = calculate_docs_score_with_problems(data)
         # Should report "not enough documentation"
         assert (
             "not enough documentation (extend README to 500+ words or add documentation link)"
@@ -555,7 +679,7 @@ class TestDocumentationLinkRequirement:
             "main_content": f"<p>{content_500}</p>",
             "description": "A" * 151,
         }
-        score, problems, bonuses = calculate_docs_score_with_problems(data)
+        score, problems, bonuses, _ = calculate_docs_score_with_problems(data)
         # Should NOT report problem at exactly 500 words
         assert (
             "not enough documentation (extend README to 500+ words or add documentation link)"
@@ -570,7 +694,7 @@ class TestDocumentationLinkRequirement:
             "main_content": f"<p>{content_499}</p>",
             "description": "A" * 151,
         }
-        score, problems, bonuses = calculate_docs_score_with_problems(data)
+        score, problems, bonuses, _ = calculate_docs_score_with_problems(data)
         # Should report problem at 499 words
         assert (
             "not enough documentation (extend README to 500+ words or add documentation link)"
@@ -581,7 +705,7 @@ class TestDocumentationLinkRequirement:
         """Test that docs_url gives 4 points but no standalone problem if missing."""
         # With docs_url
         data_with = {"docs_url": "https://docs.example.com"}
-        score_with, problems_with, bonuses_with = calculate_docs_score_with_problems(
+        score_with, problems_with, bonuses_with, _ = calculate_docs_score_with_problems(
             data_with
         )
         assert score_with == 4
@@ -590,7 +714,7 @@ class TestDocumentationLinkRequirement:
 
         # Without docs_url (but has doc link to avoid combined problem)
         data_without = {"project_urls": {"Documentation": "https://docs.example.com"}}
-        score_without, problems_without, bonuses_without = (
+        score_without, problems_without, bonuses_without, _ = (
             calculate_docs_score_with_problems(data_without)
         )
         assert score_without == 3
@@ -601,7 +725,7 @@ class TestDocumentationLinkRequirement:
         """Test that documentation project_urls gives 3 points but no standalone problem if missing."""
         # With doc project URL
         data_with = {"project_urls": {"Documentation": "https://docs.example.com"}}
-        score_with, problems_with, bonuses_with = calculate_docs_score_with_problems(
+        score_with, problems_with, bonuses_with, _ = calculate_docs_score_with_problems(
             data_with
         )
         assert score_with == 3
@@ -610,7 +734,7 @@ class TestDocumentationLinkRequirement:
 
         # Without doc project URL (but has docs_url to avoid combined problem)
         data_without = {"docs_url": "https://docs.example.com"}
-        score_without, problems_without, bonuses_without = (
+        score_without, problems_without, bonuses_without, _ = (
             calculate_docs_score_with_problems(data_without)
         )
         assert score_without == 4
@@ -626,7 +750,7 @@ class TestDocumentationLinkRequirement:
             "main_content": f"<p>{content_250}</p>",
             "description": "A" * 151,
         }
-        score, problems, bonuses = calculate_docs_score_with_problems(data)
+        score, problems, bonuses, _ = calculate_docs_score_with_problems(data)
         # Should NOT report "not enough documentation" because combined word count >= 500
         assert (
             "not enough documentation (extend README to 500+ words or add documentation link)"
@@ -643,7 +767,7 @@ class TestDocumentationLinkRequirement:
             "changelog": f"<p>{long_changelog}</p>",  # Should be ignored
             "description": "A" * 151,
         }
-        score, problems, bonuses = calculate_docs_score_with_problems(data)
+        score, problems, bonuses, _ = calculate_docs_score_with_problems(data)
         # Should report "not enough documentation" because main_content < 500 words
         # (changelog is correctly excluded)
         assert (
@@ -791,8 +915,9 @@ class TestIntegration:
         data = {
             "upload_timestamp": int(time.time()),  # Unix timestamp (int64)
             "docs_url": "https://docs.example.com",
-            "description": "A" * 200,
-            "description_html": '<img src="https://example.com/screenshot.png" width="400">',
+            # >150 chars for 18 points + screenshot for 5 points
+            "description": "A" * 200
+            + '<img src="https://example.com/screenshot.png" width="400">',
             "project_urls": {"Documentation": "https://docs.example.com"},
             "maintainer": "Team",
             "license": "MIT",
@@ -814,8 +939,9 @@ class TestIntegration:
         data = {
             "upload_timestamp": old_date.isoformat(),
             "docs_url": "https://docs.example.com",
-            "description": "A" * 151,  # >150 chars for 18 points
-            "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
+            # >150 chars for 18 points + screenshot for 5 points
+            "description": "A" * 151
+            + '<img src="https://example.com/screenshot.png" width="400">',
             "project_urls": {"Documentation": "https://docs.example.com"},  # 3 points
             "maintainer": "Team",
             "license": "MIT",
@@ -878,12 +1004,13 @@ class TestHealthScoreIntegration:
             "version": "2.0.3",
             "upload_timestamp": recent_timestamp,  # Unix timestamp (int64)
             "docs_url": "https://ploneapi.readthedocs.io/en/latest/",
+            # >150 chars for 18 points + screenshot for 5 points
             "description": (
                 "plone.api is an elegant and simple API for Plone. "
                 "It provides a high-level API to access Plone functionality. "
                 "The goal is to make working with Plone easier."
+                '<img src="https://example.com/screenshot.png" width="400">'
             ),
-            "description_html": '<img src="https://example.com/screenshot.png" width="400">',
             "project_urls": {
                 "Documentation": "https://ploneapi.readthedocs.io/",
                 "Source": "https://github.com/plone/plone.api",
@@ -1005,12 +1132,13 @@ class TestHealthScoreIntegration:
             "version": "3.1.0",
             "upload_timestamp": old_timestamp,  # Unix timestamp (int64)
             "docs_url": "https://collectiveeasyform.readthedocs.io/",
+            # >150 chars for 18 points + screenshot for 5 points
             "description": (
                 "collective.easyform enables creation of custom forms through-the-web. "
                 "It provides a powerful form builder with validation, custom actions, "
                 "and a variety of field types. Extensive documentation available online."
+                '<img src="https://example.com/screenshot.png" width="400">'
             ),
-            "description_html": '<img src="https://example.com/screenshot.png" width="400">',
             "project_urls": {
                 "Documentation": "https://collectiveeasyform.readthedocs.io/",
                 "Source": "https://github.com/collective/collective.easyform",
@@ -1054,8 +1182,9 @@ class TestHealthScoreIntegration:
             "version": "2.0.0",
             "upload_timestamp": old_timestamp,  # Unix timestamp (int64)
             "docs_url": "https://docs.example.com",  # 4 points
-            "description": "A" * 151,  # >150 chars for 18 points
-            "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
+            # >150 chars for 18 points + screenshot for 5 points
+            "description": "A" * 151
+            + '<img src="https://example.com/screenshot.png" width="400">',
             "project_urls": {"Documentation": "https://docs.example.com"},  # 3 points
             "maintainer": "Team Two",
             "license": "MIT",
@@ -1088,8 +1217,9 @@ class TestHealthScoreIntegration:
             "version": "1.0.0",
             "upload_timestamp": int(time_module.time()),  # Unix timestamp (int64)
             "docs_url": "https://docs.test.com",  # 4 points
-            "description": "A" * 151,  # >150 chars for 18 points
-            "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
+            # >150 chars for 18 points + screenshot for 5 points
+            "description": "A" * 151
+            + '<img src="https://example.com/screenshot.png" width="400">',
             "project_urls": {"Documentation": "https://docs.test.com"},  # 3 points
             "maintainer": "Test Team",
             "license": "BSD",
@@ -1257,8 +1387,9 @@ class TestHealthScoreIntegration:
             "version": "1.0.0",
             "upload_timestamp": int(time_module.time()),  # Unix timestamp (int64)
             "docs_url": "https://docs.example.com",  # 4 points
-            "description": "A" * 10000,  # Very long description (18 points)
-            "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
+            # Very long description (18 points) + screenshot for 5 points
+            "description": "A" * 10000
+            + '<img src="https://example.com/screenshot.png" width="400">',
             "project_urls": {
                 "Documentation": "https://docs.example.com",
                 **{f"URL{i}": f"https://url{i}.com" for i in range(100)},
@@ -1479,8 +1610,9 @@ class TestHealthCalculatorEnricher:
             "upload_timestamp": int(time_module.time())
             - (30 * 86400),  # 30 days = 40 points
             "docs_url": "https://docs.example.com",  # 4 points
-            "description": "A" * 151,  # 18 points
-            "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
+            # >150 chars for 18 points + screenshot for 5 points
+            "description": "A" * 151
+            + '<img src="https://example.com/screenshot.png" width="400">',
             "project_urls": {"Documentation": "https://docs.example.com"},  # 3 points
             "maintainer": "Team",  # 10 points
             "license": "MIT",  # 10 points
@@ -1514,8 +1646,9 @@ class TestHealthCalculatorEnricher:
         data = {
             "upload_timestamp": int(time_module.time()),  # Recent = 40 points
             "docs_url": "https://docs.example.com",  # 4 points
-            "description": "A" * 151,  # 18 points
-            "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
+            # >150 chars for 18 points + screenshot for 5 points
+            "description": "A" * 151
+            + '<img src="https://example.com/screenshot.png" width="400">',
             "project_urls": {"Documentation": "https://docs.example.com"},  # 3 points
             "maintainer": "Team",  # 10 points
             "license": "MIT",  # 10 points
@@ -1613,8 +1746,9 @@ class TestHealthScoreProblems:
             "version": "1.0.0",
             "upload_timestamp": int(time_module.time()),  # Recent
             "docs_url": "https://docs.example.com",  # 4 points
-            "description": "A" * 151,  # >150 chars (18 points)
-            "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
+            # >150 chars for 18 points + screenshot for 5 points
+            "description": "A" * 151
+            + '<img src="https://example.com/screenshot.png" width="400">',
             "project_urls": {"Documentation": "https://docs.example.com"},  # 3 points
             "maintainer": "Team",
             "author": "Developer",
@@ -1672,37 +1806,43 @@ class TestHealthScoreProblems:
 
         # Recent package (< 6 months) - no problems
         recent_ts = int(time_module.time()) - (90 * 86400)  # 90 days
-        score, problems, bonuses = calculate_recency_score_with_problems(recent_ts)
+        score, problems, bonuses, _ = calculate_recency_score_with_problems(recent_ts)
         assert score == 40
         assert problems == []
 
         # 6-12 months - "last release over 6 months ago"
         six_month_ts = int(time_module.time()) - (200 * 86400)  # 200 days
-        score, problems, bonuses = calculate_recency_score_with_problems(six_month_ts)
+        score, problems, bonuses, _ = calculate_recency_score_with_problems(
+            six_month_ts
+        )
         assert score == 30
         assert "last release over 6 months ago" in problems
 
         # 1-2 years - "last release over 1 year ago"
         one_year_ts = int(time_module.time()) - (400 * 86400)  # 400 days
-        score, problems, bonuses = calculate_recency_score_with_problems(one_year_ts)
+        score, problems, bonuses, _ = calculate_recency_score_with_problems(one_year_ts)
         assert score == 20
         assert "last release over 1 year ago" in problems
 
         # 2-3 years - "last release over 2 years ago"
         two_year_ts = int(time_module.time()) - (900 * 86400)  # 900 days
-        score, problems, bonuses = calculate_recency_score_with_problems(two_year_ts)
+        score, problems, bonuses, _ = calculate_recency_score_with_problems(two_year_ts)
         assert score == 10
         assert "last release over 2 years ago" in problems
 
         # 3-5 years - "last release over 3 years ago"
         three_year_ts = int(time_module.time()) - (1200 * 86400)  # 1200 days
-        score, problems, bonuses = calculate_recency_score_with_problems(three_year_ts)
+        score, problems, bonuses, _ = calculate_recency_score_with_problems(
+            three_year_ts
+        )
         assert score == 5
         assert "last release over 3 years ago" in problems
 
         # > 5 years - "last release over 5 years ago"
         five_year_ts = int(time_module.time()) - (2000 * 86400)  # 2000 days
-        score, problems, bonuses = calculate_recency_score_with_problems(five_year_ts)
+        score, problems, bonuses, _ = calculate_recency_score_with_problems(
+            five_year_ts
+        )
         assert score == 0
         assert "last release over 5 years ago" in problems
 
@@ -1710,7 +1850,7 @@ class TestHealthScoreProblems:
         """Test that only missing documentation items are reported as problems."""
         # Has docs_url but nothing else - docs_url is bonus only, no "not enough documentation" problem
         data1 = {"docs_url": "https://docs.example.com"}
-        score, problems, bonuses = calculate_docs_score_with_problems(data1)
+        score, problems, bonuses, _ = calculate_docs_score_with_problems(data1)
         assert score == 4  # Only docs_url gives 4 points
         assert "description too short (<150 chars)" in problems
         # No "not enough documentation" because docs_url counts as external doc link
@@ -1723,7 +1863,7 @@ class TestHealthScoreProblems:
 
         # Has long description but nothing else (short README, no external docs)
         data2 = {"description": "A" * 151}  # >150 chars
-        score, problems, bonuses = calculate_docs_score_with_problems(data2)
+        score, problems, bonuses, _ = calculate_docs_score_with_problems(data2)
         assert score == 18  # Description gives 18 points
         assert "description too short (<150 chars)" not in problems
         # Should report "not enough documentation" because README < 500 words and no docs_url or doc links
@@ -1734,7 +1874,7 @@ class TestHealthScoreProblems:
 
         # Has project URLs with documentation link but nothing else - doc link counts
         data3 = {"project_urls": {"Documentation": "https://docs.example.com"}}
-        score, problems, bonuses = calculate_docs_score_with_problems(data3)
+        score, problems, bonuses, _ = calculate_docs_score_with_problems(data3)
         assert score == 3  # Project URLs gives 3 points
         assert "description too short (<150 chars)" in problems
         # No "not enough documentation" because doc link counts as external doc
@@ -1746,9 +1886,9 @@ class TestHealthScoreProblems:
 
         # Has screenshot but nothing else (short README, no external docs)
         data4 = {
-            "description_html": '<img src="https://example.com/screenshot.png" width="400">'
+            "description": '<img src="https://example.com/screenshot.png" width="400">'
         }
-        score, problems, bonuses = calculate_docs_score_with_problems(data4)
+        score, problems, bonuses, _ = calculate_docs_score_with_problems(data4)
         assert score == 5  # Screenshot gives 5 points
         assert "description too short (<150 chars)" in problems
         # Should report "not enough documentation" because README < 500 words and no docs_url or doc links
@@ -1763,7 +1903,7 @@ class TestHealthScoreProblems:
         """Test that only missing metadata items are reported as problems."""
         # Has maintainer but nothing else
         data1 = {"maintainer": "Team"}
-        score, problems, bonuses = calculate_metadata_score_with_problems(data1)
+        score, problems, bonuses, _ = calculate_metadata_score_with_problems(data1)
         assert score == 10
         assert "no maintainer info" not in problems
         assert "no author info" not in problems
@@ -1772,7 +1912,7 @@ class TestHealthScoreProblems:
 
         # Has author but nothing else
         data2 = {"author": "Developer"}
-        score, problems, bonuses = calculate_metadata_score_with_problems(data2)
+        score, problems, bonuses, _ = calculate_metadata_score_with_problems(data2)
         assert score == 10
         assert "no maintainer info" not in problems
         assert "no author info" not in problems
@@ -1781,7 +1921,7 @@ class TestHealthScoreProblems:
 
         # Has license but no maintainer/author
         data3 = {"license": "MIT"}
-        score, problems, bonuses = calculate_metadata_score_with_problems(data3)
+        score, problems, bonuses, _ = calculate_metadata_score_with_problems(data3)
         assert score == 10
         assert "no maintainer info" in problems
         assert "no author info" in problems
@@ -1790,12 +1930,56 @@ class TestHealthScoreProblems:
 
         # Has 3+ classifiers but nothing else
         data4 = {"classifiers": ["A", "B", "C"]}
-        score, problems, bonuses = calculate_metadata_score_with_problems(data4)
+        score, problems, bonuses, _ = calculate_metadata_score_with_problems(data4)
         assert score == 10
         assert "no maintainer info" in problems
         assert "no author info" in problems
         assert "no license" in problems
         assert "fewer than 3 classifiers" not in problems
+
+    def test_documentation_percentage_100_when_base_met(self):
+        """Test that documentation shows 100% when base requirements are met (no bonuses needed).
+
+        This is the key fix: with max_points = 18 (base only), a package with a
+        description >150 chars scores 18/18 = 100%, even without docs_url or screenshots.
+        """
+        # Package with just the base documentation requirement met
+        data = {
+            "description": "A" * 151,  # >150 chars = 18 points
+            "first_chapter": " ".join(
+                ["word"] * 500
+            ),  # 500 words, no "not enough documentation" problem
+        }
+        score, problems, bonuses, max_points = calculate_docs_score_with_problems(data)
+
+        # Base score should be 18 (description only, no bonuses)
+        assert score == 18
+        assert max_points == 18  # Base max, not including bonus points
+
+        # Calculate percentage: 18/18 = 100%
+        percentage = (score / max_points) * 100
+        assert percentage == 100.0
+
+        # No problems should be reported for meeting base requirements
+        assert "description too short (<150 chars)" not in problems
+
+    def test_documentation_percentage_exceeds_100_with_bonuses(self):
+        """Test that bonuses can push documentation points above max_points (extra credit)."""
+        # Package with base + bonuses
+        data = {
+            "description": "A" * 151,  # 18 points base
+            "docs_url": "https://docs.example.com",  # +4 bonus
+            "first_chapter": " ".join(["word"] * 500),  # 500 words
+        }
+        score, problems, bonuses, max_points = calculate_docs_score_with_problems(data)
+
+        # Base 18 + docs_url bonus 4 = 22 points
+        assert score == 22
+        assert max_points == 18
+
+        # Percentage: 22/18 = 122% (extra credit!)
+        percentage = (score / max_points) * 100
+        assert percentage > 100
 
     def test_process_stores_problems_in_data(self):
         """Test that process() correctly stores problems in breakdown structure."""
@@ -1874,9 +2058,9 @@ class TestHealthScoreProblems:
         assert "no license" in meta_problems
         assert "last release over 1 year ago" in recency_problems
 
-        # Verify GitHub problems are added
+        # Verify GitHub activity problem is added
         assert "no GitHub activity in 1+ year" in recency_problems
-        assert "high open issues to stars ratio (>1.0)" in meta_problems
+        # Note: high open issues ratio is no longer a problem (bonus only for good ratios)
 
     def test_enricher_github_problems_calculated_once(self):
         """Test that GitHub problems are calculated once from scratch."""
@@ -1898,11 +2082,10 @@ class TestHealthScoreProblems:
 
         # Get problems from breakdown structure
         recency_problems = result["health_score_breakdown"]["recency"]["problems"]
-        meta_problems = result["health_score_breakdown"]["metadata"]["problems"]
 
         # Count occurrences - should be exactly 1 (fresh calculation)
         assert recency_problems.count("no GitHub activity in 1+ year") == 1
-        assert meta_problems.count("high open issues to stars ratio (>1.0)") == 1
+        # Note: high open issues ratio is no longer a problem (bonus only for good ratios)
 
     def test_enricher_limited_github_activity_problem(self):
         """Test that limited GitHub activity (6+ months) is detected."""
@@ -1929,8 +2112,8 @@ class TestHealthScoreProblems:
         recency_problems = result["health_score_breakdown"]["recency"]["problems"]
         assert "limited GitHub activity (6+ months)" in recency_problems
 
-    def test_enricher_elevated_issues_ratio_problem(self):
-        """Test that elevated issues ratio (>0.5) is detected."""
+    def test_enricher_good_issue_management_bonus(self):
+        """Test that good issue management (ratio < 0.5) shows bonus message."""
         import time as time_module
 
         enricher = HealthEnricher.__new__(HealthEnricher)
@@ -1941,7 +2124,59 @@ class TestHealthScoreProblems:
             "maintainer": "Team",  # For some base score
             "github_stars": 100,
             "github_updated": recent_github_ts,
-            "github_open_issues": 70,  # 0.7 ratio - elevated
+            "github_open_issues": 10,  # 0.1 ratio - good (returns 7 points)
+        }
+
+        result = enricher._calculate_enhanced_health_score(data)
+
+        # Issue bonus should be 7 (ratio 0.1-0.3 range)
+        assert result["health_score_breakdown"]["github_issue_bonus"] == 7
+
+        # Get bonuses from breakdown structure
+        meta_bonuses = result["health_score_breakdown"]["metadata"]["bonuses"]
+        assert "good issue management" in meta_bonuses
+
+    def test_enricher_no_issue_bonus_message_for_poor_ratio(self):
+        """Test that no bonus message appears when issue ratio is poor."""
+        import time as time_module
+
+        enricher = HealthEnricher.__new__(HealthEnricher)
+
+        recent_github_ts = time_module.time() - (10 * 86400)  # 10 days ago
+        data = {
+            "upload_timestamp": int(time_module.time()),  # Recent upload
+            "maintainer": "Team",  # For some base score
+            "github_stars": 100,
+            "github_updated": recent_github_ts,
+            "github_open_issues": 200,  # 2.0 ratio - poor
+        }
+
+        result = enricher._calculate_enhanced_health_score(data)
+
+        # Issue bonus should be 0 (ratio > 1.0), so key won't be in breakdown
+        assert "github_issue_bonus" not in result["health_score_breakdown"]
+
+        # Get problems and bonuses from breakdown structure
+        meta_problems = result["health_score_breakdown"]["metadata"]["problems"]
+        meta_bonuses = result["health_score_breakdown"]["metadata"]["bonuses"]
+
+        # Should NOT have problem or bonus message for issue ratio
+        assert "high open issues to stars ratio (>1.0)" not in meta_problems
+        assert "good issue management" not in meta_bonuses
+
+    def test_enricher_no_issue_bonus_message_for_marginal_ratio(self):
+        """Test that no bonus message appears when issue ratio is marginal (0.5-1.0)."""
+        import time as time_module
+
+        enricher = HealthEnricher.__new__(HealthEnricher)
+
+        recent_github_ts = time_module.time() - (10 * 86400)  # 10 days ago
+        data = {
+            "upload_timestamp": int(time_module.time()),  # Recent upload
+            "maintainer": "Team",  # For some base score
+            "github_stars": 100,
+            "github_updated": recent_github_ts,
+            "github_open_issues": 70,  # 0.7 ratio - marginal
         }
 
         result = enricher._calculate_enhanced_health_score(data)
@@ -1949,9 +2184,13 @@ class TestHealthScoreProblems:
         # Issue bonus should be 3 (0.5-1.0 range)
         assert result["health_score_breakdown"]["github_issue_bonus"] == 3
 
-        # Get problems from breakdown structure
+        # Get problems and bonuses from breakdown structure
         meta_problems = result["health_score_breakdown"]["metadata"]["problems"]
-        assert "elevated open issues ratio (>0.5)" in meta_problems
+        meta_bonuses = result["health_score_breakdown"]["metadata"]["bonuses"]
+
+        # Should NOT have problem or bonus message for issue ratio
+        assert "elevated open issues ratio (>0.5)" not in meta_problems
+        assert "good issue management" not in meta_bonuses
 
 
 # ============================================================================
@@ -1969,7 +2208,7 @@ class TestScreenshotBonus:
             "description": "A" * 151,
             "docs_url": "https://docs.example.com",
         }
-        score_without, problems_without, bonuses_without = (
+        score_without, problems_without, bonuses_without, _ = (
             calculate_docs_score_with_problems(data_without)
         )
         # Should NOT have screenshot problem
@@ -1982,11 +2221,12 @@ class TestScreenshotBonus:
     def test_screenshot_gives_bonus_when_present(self):
         """Test that screenshots are tracked as bonus when present."""
         data_with = {
-            "description": "A" * 151,
+            # >150 chars for 18 points + screenshot for 5 points
+            "description": "A" * 151
+            + '<img src="https://example.com/screenshot.png" width="400">',
             "docs_url": "https://docs.example.com",
-            "description_html": '<img src="https://example.com/screenshot.png" width="400">',
         }
-        score_with, problems_with, bonuses_with = calculate_docs_score_with_problems(
+        score_with, problems_with, bonuses_with, _ = calculate_docs_score_with_problems(
             data_with
         )
         # Screenshot bonus should be present
@@ -2004,15 +2244,16 @@ class TestScreenshotBonus:
             "description": "A" * 151,
             "docs_url": "https://docs.example.com",
         }
-        score_without, _, _ = calculate_docs_score_with_problems(data_without)
+        score_without, _, _, _ = calculate_docs_score_with_problems(data_without)
 
         # With screenshot
         data_with = {
-            "description": "A" * 151,
+            # >150 chars for 18 points + screenshot for 5 points
+            "description": "A" * 151
+            + '<img src="https://example.com/screenshot.png" width="400">',
             "docs_url": "https://docs.example.com",
-            "description_html": '<img src="https://example.com/screenshot.png" width="400">',
         }
-        score_with, _, _ = calculate_docs_score_with_problems(data_with)
+        score_with, _, _, _ = calculate_docs_score_with_problems(data_with)
 
         # Screenshot should add 5 points
         assert score_with == score_without + 5
@@ -2021,11 +2262,12 @@ class TestScreenshotBonus:
         """Test that all documentation bonuses are tracked correctly."""
         data = {
             "docs_url": "https://docs.example.com",
-            "description": "A" * 151,
+            # >150 chars for 18 points + screenshot for 5 points
+            "description": "A" * 151
+            + '<img src="https://example.com/screenshot.png" width="400">',
             "project_urls": {"Documentation": "https://docs.example.com"},
-            "description_html": '<img src="https://example.com/screenshot.png" width="400">',
         }
-        score, problems, bonuses = calculate_docs_score_with_problems(data)
+        score, problems, bonuses, _ = calculate_docs_score_with_problems(data)
 
         # All three bonuses should be present
         assert any(b["reason"] == "has dedicated docs URL" for b in bonuses)
@@ -2054,7 +2296,7 @@ class TestNpmPackageScoring:
             "registry": "npm",
             "keywords": ["volto"],
         }
-        score, problems, bonuses = calculate_metadata_score_with_problems(data)
+        score, problems, bonuses, _ = calculate_metadata_score_with_problems(data)
         assert score == 0
         assert "fewer than 3 keywords" in problems
         assert "fewer than 3 classifiers" not in problems
@@ -2093,7 +2335,7 @@ class TestNpmPackageScoring:
             "registry": "npm",
             "keywords": [],
         }
-        score, problems, bonuses = calculate_metadata_score_with_problems(data)
+        score, problems, bonuses, _ = calculate_metadata_score_with_problems(data)
         assert score == 0
         assert "fewer than 3 keywords" in problems
 
@@ -2118,8 +2360,9 @@ class TestNpmPackageScoring:
             "version": "1.0.0",
             "upload_timestamp": int(time_module.time()),  # Recent
             "docs_url": "https://docs.example.com",  # 4 points
-            "description": "A" * 151,  # >150 chars (18 points)
-            "description_html": '<img src="https://example.com/screenshot.png" width="400">',  # 5 points
+            # >150 chars for 18 points + screenshot for 5 points
+            "description": "A" * 151
+            + '<img src="https://example.com/screenshot.png" width="400">',
             "project_urls": {"Documentation": "https://docs.example.com"},  # 3 points
             "maintainer": "EEA",  # 10 points
             "license": "MIT",  # 10 points

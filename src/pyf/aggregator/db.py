@@ -227,25 +227,6 @@ class TypesensePackagesCollection:
                     "optional": True,
                     "index": False,
                 },
-                # Health score problem tracking
-                {
-                    "name": "health_problems_documentation",
-                    "type": "string[]",
-                    "facet": True,
-                    "optional": True,
-                },
-                {
-                    "name": "health_problems_metadata",
-                    "type": "string[]",
-                    "facet": True,
-                    "optional": True,
-                },
-                {
-                    "name": "health_problems_recency",
-                    "type": "string[]",
-                    "facet": True,
-                    "optional": True,
-                },
             ],
             "enable_nested_fields": True,
             "token_separators": [".", "-", "_", "@", "/"],

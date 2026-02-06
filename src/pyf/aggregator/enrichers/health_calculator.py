@@ -98,6 +98,10 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
             "health_score": data["health_score"],
             "health_score_breakdown": data["health_score_breakdown"],
             "health_score_last_calculated": data["health_score_last_calculated"],
+            # Clear old redundant fields (now stored in health_score_breakdown)
+            "health_problems_documentation": [],
+            "health_problems_metadata": [],
+            "health_problems_recency": [],
         }
         try:
             self.client.collections[target].documents[id].update(document)
@@ -134,19 +138,19 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
         base_score = 0
 
         # Factor 1: Release recency (40 points max)
-        recency_score, problems_recency, bonuses_recency = (
+        recency_score, problems_recency, bonuses_recency, max_recency = (
             calculate_recency_score_with_problems(data.get("upload_timestamp"))
         )
         base_score += recency_score
 
         # Factor 2: Documentation presence (30 points max)
-        docs_score, problems_documentation, bonuses_documentation = (
+        docs_score, problems_documentation, bonuses_documentation, max_docs = (
             calculate_docs_score_with_problems(data)
         )
         base_score += docs_score
 
         # Factor 3: Metadata quality (30 points max)
-        metadata_score, problems_metadata, bonuses_metadata = (
+        metadata_score, problems_metadata, bonuses_metadata, max_metadata = (
             calculate_metadata_score_with_problems(data)
         )
         base_score += metadata_score
@@ -188,33 +192,28 @@ class HealthEnricher(TypesenceConnection, TypesensePackagesCollection):
                 )
                 github_bonus += issue_bonus
 
-                # Add issue ratio problems
-                if issue_bonus == 0:
-                    if (
-                        "high open issues to stars ratio (>1.0)"
-                        not in problems_metadata
-                    ):
-                        problems_metadata.append(
-                            "high open issues to stars ratio (>1.0)"
-                        )
-                elif issue_bonus <= 3:
-                    if "elevated open issues ratio (>0.5)" not in problems_metadata:
-                        problems_metadata.append("elevated open issues ratio (>0.5)")
+                # Add issue ratio bonus (only when bonus applies)
+                if issue_bonus >= 5:
+                    if "good issue management" not in bonuses_metadata:
+                        bonuses_metadata.append("good issue management")
 
-        # Build new breakdown structure with points, problems, and bonuses
+        # Build new breakdown structure with points, max_points, problems, and bonuses
         breakdown = {
             "recency": {
                 "points": recency_score,
+                "max_points": max_recency,
                 "problems": problems_recency,
                 "bonuses": bonuses_recency,
             },
             "documentation": {
                 "points": docs_score,
+                "max_points": max_docs,
                 "problems": problems_documentation,
                 "bonuses": bonuses_documentation,
             },
             "metadata": {
                 "points": metadata_score,
+                "max_points": max_metadata,
                 "problems": problems_metadata,
                 "bonuses": bonuses_metadata,
             },
