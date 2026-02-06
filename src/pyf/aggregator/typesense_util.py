@@ -162,6 +162,14 @@ class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
         logger.info(f"Deleted API key with ID: {key_id}")
         return res
 
+    def _get_document_count(self, collection_name):
+        """Get document count for a collection."""
+        try:
+            info = self.client.collections[collection_name].retrieve()
+            return info.get("num_documents", 0)
+        except Exception:
+            return 0
+
     def recreate_collection(self, name, delete_old=True):
         """
         Zero-downtime collection recreation with alias switching.
@@ -186,27 +194,55 @@ class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
             new_collection, new_version = get_next_version(base_name, current_version)
 
             logger.info(
-                f"Creating new collection '{new_collection}' with current schema..."
+                f"[1/5] Creating new collection '{new_collection}' with current schema..."
             )
             self.create_collection(name=new_collection)
 
-            logger.info(
-                f"Migrating data from '{current_collection}' to '{new_collection}'..."
-            )
-            self.migrate(source=current_collection, target=new_collection)
+            # Export data from old collection
+            logger.info(f"[2/5] Exporting data from '{current_collection}'...")
+            data = self.export_data(collection_name=current_collection)
+            old_count = self._get_document_count(current_collection)
+            logger.info(f"      Exported {old_count} documents")
 
-            logger.info(f"Switching alias '{name}' to '{new_collection}'...")
+            # Verify export has data
+            if old_count > 0 and (not data or data.strip() == ""):
+                logger.error(f"Export from '{current_collection}' returned no data!")
+                self.delete_collection(name=new_collection)
+                raise ValueError(f"Export failed: no data from '{current_collection}'")
+
+            # Import data into new collection
+            logger.info(f"[3/5] Importing data into '{new_collection}'...")
+            self.import_data(collection_name=new_collection, data=data)
+
+            # Verify import succeeded
+            new_count = self._get_document_count(new_collection)
+            logger.info(f"      Imported {new_count} documents")
+
+            if new_count == 0 and old_count > 0:
+                logger.error(
+                    f"Import failed: new collection has 0 documents, old had {old_count}"
+                )
+                self.delete_collection(name=new_collection)
+                raise ValueError("Import failed: document count mismatch")
+
+            logger.info(f"[4/5] Switching alias '{name}' to '{new_collection}'...")
             self.add_alias(source=name, target=new_collection)
 
-            if delete_old:
-                logger.info(f"Deleting old collection '{current_collection}'...")
-                self.delete_collection(name=current_collection)
-                logger.info(
-                    f"Collection recreation complete: {name} → {new_collection}"
+            # Verify alias was updated
+            updated_alias = self.get_alias(name)
+            if updated_alias != new_collection:
+                logger.error(
+                    f"Alias update failed: expected '{new_collection}', got '{updated_alias}'"
                 )
+                raise ValueError("Alias update failed")
+
+            if delete_old:
+                logger.info(f"[5/5] Deleting old collection '{current_collection}'...")
+                self.delete_collection(name=current_collection)
+                logger.info(f"Successfully recreated: {name} -> {new_collection}")
             else:
                 logger.info(
-                    f"Collection migration complete: {name} → {new_collection} (old collection kept)"
+                    f"[5/5] Successfully recreated: {name} -> {new_collection} (old collection kept)"
                 )
 
             return {
@@ -217,29 +253,67 @@ class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
             # No alias - check if it's a direct collection
             if self.collection_exists(name):
                 # Convert existing collection to versioned scheme
-                logger.info(f"Converting '{name}' to versioned collection scheme...")
+                logger.info(
+                    f"[1/5] Converting '{name}' to versioned collection scheme..."
+                )
                 new_collection = f"{name}-1"
 
                 self.create_collection(name=new_collection)
-                self.migrate(source=name, target=new_collection)
+
+                # Export data from old collection
+                logger.info(f"[2/5] Exporting data from '{name}'...")
+                data = self.export_data(collection_name=name)
+                old_count = self._get_document_count(name)
+                logger.info(f"      Exported {old_count} documents")
+
+                # Verify export has data
+                if old_count > 0 and (not data or data.strip() == ""):
+                    logger.error(f"Export from '{name}' returned no data!")
+                    self.delete_collection(name=new_collection)
+                    raise ValueError(f"Export failed: no data from '{name}'")
+
+                # Import data into new collection
+                logger.info(f"[3/5] Importing data into '{new_collection}'...")
+                self.import_data(collection_name=new_collection, data=data)
+
+                # Verify import succeeded
+                new_count = self._get_document_count(new_collection)
+                logger.info(f"      Imported {new_count} documents")
+
+                if new_count == 0 and old_count > 0:
+                    logger.error(
+                        f"Import failed: new collection has 0 documents, old had {old_count}"
+                    )
+                    self.delete_collection(name=new_collection)
+                    raise ValueError("Import failed: document count mismatch")
+
+                logger.info(f"[4/5] Creating alias '{name}' -> '{new_collection}'...")
                 self.add_alias(source=name, target=new_collection)
 
                 if delete_old:
+                    logger.info(f"[5/5] Deleting old collection '{name}'...")
                     self.delete_collection(name=name)
-                    logger.info(f"Converted: alias '{name}' → '{new_collection}'")
+                    logger.info(
+                        f"Successfully converted: alias '{name}' -> '{new_collection}'"
+                    )
                 else:
                     logger.info(
-                        f"Converted: alias '{name}' → '{new_collection}' (old collection kept)"
+                        f"[5/5] Successfully converted: alias '{name}' -> '{new_collection}' (old collection kept)"
                     )
 
                 return {"old_collection": name, "new_collection": new_collection}
             else:
                 # Fresh start - create versioned collection with alias
                 new_collection = f"{name}-1"
-                logger.info(f"Creating new versioned collection '{new_collection}'...")
+                logger.info(
+                    f"[1/2] Creating new versioned collection '{new_collection}'..."
+                )
                 self.create_collection(name=new_collection)
+                logger.info(f"[2/2] Creating alias '{name}' -> '{new_collection}'...")
                 self.add_alias(source=name, target=new_collection)
-                logger.info(f"Created: alias '{name}' → '{new_collection}'")
+                logger.info(
+                    f"Successfully created: alias '{name}' -> '{new_collection}'"
+                )
 
                 return {"old_collection": None, "new_collection": new_collection}
 
