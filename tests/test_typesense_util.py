@@ -175,10 +175,16 @@ class TestTypesenceUtilRecreateCollection:
 
         ts_util = TypesenceUtil()
 
+        # Mock document counts: old has 1, new has 1 after import
+        def get_doc_count(collection_name):
+            return 1  # Both collections have 1 doc
+
         with (
-            patch.object(ts_util, "get_alias", return_value="packages-1"),
+            patch.object(
+                ts_util, "get_alias", side_effect=["packages-1", "packages-2"]
+            ),
             patch.object(ts_util, "create_collection") as mock_create,
-            patch.object(ts_util, "migrate") as mock_migrate,
+            patch.object(ts_util, "_get_document_count", side_effect=get_doc_count),
             patch.object(ts_util, "add_alias") as mock_alias,
             patch.object(ts_util, "delete_collection") as mock_delete,
         ):
@@ -186,8 +192,6 @@ class TestTypesenceUtilRecreateCollection:
 
         # Verify new collection created with incremented version
         mock_create.assert_called_once_with(name="packages-2")
-        # Verify migration from old to new
-        mock_migrate.assert_called_once_with(source="packages-1", target="packages-2")
         # Verify alias switched
         mock_alias.assert_called_once_with(source="packages", target="packages-2")
         # Verify old collection deleted
@@ -210,10 +214,16 @@ class TestTypesenceUtilRecreateCollection:
 
         ts_util = TypesenceUtil()
 
+        # Mock document counts
+        def get_doc_count(collection_name):
+            return 1
+
         with (
-            patch.object(ts_util, "get_alias", return_value="packages-1"),
+            patch.object(
+                ts_util, "get_alias", side_effect=["packages-1", "packages-2"]
+            ),
             patch.object(ts_util, "create_collection") as mock_create,
-            patch.object(ts_util, "migrate") as mock_migrate,
+            patch.object(ts_util, "_get_document_count", side_effect=get_doc_count),
             patch.object(ts_util, "add_alias") as mock_alias,
             patch.object(ts_util, "delete_collection") as mock_delete,
         ):
@@ -221,8 +231,6 @@ class TestTypesenceUtilRecreateCollection:
 
         # Verify new collection created with incremented version
         mock_create.assert_called_once_with(name="packages-2")
-        # Verify migration from old to new
-        mock_migrate.assert_called_once_with(source="packages-1", target="packages-2")
         # Verify alias switched
         mock_alias.assert_called_once_with(source="packages", target="packages-2")
         # Verify old collection NOT deleted
@@ -245,11 +253,15 @@ class TestTypesenceUtilRecreateCollection:
 
         ts_util = TypesenceUtil()
 
+        # Mock document counts
+        def get_doc_count(collection_name):
+            return 1
+
         with (
             patch.object(ts_util, "get_alias", return_value=None),
             patch.object(ts_util, "collection_exists", return_value=True),
             patch.object(ts_util, "create_collection") as mock_create,
-            patch.object(ts_util, "migrate") as mock_migrate,
+            patch.object(ts_util, "_get_document_count", side_effect=get_doc_count),
             patch.object(ts_util, "add_alias") as mock_alias,
             patch.object(ts_util, "delete_collection") as mock_delete,
         ):
@@ -257,8 +269,6 @@ class TestTypesenceUtilRecreateCollection:
 
         # Verify new versioned collection created
         mock_create.assert_called_once_with(name="packages-1")
-        # Verify migration
-        mock_migrate.assert_called_once_with(source="packages", target="packages-1")
         # Verify alias created
         mock_alias.assert_called_once_with(source="packages", target="packages-1")
         # Verify old collection deleted
@@ -278,11 +288,15 @@ class TestTypesenceUtilRecreateCollection:
 
         ts_util = TypesenceUtil()
 
+        # Mock document counts
+        def get_doc_count(collection_name):
+            return 1
+
         with (
             patch.object(ts_util, "get_alias", return_value=None),
             patch.object(ts_util, "collection_exists", return_value=True),
             patch.object(ts_util, "create_collection") as mock_create,
-            patch.object(ts_util, "migrate") as mock_migrate,
+            patch.object(ts_util, "_get_document_count", side_effect=get_doc_count),
             patch.object(ts_util, "add_alias") as mock_alias,
             patch.object(ts_util, "delete_collection") as mock_delete,
         ):
@@ -290,8 +304,6 @@ class TestTypesenceUtilRecreateCollection:
 
         # Verify new versioned collection created
         mock_create.assert_called_once_with(name="packages-1")
-        # Verify migration
-        mock_migrate.assert_called_once_with(source="packages", target="packages-1")
         # Verify alias created
         mock_alias.assert_called_once_with(source="packages", target="packages-1")
         # Verify old collection NOT deleted
@@ -332,10 +344,16 @@ class TestTypesenceUtilRecreateCollection:
 
         ts_util = TypesenceUtil()
 
+        # Mock document counts
+        def get_doc_count(collection_name):
+            return 1
+
         with (
-            patch.object(ts_util, "get_alias", return_value="packages-1"),
+            patch.object(
+                ts_util, "get_alias", side_effect=["packages-1", "packages-2"]
+            ),
             patch.object(ts_util, "create_collection"),
-            patch.object(ts_util, "migrate"),
+            patch.object(ts_util, "_get_document_count", side_effect=get_doc_count),
             patch.object(ts_util, "add_alias"),
             patch.object(ts_util, "delete_collection") as mock_delete,
         ):
@@ -369,6 +387,111 @@ class TestImportDataNotEncoded:
         assert passed_data == sample_jsonl
 
 
+class TestRecreateCollectionErrorHandling:
+    """Tests for error handling and rollback in recreate_collection."""
+
+    def test_recreate_collection_empty_export_raises(self, mock_typesense):
+        """Verify recreate_collection raises when export returns empty data."""
+        from pyf.aggregator.typesense_util import TypesenceUtil
+        import pytest
+
+        # Mock empty export
+        mock_typesense.collections.__getitem__.return_value.documents.export.return_value = ""
+
+        ts_util = TypesenceUtil()
+
+        with (
+            patch.object(ts_util, "get_alias", return_value="packages-1"),
+            patch.object(ts_util, "_get_document_count", return_value=100),
+            patch.object(ts_util, "create_collection"),
+            patch.object(ts_util, "delete_collection") as mock_delete,
+            pytest.raises(ValueError, match="Export failed"),
+        ):
+            ts_util.recreate_collection(name="packages")
+
+        # Verify cleanup: new collection should be deleted
+        mock_delete.assert_called_once_with(name="packages-2")
+
+    def test_recreate_collection_import_zero_docs_raises(self, mock_typesense):
+        """Verify recreate_collection raises when import results in 0 documents."""
+        from pyf.aggregator.typesense_util import TypesenceUtil
+        import pytest
+
+        sample_jsonl = '{"id":"pkg1","name":"plone.api"}'
+        mock_typesense.collections.__getitem__.return_value.documents.export.return_value = sample_jsonl
+        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [
+            {"success": True}
+        ]
+
+        ts_util = TypesenceUtil()
+
+        # Mock: old collection has 100 docs, new collection has 0
+        def get_doc_count(collection_name):
+            if collection_name == "packages-1":
+                return 100
+            return 0  # packages-2
+
+        with (
+            patch.object(ts_util, "get_alias", return_value="packages-1"),
+            patch.object(ts_util, "create_collection"),
+            patch.object(ts_util, "_get_document_count", side_effect=get_doc_count),
+            patch.object(ts_util, "delete_collection") as mock_delete,
+            pytest.raises(ValueError, match="Import failed"),
+        ):
+            ts_util.recreate_collection(name="packages")
+
+        # Verify cleanup
+        mock_delete.assert_called_once_with(name="packages-2")
+
+    def test_recreate_collection_whitespace_only_export_raises(self, mock_typesense):
+        """Verify recreate_collection raises when export returns only whitespace."""
+        from pyf.aggregator.typesense_util import TypesenceUtil
+        import pytest
+
+        # Mock whitespace-only export
+        mock_typesense.collections.__getitem__.return_value.documents.export.return_value = "   \n  "
+
+        ts_util = TypesenceUtil()
+
+        with (
+            patch.object(ts_util, "get_alias", return_value="packages-1"),
+            patch.object(ts_util, "_get_document_count", return_value=50),
+            patch.object(ts_util, "create_collection"),
+            patch.object(ts_util, "delete_collection") as mock_delete,
+            pytest.raises(ValueError, match="Export failed"),
+        ):
+            ts_util.recreate_collection(name="packages")
+
+        mock_delete.assert_called_once_with(name="packages-2")
+
+    def test_recreate_collection_empty_source_succeeds(self, mock_typesense):
+        """Verify recreate_collection succeeds when source has 0 documents (not an error)."""
+        from pyf.aggregator.typesense_util import TypesenceUtil
+
+        # Empty export from empty collection is OK
+        mock_typesense.collections.__getitem__.return_value.documents.export.return_value = ""
+        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = []
+
+        ts_util = TypesenceUtil()
+
+        with (
+            # First call returns old alias, second call (after add_alias) returns new
+            patch.object(
+                ts_util, "get_alias", side_effect=["packages-1", "packages-2"]
+            ),
+            patch.object(
+                ts_util, "_get_document_count", return_value=0
+            ),  # Empty source
+            patch.object(ts_util, "create_collection"),
+            patch.object(ts_util, "add_alias"),
+            patch.object(ts_util, "delete_collection"),
+        ):
+            # Should not raise - empty source is valid
+            result = ts_util.recreate_collection(name="packages")
+
+        assert result["new_collection"] == "packages-2"
+
+
 class TestRecreateCollectionCLI:
     """Tests for CLI confirmation flow in recreate_collection."""
 
@@ -376,12 +499,24 @@ class TestRecreateCollectionCLI:
         """Verify CLI confirmation 'y' deletes old collection after migration."""
         from pyf.aggregator.typesense_util import TypesenceUtil
 
+        sample_jsonl = '{"id":"pkg1","name":"plone.api"}'
+        mock_typesense.collections.__getitem__.return_value.documents.export.return_value = sample_jsonl
+        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [
+            {"success": True}
+        ]
+
         ts_util = TypesenceUtil()
 
+        # Mock document counts
+        def get_doc_count(collection_name):
+            return 1
+
         with (
-            patch.object(ts_util, "get_alias", return_value="packages-1"),
+            patch.object(
+                ts_util, "get_alias", side_effect=["packages-1", "packages-2"]
+            ),
             patch.object(ts_util, "create_collection"),
-            patch.object(ts_util, "migrate"),
+            patch.object(ts_util, "_get_document_count", side_effect=get_doc_count),
             patch.object(ts_util, "add_alias"),
             patch.object(ts_util, "delete_collection") as mock_delete,
             patch("builtins.input", return_value="y"),
@@ -401,12 +536,24 @@ class TestRecreateCollectionCLI:
         """Verify CLI confirmation with Enter (empty) deletes old collection (default Yes)."""
         from pyf.aggregator.typesense_util import TypesenceUtil
 
+        sample_jsonl = '{"id":"pkg1","name":"plone.api"}'
+        mock_typesense.collections.__getitem__.return_value.documents.export.return_value = sample_jsonl
+        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [
+            {"success": True}
+        ]
+
         ts_util = TypesenceUtil()
 
+        # Mock document counts
+        def get_doc_count(collection_name):
+            return 1
+
         with (
-            patch.object(ts_util, "get_alias", return_value="packages-1"),
+            patch.object(
+                ts_util, "get_alias", side_effect=["packages-1", "packages-2"]
+            ),
             patch.object(ts_util, "create_collection"),
-            patch.object(ts_util, "migrate"),
+            patch.object(ts_util, "_get_document_count", side_effect=get_doc_count),
             patch.object(ts_util, "add_alias"),
             patch.object(ts_util, "delete_collection") as mock_delete,
             patch("builtins.input", return_value=""),
@@ -426,12 +573,24 @@ class TestRecreateCollectionCLI:
         """Verify CLI confirmation 'n' keeps old collection."""
         from pyf.aggregator.typesense_util import TypesenceUtil
 
+        sample_jsonl = '{"id":"pkg1","name":"plone.api"}'
+        mock_typesense.collections.__getitem__.return_value.documents.export.return_value = sample_jsonl
+        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [
+            {"success": True}
+        ]
+
         ts_util = TypesenceUtil()
 
+        # Mock document counts
+        def get_doc_count(collection_name):
+            return 1
+
         with (
-            patch.object(ts_util, "get_alias", return_value="packages-1"),
+            patch.object(
+                ts_util, "get_alias", side_effect=["packages-1", "packages-2"]
+            ),
             patch.object(ts_util, "create_collection"),
-            patch.object(ts_util, "migrate"),
+            patch.object(ts_util, "_get_document_count", side_effect=get_doc_count),
             patch.object(ts_util, "add_alias"),
             patch.object(ts_util, "delete_collection") as mock_delete,
             patch("builtins.input", return_value="n"),
@@ -452,13 +611,25 @@ class TestRecreateCollectionCLI:
         """Verify --force flag deletes old collection without confirmation."""
         from pyf.aggregator.typesense_util import TypesenceUtil
 
+        sample_jsonl = '{"id":"pkg1","name":"plone.api"}'
+        mock_typesense.collections.__getitem__.return_value.documents.export.return_value = sample_jsonl
+        mock_typesense.collections.__getitem__.return_value.documents.import_.return_value = [
+            {"success": True}
+        ]
+
         ts_util = TypesenceUtil()
         force = True
 
+        # Mock document counts
+        def get_doc_count(collection_name):
+            return 1
+
         with (
-            patch.object(ts_util, "get_alias", return_value="packages-1"),
+            patch.object(
+                ts_util, "get_alias", side_effect=["packages-1", "packages-2"]
+            ),
             patch.object(ts_util, "create_collection"),
-            patch.object(ts_util, "migrate"),
+            patch.object(ts_util, "_get_document_count", side_effect=get_doc_count),
             patch.object(ts_util, "add_alias"),
             patch.object(ts_util, "delete_collection") as mock_delete,
             patch("builtins.input") as mock_input,

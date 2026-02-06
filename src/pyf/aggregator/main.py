@@ -357,11 +357,6 @@ parser.add_argument(
     action="store_true",
 )
 parser.add_argument(
-    "--recreate-collection",
-    help="Delete and recreate the target collection with current schema (use with -f)",
-    action="store_true",
-)
-parser.add_argument(
     "--force",
     help="Skip confirmation prompts for destructive operations",
     action="store_true",
@@ -486,32 +481,10 @@ def main():
 
     indexer = Indexer()
 
-    # Handle --recreate-collection: use zero-downtime alias switching
-    if args.recreate_collection:
-        from pyf.aggregator.typesense_util import TypesenceUtil
-
-        ts_util = TypesenceUtil()
-
-        # Run migration first (no confirmation needed), then ask about deletion
-        result = ts_util.recreate_collection(name=settings["target"], delete_old=False)
-
-        # Confirmation for deletion (unless --force)
-        if result.get("old_collection"):
-            if args.force:
-                ts_util.delete_collection(name=result["old_collection"])
-                logger.info(f"Deleted old collection '{result['old_collection']}'")
-            else:
-                confirm = input(
-                    f"Delete old collection '{result['old_collection']}'? (Y/n): "
-                )
-                if confirm.lower() != "n":  # Default is Yes
-                    ts_util.delete_collection(name=result["old_collection"])
-                    logger.info(f"Deleted old collection '{result['old_collection']}'")
-                else:
-                    logger.info(f"Kept old collection '{result['old_collection']}'")
-    elif not indexer.collection_exists(
-        name=settings["target"]
-    ) and not indexer.get_alias(settings["target"]):
+    # Auto-create collection if it doesn't exist
+    if not indexer.collection_exists(name=settings["target"]) and not indexer.get_alias(
+        settings["target"]
+    ):
         # Create versioned collection with alias for fresh start
         from pyf.aggregator.typesense_util import TypesenceUtil
 
