@@ -433,7 +433,7 @@ def aggregator_incremental_mode(tmp_path):
     from pyf.aggregator.fetcher import Aggregator
 
     # Create a sincefile with a past timestamp
-    sincefile = tmp_path / ".pyfaggregator"
+    sincefile = tmp_path / ".pyfa"
     sincefile.write_text("1686700000")  # June 14, 2023
 
     return Aggregator(
@@ -590,6 +590,6 @@ def cleanup_sincefile():
     yield
     import os
 
-    for f in [".test_sincefile", ".pyfaggregator"]:
+    for f in [".test_sincefile", ".pyfa"]:
         if os.path.exists(f):
             os.remove(f)

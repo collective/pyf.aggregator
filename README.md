@@ -107,7 +107,7 @@ CELERY_TASK_SOFT_TIME_LIMIT=300        # Soft time limit in seconds (5 min)
 CELERY_TASK_TIME_LIMIT=600             # Hard time limit in seconds (10 min)
 
 # Default profile for CLI commands (plone, django, flask)
-# When set, pyfaggregator uses this profile automatically without needing -p flag
+# When set, pyfa uses this profile automatically without needing -p flag
 # CLI -p argument always takes precedence over this setting
 # DEFAULT_PROFILE=plone
 ```
@@ -202,12 +202,18 @@ Each profile automatically creates its own Typesense collection (using the profi
 
 ## CLI Commands
 
-### pyfaggregator
+All commands are accessed through the unified `pyfa` CLI:
+
+```shell
+uv run pyfa <subcommand> [options]
+```
+
+### pyfa pypi
 
 Fetches package information from PyPI and indexes it into Typesense.
 
 ```shell
-uv run pyfaggregator [options]
+uv run pyfa pypi [options]
 ```
 
 **Options:**
@@ -232,62 +238,62 @@ uv run pyfaggregator [options]
 
 ```shell
 # Full fetch of all Plone packages (using manual classifiers)
-uv run pyfaggregator -f -ft "Framework :: Plone" -t packages1
+uv run pyfa pypi -f -ft "Framework :: Plone" -t packages1
 
 # Full fetch using the Plone profile (recommended)
-uv run pyfaggregator -f -p plone
+uv run pyfa pypi -f -p plone
 
 # Full fetch of Django packages using the Django profile
-uv run pyfaggregator -f -p django
+uv run pyfa pypi -f -p django
 
 # Full fetch of Flask packages using the Flask profile
-uv run pyfaggregator -f -p flask
+uv run pyfa pypi -f -p flask
 
 # Incremental update for Django profile
-uv run pyfaggregator -i -p django
+uv run pyfa pypi -i -p django
 
 # Refresh existing indexed packages from PyPI (fetches ALL versions, updates data, removes 404s)
-uv run pyfaggregator --refresh-from-pypi -p plone
+uv run pyfa pypi --refresh-from-pypi -p plone
 
 # Refresh with limit for testing (processes only first N packages, but all their versions)
-uv run pyfaggregator --refresh-from-pypi -p plone -l 100
+uv run pyfa pypi --refresh-from-pypi -p plone -l 100
 
 # Refresh a specific package (all versions)
-uv run pyfaggregator --refresh-from-pypi -p plone -fn plone.api
+uv run pyfa pypi --refresh-from-pypi -p plone -fn plone.api
 
 # Fetch with limit for testing
-uv run pyfaggregator -f -p plone -l 100
+uv run pyfa pypi -f -p plone -l 100
 
 # Profile with custom collection name (overrides auto-naming)
-uv run pyfaggregator -f -p django -t django-test
+uv run pyfa pypi -f -p django -t django-test
 
 # Show indexed data for a package (newest version, for debugging)
-uv run pyfaggregator --show plone -t plone
-uv run pyfaggregator --show Django -p django
+uv run pyfa pypi --show plone -t plone
+uv run pyfa pypi --show Django -p django
 
 # Show all versions of a package
-uv run pyfaggregator --show plone -p plone --all-versions
+uv run pyfa pypi --show plone -p plone --all-versions
 
 # Zero-downtime collection recreation with full reindex
 # Creates versioned collection (plone-1) with alias (plone)
-uv run pyfaggregator -f -p plone --recreate-collection
+uv run pyfa pypi -f -p plone --recreate-collection
 
 # Subsequent runs create new version, migrate data, switch alias, delete old
 # plone-1 → plone-2 → plone-3, etc.
 
 # Using DEFAULT_PROFILE environment variable
 # When DEFAULT_PROFILE=plone is set in .env, these are equivalent:
-uv run pyfaggregator -f              # Uses plone profile from DEFAULT_PROFILE
-uv run pyfaggregator -f -p plone     # Explicit profile (same result)
-uv run pyfaggregator -f -p django    # CLI -p overrides DEFAULT_PROFILE
+uv run pyfa pypi -f              # Uses plone profile from DEFAULT_PROFILE
+uv run pyfa pypi -f -p plone     # Explicit profile (same result)
+uv run pyfa pypi -f -p django    # CLI -p overrides DEFAULT_PROFILE
 ```
 
-### pyfnpm
+### pyfa npm
 
 Fetches package information from the npm registry and indexes it into Typesense. npm packages are stored in the same collection as PyPI packages, distinguished by a `registry` field.
 
 ```shell
-uv run pyfnpm [options]
+uv run pyfa npm [options]
 ```
 
 **Options:**
@@ -303,38 +309,36 @@ uv run pyfnpm [options]
 | `-t`, `--target` | Target Typesense collection name (auto-set from profile if not specified) |
 | `--show PACKAGE_NAME` | Show indexed data for an npm package by name (for debugging) |
 | `--all-versions` | Show all versions when using --show (default: only newest) |
-| `--recreate-collection` | Zero-downtime collection recreation with alias switching |
-| `--force` | Skip confirmation prompts for destructive operations |
 
 **Examples:**
 
 ```shell
 # Full fetch of npm packages using the Plone profile
-uv run pyfnpm -f -p plone
+uv run pyfa npm -f -p plone
 
 # Full fetch with limit (for testing)
-uv run pyfnpm -f -p plone -l 10
+uv run pyfa npm -f -p plone -l 10
 
 # Show indexed data for an npm package
-uv run pyfnpm --show @plone/volto -p plone
+uv run pyfa npm --show @plone/volto -p plone
 
 # Show all versions of an npm package
-uv run pyfnpm --show @plone/volto -p plone --all-versions
+uv run pyfa npm --show @plone/volto -p plone --all-versions
 
 # Incremental update
-uv run pyfnpm -i -p plone
+uv run pyfa npm -i -p plone
 
 # Full fetch with custom collection name
-uv run pyfnpm -f -p plone -t plone-test
+uv run pyfa npm -f -p plone -t plone-test
 
 # Refresh existing indexed npm packages (fetches fresh data, removes 404s)
-uv run pyfnpm --refresh-from-npm -p plone
+uv run pyfa npm --refresh-from-npm -p plone
 
 # Refresh with limit for testing
-uv run pyfnpm --refresh-from-npm -p plone -l 100
+uv run pyfa npm --refresh-from-npm -p plone -l 100
 
 # Refresh specific packages by name filter
-uv run pyfnpm --refresh-from-npm -p plone -fn volto
+uv run pyfa npm --refresh-from-npm -p plone -fn volto
 ```
 
 **Refresh Mode:**
@@ -349,7 +353,7 @@ This is useful for keeping indexed data up-to-date and cleaning up packages that
 
 **npm Search Criteria:**
 
-The `pyfnpm` command searches the npm registry based on the profile's npm configuration:
+The `pyfa npm` command searches the npm registry based on the profile's npm configuration:
 
 - **Keywords**: Packages with matching keywords (e.g., `plone`)
 - **Scopes**: Scoped packages like `@plone/*`, `@plone-collective/*`
@@ -365,12 +369,12 @@ npm packages include additional fields:
 - `npm_final_score` - Combined npm score (0-1)
 - `repository_url` - Git repository URL (handles various formats)
 
-### pyfgithub
+### pyfa github
 
 Enriches indexed packages with data from GitHub (stars, watchers, issues, contributors, etc.).
 
 ```shell
-uv run pyfgithub -t <collection_name>
+uv run pyfa github -t <collection_name>
 ```
 
 **Options:**
@@ -386,22 +390,22 @@ uv run pyfgithub -t <collection_name>
 
 ```shell
 # Enrich using profile (recommended)
-uv run pyfgithub -p plone
+uv run pyfa github -p plone
 
 # Enrich Django packages
-uv run pyfgithub -p django
+uv run pyfa github -p django
 
 # Enrich Flask packages
-uv run pyfgithub -p flask
+uv run pyfa github -p flask
 
 # Enrich a specific collection (manual)
-uv run pyfgithub -t packages1
+uv run pyfa github -t packages1
 
 # Enrich only a specific package
-uv run pyfgithub -p plone -n plone.api
+uv run pyfa github -p plone -n plone.api
 
 # Debug a single package with verbose output
-uv run pyfgithub -p plone -n plone.api -v
+uv run pyfa github -p plone -n plone.api -v
 ```
 
 This adds the following fields to each package (if a GitHub repository is found):
@@ -414,12 +418,12 @@ This adds the following fields to each package (if a GitHub repository is found)
 
 **Note:** GitHub enrichment cache is shared across all profiles to minimize API calls.
 
-### pyfupdater
+### pyfa manage
 
 Utility for managing Typesense collections, aliases, and API keys.
 
 ```shell
-uv run pyfupdater [options]
+uv run pyfa manage [options]
 ```
 
 **Options:**
@@ -448,62 +452,62 @@ uv run pyfupdater [options]
 
 ```shell
 # List all collections
-uv run pyfupdater -ls
+uv run pyfa manage -ls
 
 # List collection names only
-uv run pyfupdater -lsn
+uv run pyfa manage -lsn
 
 # List aliases
-uv run pyfupdater -lsa
+uv run pyfa manage -lsa
 
 # Add an alias (packages -> packages1)
-uv run pyfupdater --add-alias -s packages -t packages1
+uv run pyfa manage --add-alias -s packages -t packages1
 
 # Migrate data between collections
-uv run pyfupdater --migrate -s packages1 -t packages2
+uv run pyfa manage --migrate -s packages1 -t packages2
 
 # Create a search-only API key
-uv run pyfupdater --add-search-only-apikey -t packages
+uv run pyfa manage --add-search-only-apikey -t packages
 
 # Create a search-only API key with custom value
-uv run pyfupdater --add-search-only-apikey -t packages -key your_custom_key
+uv run pyfa manage --add-search-only-apikey -t packages -key your_custom_key
 
 # Profile-aware operations
-uv run pyfupdater --add-search-only-apikey -p django
-uv run pyfupdater --add-alias -s django -t django-v2
-uv run pyfupdater --add-search-only-apikey -t packages -key your_custom_key
+uv run pyfa manage --add-search-only-apikey -p django
+uv run pyfa manage --add-alias -s django -t django-v2
+uv run pyfa manage --add-search-only-apikey -t packages -key your_custom_key
 
 # Delete an API key by ID
-uv run pyfupdater --delete-apikey 123
+uv run pyfa manage --delete-apikey 123
 
 # Zero-downtime collection recreation (creates plone-1, plone-2, etc. with alias)
-uv run pyfupdater --recreate-collection -t plone
+uv run pyfa manage --recreate-collection -t plone
 # First run: creates 'plone-1' collection with alias 'plone' → 'plone-1'
 # Subsequent runs: creates 'plone-2', migrates data, switches alias, deletes old
 
 # List aliases to see versioned collections
-uv run pyfupdater -lsa  # Shows: plone → plone-1
+uv run pyfa manage -lsa  # Shows: plone → plone-1
 
 # View queue statistics
-uv run pyfupdater --queue-stats
+uv run pyfa manage --queue-stats
 
 # Purge all pending tasks from queue
-uv run pyfupdater --purge-queue
+uv run pyfa manage --purge-queue
 
 # Delete a collection (with confirmation prompt)
-uv run pyfupdater --delete-collection plone-old
+uv run pyfa manage --delete-collection plone-old
 
 # Delete a collection without confirmation (force)
-uv run pyfupdater --delete-collection plone-old --force
-uv run pyfupdater --delete-collection plone-old -f
+uv run pyfa manage --delete-collection plone-old --force
+uv run pyfa manage --delete-collection plone-old -f
 ```
 
-### pyfdownloads
+### pyfa downloads
 
 Enriches indexed packages with download statistics from pypistats.org.
 
 ```shell
-uv run pyfdownloads [options]
+uv run pyfa downloads [options]
 ```
 
 **Options:**
@@ -518,16 +522,16 @@ uv run pyfdownloads [options]
 
 ```shell
 # Enrich using profile (recommended)
-uv run pyfdownloads -p plone
+uv run pyfa downloads -p plone
 
 # Enrich Django packages
-uv run pyfdownloads -p django
+uv run pyfa downloads -p django
 
 # Enrich a specific collection (manual)
-uv run pyfdownloads -t packages1
+uv run pyfa downloads -t packages1
 
 # Test with limited packages
-uv run pyfdownloads -p plone -l 100
+uv run pyfa downloads -p plone -l 100
 ```
 
 This adds the following fields to each package:
@@ -537,12 +541,12 @@ This adds the following fields to each package:
 - `download_total` - Total downloads (if available)
 - `download_updated` - Timestamp when stats were updated
 
-### pyfhealth
+### pyfa health
 
 Calculates comprehensive health scores for indexed packages, including GitHub bonuses.
 
 ```shell
-uv run pyfhealth [options]
+uv run pyfa health [options]
 ```
 
 **Options:**
@@ -557,20 +561,20 @@ uv run pyfhealth [options]
 
 ```shell
 # Calculate health scores using profile (recommended)
-uv run pyfhealth -p plone
+uv run pyfa health -p plone
 
 # Calculate for Django packages
-uv run pyfhealth -p django
+uv run pyfa health -p django
 
 # Test with limited packages
-uv run pyfhealth -p plone -l 100
+uv run pyfa health -p plone -l 100
 ```
 
 This calculates health scores based on:
 - **Base score (0-100)**: Release recency, documentation, metadata quality
 - **GitHub bonuses (+30 max)**: Stars, activity, issue management
 
-Run this command AFTER `pyfgithub` to include GitHub bonuses in the score breakdown.
+Run this command AFTER `pyfa github` to include GitHub bonuses in the score breakdown.
 
 ## Quickstart
 
@@ -584,64 +588,64 @@ Run this command AFTER `pyfgithub` to include GitHub bonuses in the score breakd
 2. Aggregate packages using a profile:
    ```shell
    # For Plone packages (PyPI)
-   uv run pyfaggregator -f -p plone
+   uv run pyfa pypi -f -p plone
 
    # For Django packages
-   uv run pyfaggregator -f -p django
+   uv run pyfa pypi -f -p django
 
    # For Flask packages
-   uv run pyfaggregator -f -p flask
+   uv run pyfa pypi -f -p flask
    ```
 
 3. (Optional) Aggregate npm packages:
    ```shell
    # For Plone npm packages (@plone/*, @plone-collective/*, etc.)
-   uv run pyfnpm -f -p plone
+   uv run pyfa npm -f -p plone
    ```
 
 4. Enrich with GitHub data (includes contributors):
    ```shell
    # For Plone (works for both PyPI and npm packages)
-   uv run pyfgithub -p plone
+   uv run pyfa github -p plone
 
    # For Django
-   uv run pyfgithub -p django
+   uv run pyfa github -p django
 
    # For Flask
-   uv run pyfgithub -p flask
+   uv run pyfa github -p flask
    ```
 
 5. Enrich with download statistics (PyPI only):
    ```shell
    # For Plone
-   uv run pyfdownloads -p plone
+   uv run pyfa downloads -p plone
 
    # For Django
-   uv run pyfdownloads -p django
+   uv run pyfa downloads -p django
 
    # For Flask
-   uv run pyfdownloads -p flask
+   uv run pyfa downloads -p flask
    ```
 
 6. Calculate comprehensive health scores (after GitHub data is available):
    ```shell
    # For Plone
-   uv run pyfhealth -p plone
+   uv run pyfa health -p plone
 
    # For Django
-   uv run pyfhealth -p django
+   uv run pyfa health -p django
 
    # For Flask
-   uv run pyfhealth -p flask
+   uv run pyfa health -p flask
    ```
 
 7. Create a search-only API key for clients:
    ```shell
    # For Plone
-   uv run pyfupdater --add-search-only-apikey -p plone
+   uv run pyfa manage --add-search-only-apikey -p plone
 
    # For Django
-   uv run pyfupdater --add-search-only-apikey -p django
+   uv run pyfa manage --add-search-only-apikey -p django
    ```
 
 ### Manual Configuration (Legacy)
@@ -653,27 +657,27 @@ Run this command AFTER `pyfgithub` to include GitHub bonuses in the score breakd
 
 2. Aggregate Plone packages from PyPI:
    ```shell
-   uv run pyfaggregator -f -ft "Framework :: Plone" -t packages1
+   uv run pyfa pypi -f -ft "Framework :: Plone" -t packages1
    ```
 
 3. Enrich with GitHub data:
    ```shell
-   uv run pyfgithub -t packages1
+   uv run pyfa github -t packages1
    ```
 
 4. Enrich with download statistics:
    ```shell
-   uv run pyfdownloads -t packages1
+   uv run pyfa downloads -t packages1
    ```
 
 5. Create a collection alias (required for client access):
    ```shell
-   uv run pyfupdater --add-alias -s packages -t packages1
+   uv run pyfa manage --add-alias -s packages -t packages1
    ```
 
 6. Create a search-only API key for clients:
    ```shell
-   uv run pyfupdater --add-search-only-apikey -t packages
+   uv run pyfa manage --add-search-only-apikey -t packages
    ```
 
 
@@ -695,18 +699,18 @@ The aggregator supports tracking multiple Python framework ecosystems simultaneo
 
 ```shell
 # Aggregate Django packages
-uv run pyfaggregator -f -p django
+uv run pyfa pypi -f -p django
 
 # Aggregate Flask packages
-uv run pyfaggregator -f -p flask
+uv run pyfa pypi -f -p flask
 
 # Enrich both with GitHub data (cache is shared!)
-uv run pyfgithub -p django
-uv run pyfgithub -p flask
+uv run pyfa github -p django
+uv run pyfa github -p flask
 
 # Create API keys for each
-uv run pyfupdater --add-search-only-apikey -p django
-uv run pyfupdater --add-search-only-apikey -p flask
+uv run pyfa manage --add-search-only-apikey -p django
+uv run pyfa manage --add-search-only-apikey -p flask
 ```
 
 ### Working with PyPI and npm Packages
@@ -717,16 +721,16 @@ Profiles that include npm configuration can aggregate packages from both registr
 
 ```shell
 # Aggregate Plone PyPI packages (backend, add-ons)
-uv run pyfaggregator -f -p plone
+uv run pyfa pypi -f -p plone
 
 # Aggregate Plone npm packages (@plone/*, @plone-collective/*, @eeacms/*)
-uv run pyfnpm -f -p plone
+uv run pyfa npm -f -p plone
 
 # Enrich all packages with GitHub data (works for both registries)
-uv run pyfgithub -p plone
+uv run pyfa github -p plone
 
 # Enrich PyPI packages with download stats
-uv run pyfdownloads -p plone
+uv run pyfa downloads -p plone
 ```
 
 **Querying by Registry:**
@@ -753,7 +757,7 @@ Or get all packages regardless of registry:
 **List all profile collections:**
 
 ```shell
-uv run pyfupdater -lsn
+uv run pyfa manage -lsn
 ```
 
 This might output:
@@ -767,7 +771,7 @@ plone
 
 **Using Profiles (Recommended):**
 ```shell
-uv run pyfaggregator -f -p django
+uv run pyfa pypi -f -p django
 ```
 - Automatically loads all Django-related classifiers
 - Auto-sets collection name to `django`
@@ -775,7 +779,7 @@ uv run pyfaggregator -f -p django
 
 **Using Manual Classifiers (Legacy):**
 ```shell
-uv run pyfaggregator -f -ft "Framework :: Django" -ft "Framework :: Django :: 5.0" -t django-packages
+uv run pyfa pypi -f -ft "Framework :: Django" -ft "Framework :: Django :: 5.0" -t django-packages
 ```
 - Requires specifying each classifier individually
 - Manual collection name management
@@ -839,14 +843,14 @@ To query for the "newest" version of a package, sort by `version_sortable:desc`.
 
 ### Health Score Calculation
 
-The health score is a 0-100 metric that indicates package quality and maintenance status. It's calculated by the `pyfhealth` command, which should be run after `pyfgithub` to include GitHub bonuses.
+The health score is a 0-100 metric that indicates package quality and maintenance status. It's calculated by the `pyfa health` command, which should be run after `pyfa github` to include GitHub bonuses.
 
 **Recommended workflow:**
 ```shell
-pyfaggregator -f -p plone    # Index packages
-pyfgithub -p plone           # Fetch GitHub data
-pyfdownloads -p plone        # Fetch download stats
-pyfhealth -p plone           # Calculate health scores (with GitHub bonuses)
+pyfa pypi -f -p plone         # Index packages
+pyfa github -p plone          # Fetch GitHub data
+pyfa downloads -p plone       # Fetch download stats
+pyfa health -p plone          # Calculate health scores (with GitHub bonuses)
 ```
 
 #### Base Score (100 points max)
@@ -988,7 +992,7 @@ The project uses a queue-based architecture with Celery for improved scalability
 | `read_rss_new_projects_and_queue` | Monitor RSS for new projects and queue inspection |
 | `read_rss_new_releases_and_queue` | Monitor RSS for new releases and queue inspection |
 | `refresh_all_indexed_packages` | Refresh all indexed packages from PyPI, remove packages returning 404 |
-| `full_fetch_all_packages` | Full fetch of all packages (equivalent to `pyfaggregator -f -p <profile>`) |
+| `full_fetch_all_packages` | Full fetch of all packages (equivalent to `pyfa pypi -f -p <profile>`) |
 | `enrich_downloads_all_packages` | Enrich all packages with download stats from pypistats.org |
 
 **Periodic Task Schedules:**

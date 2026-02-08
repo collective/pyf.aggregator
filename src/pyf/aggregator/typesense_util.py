@@ -8,7 +8,6 @@ from pyf.aggregator.db import (
     get_next_version,
 )
 from pyf.aggregator.logger import logger
-from pyf.aggregator.profiles import ProfileManager
 from pyf.aggregator.queue import app as celery_app
 from pprint import pprint
 from urllib.parse import urlparse
@@ -20,81 +19,83 @@ import typesense
 
 load_dotenv()
 
-DEFAULT_PROFILE = os.getenv("DEFAULT_PROFILE")
 
+def add_subcommand_args(parser):
+    """Add manage-specific arguments to a subparser."""
+    from pyf.aggregator.cli_utils import add_common_args
 
-parser = ArgumentParser(
-    description="updates/migrates typesense collections and export/import documents"
-)
-parser.add_argument("-ls", "--list-collections", action="store_true")
-parser.add_argument("-lsn", "--list-collection-names", action="store_true")
-parser.add_argument("-lsa", "--list-aliases", action="store_true")
-parser.add_argument("-lssoa", "--list-search-only-apikeys", action="store_true")
-parser.add_argument("-s", "--source", nargs="?", type=str, default="")
-parser.add_argument("-t", "--target", nargs="?", type=str, default="")
-parser.add_argument(
-    "--migrate",
-    help="Migrate data of source collection to target collection",
-    action="store_true",
-)
-parser.add_argument(
-    "--add-alias",
-    help="Add collection alias, instead of migrating",
-    action="store_true",
-)
-parser.add_argument(
-    "--add-search-only-apikey",
-    help="Add a search only API key, for given collection filter",
-    action="store_true",
-)
-parser.add_argument(
-    "--delete-apikey",
-    help="Delete an API key by its ID",
-    type=int,
-)
-
-parser.add_argument(
-    "-key",
-    "--key",
-    help="key to be used, if missing we will generate one",
-    nargs="?",
-    default="gen",
-    type=str,
-)
-parser.add_argument(
-    "-p",
-    "--profile",
-    help="Profile name for collection operations (overrides DEFAULT_PROFILE env var)",
-    nargs="?",
-    type=str,
-)
-parser.add_argument(
-    "--purge-queue",
-    help="Purge all pending tasks from the Celery queue",
-    action="store_true",
-)
-parser.add_argument(
-    "--queue-stats",
-    help="Show Celery queue statistics (pending tasks, workers)",
-    action="store_true",
-)
-parser.add_argument(
-    "--recreate-collection",
-    help="Delete and recreate a collection with current schema (requires -t)",
-    action="store_true",
-)
-parser.add_argument(
-    "--delete-collection",
-    help="Delete a collection by name (requires confirmation)",
-    type=str,
-    metavar="COLLECTION_NAME",
-)
-parser.add_argument(
-    "-f",
-    "--force",
-    help="Skip confirmation prompts for destructive operations",
-    action="store_true",
-)
+    add_common_args(parser)
+    parser.add_argument("-ls", "--list-collections", action="store_true")
+    parser.add_argument("-lsn", "--list-collection-names", action="store_true")
+    parser.add_argument("-lsa", "--list-aliases", action="store_true")
+    parser.add_argument("-lssoa", "--list-search-only-apikeys", action="store_true")
+    parser.add_argument("-s", "--source", nargs="?", type=str, default="")
+    parser.add_argument(
+        "--migrate",
+        help="Migrate data of source collection to target collection",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--add-alias",
+        help="Add collection alias, instead of migrating",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--add-search-only-apikey",
+        help="Add a search only API key, for given collection filter",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--delete-apikey",
+        help="Delete an API key by its ID",
+        type=int,
+    )
+    parser.add_argument(
+        "-key",
+        "--key",
+        help="key to be used, if missing we will generate one",
+        nargs="?",
+        default="gen",
+        type=str,
+    )
+    parser.add_argument(
+        "--purge-queue",
+        help="Purge all pending tasks from the Celery queue",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--queue-stats",
+        help="Show Celery queue statistics (pending tasks, workers)",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--recreate-collection",
+        help="Delete and recreate a collection with current schema (requires -t)",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--delete-collection",
+        help="Delete a collection by name (requires confirmation)",
+        type=str,
+        metavar="COLLECTION_NAME",
+    )
+    parser.add_argument(
+        "--show",
+        help="Show indexed data for a package by name",
+        type=str,
+        metavar="PACKAGE_NAME",
+    )
+    parser.add_argument(
+        "--all-versions",
+        help="Show all versions when using --show (default: only newest)",
+        action="store_true",
+    )
+    parser.add_argument(
+        "-f",
+        "--force",
+        help="Skip confirmation prompts for destructive operations",
+        action="store_true",
+    )
 
 
 class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
@@ -318,35 +319,20 @@ class TypesenceUtil(TypesenceConnection, TypesensePackagesCollection):
                 return {"old_collection": None, "new_collection": new_collection}
 
 
-def main():
-    args = parser.parse_args()
+def run_command(args):
+    """Run Typesense management operations with pre-parsed args."""
+    from pyf.aggregator.cli_utils import resolve_profile_and_target
 
-    # Handle profile (CLI argument or DEFAULT_PROFILE env var)
-    effective_profile = args.profile or DEFAULT_PROFILE
-    profile_source = "from CLI" if args.profile else "from DEFAULT_PROFILE"
+    # Handle --show mode separately (lightweight lookup, no full profile needed)
+    if args.show:
+        from pyf.aggregator.cli_utils import show_package, resolve_show_target
 
-    if effective_profile:
-        profile_manager = ProfileManager()
-        profile = profile_manager.get_profile(effective_profile)
+        target = resolve_show_target(args)
+        show_package(args.show, target, all_versions=args.all_versions)
+        return
 
-        if not profile:
-            available_profiles = profile_manager.list_profiles()
-            logger.error(
-                f"Profile '{effective_profile}' not found. "
-                f"Available profiles: {', '.join(available_profiles)}"
-            )
-            sys.exit(1)
-
-        if not profile_manager.validate_profile(effective_profile):
-            logger.error(f"Profile '{effective_profile}' is invalid")
-            sys.exit(1)
-
-        # Auto-set target collection name from profile if not specified
-        if not args.target:
-            args.target = effective_profile
-            logger.info(f"Auto-setting target collection from profile: {args.target}")
-
-        logger.info(f"Using profile '{effective_profile}' ({profile_source})")
+    # Many operations don't need a target, so require_target=False
+    resolve_profile_and_target(args, require_target=False)
 
     ts_util = TypesenceUtil()
     if (
@@ -365,7 +351,7 @@ def main():
     ):
         logger.info(
             " No action provided, provide at least one action: "
-            "--migrate, --add_alias, --list-aliases, --list-collections, "
+            "--show, --migrate, --add_alias, --list-aliases, --list-collections, "
             "--list-collection-names, --add-search-only-apikey, --delete-apikey, "
             "--purge-queue, --queue-stats, --recreate-collection, --delete-collection"
         )
@@ -524,3 +510,12 @@ def main():
         except Exception as e:
             logger.error(f"Failed to delete collection '{collection_name}': {e}")
             sys.exit(1)
+
+
+def main():
+    parser = ArgumentParser(
+        description="Manage Typesense collections: migrate, alias, API keys, queue operations"
+    )
+    add_subcommand_args(parser)
+    args = parser.parse_args()
+    run_command(args)

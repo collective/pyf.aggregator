@@ -986,7 +986,7 @@ def full_fetch_all_packages(self, collection_name=None, profile_name=None):
     Monthly task: Full fetch of all packages matching the profile.
 
     This performs a complete re-fetch from PyPI, similar to running
-    `pyfaggregator -f -p plone` but as a Celery task.
+    `pyfa pypi -f -p plone` but as a Celery task.
 
     Args:
         collection_name: Target collection (defaults to profile name)
@@ -1022,7 +1022,7 @@ def full_fetch_all_packages(self, collection_name=None, profile_name=None):
         # Setup settings
         settings = {
             "mode": "first",
-            "sincefile": ".pyfaggregator.monthly",
+            "sincefile": ".pyfa.monthly",
             "filter_name": "",
             "filter_troove": filter_troove,
             "limit": 0,

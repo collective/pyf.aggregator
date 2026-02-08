@@ -36,7 +36,7 @@ class Aggregator:
     def __init__(
         self,
         mode,
-        sincefile=".pyfaggregator",
+        sincefile=".pyfa",
         pypi_base_url="https://pypi.org/",
         filter_name=None,
         filter_troove=None,

@@ -59,4 +59,5 @@ EOF
 fi
 
 echo "[stop-hook] All checks passed" >&2
+echo '{"decision": "allow"}'
 exit 0
