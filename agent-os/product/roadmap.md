@@ -30,7 +30,7 @@ The following features are complete and operational:
 - [x] Memoization for cross-profile GitHub cache
 
 ### Operations
-- [x] 4 CLI commands (pyfaggregator, pyfgithub, pyfdownloads, pyfupdater)
+- [x] Unified `pyfa` CLI with subcommands (pypi, github, downloads, manage, npm, health)
 - [x] Celery task queue with 8 task types
 - [x] 5 periodic schedules (RSS monitoring, weekly refresh, monthly fetch)
 - [x] Redis-based RSS deduplication
@@ -43,7 +43,7 @@ Add support for packages hosted on GitLab.com alongside existing GitHub integrat
 ### Features
 - [ ] GitLab URL detection in package metadata (home_page, project_urls)
 - [ ] GitLab API integration for repository statistics
-- [ ] New `pyfgitlab` CLI command mirroring `pyfgithub` functionality
+- [ ] New `pyfa gitlab` subcommand mirroring `pyfa github` functionality
 - [ ] New fields: `repo_platform` (github/gitlab/other)
 - [ ] New fields: `gitlab_stars`, `gitlab_watchers`, `gitlab_open_issues`, `gitlab_updated`, `gitlab_url`
 - [ ] Rate limiting for GitLab API (similar to GitHub)
@@ -63,7 +63,7 @@ Extend the platform to index npm packages used by frontend frameworks.
 - [ ] npm registry API integration (registry.npmjs.org)
 - [ ] New profile type for npm packages (e.g., "plone-npm" for Plone frontend packages)
 - [ ] npm-specific metadata fields (dependencies, devDependencies, peerDependencies)
-- [ ] `pyfnpm` CLI command for npm aggregation
+- [ ] `pyfa npm` subcommand for npm aggregation
 - [ ] npm download statistics from npm-stat.com or bundlephobia
 - [ ] Cross-reference npm packages with their Python counterparts
 - [ ] Keyword-based filtering (e.g., "plone", "volto") since npm lacks classifier system

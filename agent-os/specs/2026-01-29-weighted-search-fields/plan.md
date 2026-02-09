@@ -77,8 +77,8 @@ Document:
 
 1. Run tests: `uv run pytest tests/test_description_splitter.py -v`
 2. Run full test suite: `uv run pytest`
-3. Recreate collection: `uv run pyfupdater --recreate-collection -p plone`
-4. Re-index sample packages: `uv run pyfaggregator -f -p plone --package plone.api`
+3. Recreate collection: `uv run pyfa manage --recreate-collection -p plone`
+4. Re-index sample packages: `uv run pyfa pypi -f -p plone --package plone.api`
 5. Verify in Typesense that new fields are populated
 
 ## Critical Files

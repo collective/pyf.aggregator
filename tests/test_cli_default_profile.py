@@ -629,6 +629,6 @@ class TestRecreateCollectionConfirmationTypesenseUtil:
 
 
 ## TestRecreateCollectionConfirmationMain was removed because
-## --recreate-collection was removed from pyfaggregator CLI.
+## --recreate-collection was removed from pyfa pypi CLI.
 ## Use pyfa manage --recreate-collection instead.
 ## See TestRecreateCollectionConfirmationTypesenseUtil for equivalent tests.

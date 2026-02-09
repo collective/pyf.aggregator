@@ -40,24 +40,24 @@ uv run pytest tests/test_fetcher.py::test_function_name -v
 
 ```shell
 # Full fetch using a profile (recommended)
-uv run pyfaggregator -f -p plone
+uv run pyfa pypi -f -p plone
 
 # Incremental update
-uv run pyfaggregator -i -p plone
+uv run pyfa pypi -i -p plone
 
 # Refresh indexed packages from PyPI (fetches ALL versions, updates existing, removes 404s)
-uv run pyfaggregator --refresh-from-pypi -p plone
+uv run pyfa pypi --refresh-from-pypi -p plone
 
 # Enrich with GitHub data (includes contributors)
-uv run pyfgithub -p plone
+uv run pyfa github -p plone
 
 # Enrich single package with verbose output (for debugging)
-uv run pyfgithub -p plone -n plone.api -v
+uv run pyfa github -p plone -n plone.api -v
 
 # Manage Typesense collections
-uv run pyfupdater -ls              # List collections
-uv run pyfupdater -lsn             # List collection names
-uv run pyfupdater --add-alias -s packages -t packages1
+uv run pyfa manage -ls              # List collections
+uv run pyfa manage -lsn             # List collection names
+uv run pyfa manage --add-alias -s packages -t packages1
 
 # Run Celery worker and beat scheduler
 uv run celery -A pyf.aggregator.queue worker --loglevel=info
@@ -83,15 +83,15 @@ PyPI API  ->  Aggregator/Fetcher  ->  Plugins  ->  Indexer  ->  Typesense
 
 | Module | Purpose |
 |--------|---------|
-| `main.py` | CLI entry point for `pyfaggregator` command (includes `--refresh-from-pypi` mode) |
+| `main.py` | CLI entry point for `pyfa pypi` subcommand (includes `--refresh-from-pypi` mode) |
 | `fetcher.py` | PyPI API client with parallel fetching and rate limiting |
 | `indexer.py` | Typesense document indexer with batching |
 | `db.py` | Typesense connection, schema management, and package listing/deletion |
 | `profiles.py` | Profile configuration for framework classifiers |
 | `queue.py` | Celery tasks for async processing and periodic schedules |
-| `typesense_util.py` | CLI for collection management (`pyfupdater`) |
-| `enrichers/github.py` | GitHub data enricher (`pyfgithub`) - includes contributors |
-| `enrichers/downloads.py` | Download statistics enricher (`pyfdownloads`) |
+| `typesense_util.py` | CLI for collection management (`pyfa manage`) |
+| `enrichers/github.py` | GitHub data enricher (`pyfa github`) - includes contributors |
+| `enrichers/downloads.py` | Download statistics enricher (`pyfa downloads`) |
 
 `queue.py` also exposes `get_dedup_redis()` (lazy singleton Redis client for dedup) and `is_package_recently_queued(package_id, release_id=None, feed_type="new", ttl=None)` (atomic SET NX EX check, fail-open). Keys are namespaced by feed type: `pyf:dedup:new:{id}` for new packages, `pyf:dedup:update:{id}:{version}` for releases.
 
@@ -128,7 +128,7 @@ Background tasks in `queue.py`:
 - `read_rss_new_projects_and_queue` - Monitor PyPI RSS for new packages
 - `read_rss_new_releases_and_queue` - Monitor PyPI RSS for new releases
 - `refresh_all_indexed_packages` - Refresh all indexed packages from PyPI, remove 404s
-- `full_fetch_all_packages` - Full fetch equivalent to `pyfaggregator -f -p <profile>`
+- `full_fetch_all_packages` - Full fetch equivalent to `pyfa pypi -f -p <profile>`
 - `enrich_downloads_all_packages` - Enrich all packages with download stats from pypistats.org
 
 **Periodic Schedules:**
@@ -189,14 +189,14 @@ REDIS_HOST=localhost:6379
 DEFAULT_PROFILE=plone
 ```
 
-When `DEFAULT_PROFILE` is set, all CLI commands (`pyfaggregator`, `pyfgithub`, `pyfdownloads`, `pyfupdater`) will use it as the default profile. The `-p` CLI argument overrides this environment variable.
+When `DEFAULT_PROFILE` is set, all `pyfa` subcommands (`pypi`, `github`, `downloads`, `manage`) will use it as the default profile. The `-p` CLI argument overrides this environment variable.
 
 ## Critical Rules
 
 - Use `RUF` for formating
 - Package uses namespace: `pyf.aggregator`
 - always write tests first, TDD
-- All CLI commands must be run with `uv run` prefix (e.g., `uv run pyfgithub -p plone`)
+- All CLI commands must be run with `uv run` prefix (e.g., `uv run pyfa github -p plone`)
 - run tests in a subagent
 - always update README when things change or new features are added
 - documentation is written in the README not in doc strings!
