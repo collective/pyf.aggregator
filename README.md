@@ -16,7 +16,7 @@ and download statistics from pypistats.org.
 
 ### Using Docker Compose (Recommended)
 
-The project includes a `docker-compose.yml` to run Typesense and Redis:
+The project includes a `docker-compose.yml` to run the full stack — Typesense, Redis, the Celery workers, and the Celery beat scheduler. Copy `example.env` to `.env` first (the worker and beat services read it via `env_file`):
 
 ```shell
 docker-compose up -d
@@ -24,7 +24,11 @@ docker-compose up -d
 
 This starts:
 - **Typesense** on port 8108 - The search engine for storing package data
-- **Redis (Valkey)** on port 6379 - Message broker for Celery task queue
+- **Redis (Valkey)** on port 6379 - Message broker for Celery task queue and RSS deduplication store
+- **celery-worker-1** / **celery-worker-2** - Two Celery workers that process tasks (`inspect_project`, `update_github`, refresh and full-fetch jobs)
+- **celery-beat** - The Celery beat scheduler that triggers the periodic tasks (RSS scans, weekly refresh, monthly full fetch, download/GitHub enrichment); its schedule is persisted to `./data/celery/celerybeat-schedule.db`
+
+The worker and beat services are built from the project `Dockerfile`. Rebuild the image after changing dependencies or source with `docker-compose up -d --build`.
 
 ### Install the Package
 
@@ -287,6 +291,25 @@ uv run pyfa pypi -f              # Uses plone profile from DEFAULT_PROFILE
 uv run pyfa pypi -f -p plone     # Explicit profile (same result)
 uv run pyfa pypi -f -p django    # CLI -p overrides DEFAULT_PROFILE
 ```
+
+**How discovery works (and why):**
+
+PyPI's XML-RPC API (including `browse()`, `search()`, and `changelog()`) is deprecated
+and partially decommissioned, so the aggregator uses only the supported APIs:
+
+- **Simple/Index API** (`/simple`) to list all project names — there is no server-side
+  classifier filter, so the `Framework :: Plone` (or profile) filter is applied client-side
+  on each package's metadata.
+- **JSON API** (`/pypi/{name}/json`) for per-package and per-version metadata.
+- **RSS feeds** (`/rss/updates.xml`, `/rss/packages.xml`) for incremental discovery.
+
+**Incremental mode caveat:** the RSS feeds only expose the latest ~40 entries per feed. If
+more than ~40 relevant packages change between runs, updates can be silently missed (the run
+logs a warning when this overflow is likely). Run incremental updates **frequently** (e.g. via
+the Celery beat schedule, which polls every minute) and periodically reconcile with a full
+`-f` or `--refresh-from-pypi` pass to catch anything the RSS window dropped. Incremental mode
+applies the same classifier/profile filter as full mode, so non-matching packages from the
+global feeds are never indexed.
 
 ### pyfa npm
 
