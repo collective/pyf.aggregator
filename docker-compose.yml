@@ -1,5 +1,4 @@
 
-
 services:
   typesense:
     image: docker.io/typesense/typesense:28.0
@@ -16,3 +15,34 @@ services:
     volumes:
       - ./data/redis:/data
     command: valkey-server --bind 127.0.0.1
+
+  celery-worker-1:
+    build: .
+    network_mode: "host"
+    env_file: .env
+    command: celery -A pyf.aggregator.queue worker --loglevel=info -n worker1@%h
+    depends_on:
+      - redis
+      - typesense
+    restart: unless-stopped
+
+  celery-worker-2:
+    build: .
+    network_mode: "host"
+    env_file: .env
+    command: celery -A pyf.aggregator.queue worker --loglevel=info -n worker2@%h
+    depends_on:
+      - redis
+      - typesense
+    restart: unless-stopped
+
+  celery-beat:
+    build: .
+    network_mode: "host"
+    env_file: .env
+    volumes:
+      - ./data/celery:/data/celery
+    command: celery -A pyf.aggregator.queue beat --loglevel=info --schedule /data/celery/celerybeat-schedule.db
+    depends_on:
+      - redis
+    restart: unless-stopped
