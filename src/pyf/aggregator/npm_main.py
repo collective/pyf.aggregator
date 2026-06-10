@@ -211,7 +211,15 @@ def run_npm_refresh_mode(settings):
                 if github_data:
                     break  # Got data from first doc with GitHub fields
 
-            return ("update", package_name, package_json, github_data)
+            # Fetch each version's own README (the registry only serves the
+            # latest version's readme). Done here in the parallel worker so the
+            # CDN fetches run concurrently across packages.
+            readmes = {
+                version: agg.get_version_readme(package_name, version)
+                for version in package_json.get("versions", {})
+            }
+
+            return ("update", package_name, package_json, github_data, readmes)
 
         except Exception as e:
             return ("error", package_name, str(e))
@@ -238,7 +246,10 @@ def run_npm_refresh_mode(settings):
             elif action == "update":
                 package_json = result[2]
                 github_data = result[3]
-                packages_to_update.append((pkg_name, package_json, github_data))
+                readmes = result[4]
+                packages_to_update.append(
+                    (pkg_name, package_json, github_data, readmes)
+                )
             elif action == "error":
                 error = result[2]
                 stats["failed"] += 1
@@ -258,7 +269,7 @@ def run_npm_refresh_mode(settings):
             logger.error(f"Error deleting {pkg_name}: {e}")
 
     # Update packages with fresh data
-    for pkg_name, package_json, github_data in packages_to_update:
+    for pkg_name, package_json, github_data, readmes in packages_to_update:
         try:
             # Process all versions using aggregator's logic
             versions = package_json.get("versions", {})
@@ -272,6 +283,11 @@ def run_npm_refresh_mode(settings):
                 )
                 if not transformed:
                     continue
+
+                # Override the (latest) package document readme with this version's own
+                readme = readmes.get(version)
+                if readme is not None:
+                    transformed["description"] = readme
 
                 # Add GitHub fields from existing data
                 for field, value in github_data.items():

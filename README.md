@@ -81,13 +81,19 @@ REDIS_HOST=localhost:6379
 TYPESENSE_COLLECTION=plone
 
 # npm Registry Configuration
-# npm registry: 1000 req/hr unauthenticated, 5000 with token
-NPM_RATE_LIMIT_DELAY=0.72              # Default 0.72s for authenticated (~5000 req/hr)
-NPM_AUTH_TOKEN=                        # Optional: for 5000 req/hr limit
+# npm publishes no per-hour limit; acceptable use is ~5M requests/month. A token
+# grants a higher rate than anonymous. Throughput is driven by concurrency
+# (NPM_MAX_WORKERS); NPM_MAX_RPS optionally caps the average request rate via a
+# token bucket WITHOUT serializing the concurrent requests (0 = no cap).
+NPM_AUTH_TOKEN=                        # Optional: higher registry rate
+NPM_MAX_WORKERS=16                     # Concurrent request threads (primary throughput control)
+NPM_MAX_RPS=0                          # Average req/sec cap; 0 = unlimited (bounded by workers)
 NPM_MAX_RETRIES=3
 NPM_RETRY_BACKOFF=2.0
-NPM_MAX_WORKERS=10                     # Parallel threads for fetching
-NPM_BATCH_SIZE=100                     # Batch size for memory-efficient fetching
+# Per-version READMEs are fetched from the jsDelivr CDN (the npm registry only
+# serves the latest version's readme). Override the endpoints only if mirroring.
+# JSDELIVR_CDN_URL=https://cdn.jsdelivr.net/npm
+# JSDELIVR_DATA_URL=https://data.jsdelivr.com/v1/packages/npm
 
 # Celery Periodic Task Schedules (crontab format: minute hour day_of_month month day_of_week)
 # Set to empty string to disable a task
@@ -118,16 +124,33 @@ CELERY_TASK_TIME_LIMIT=600             # Hard time limit in seconds (10 min)
 
 ### npm Registry Rate Limits
 
-The official npm registry enforces the following rate limits:
+The npm registry does **not** publish a per-hour request limit. Its [acceptable-use
+policy](https://blog.npmjs.org/post/187698412060/acceptible-use.html) treats up to
+**~5 million requests/month** as reasonable; above that is considered excessive.
+Authenticated (token) requests get a higher rate than anonymous ones, and clients
+must handle HTTP 429 ([rate-limiting announcement](https://blog.npmjs.org/post/164799520460/api-rate-limiting-rolling-out.html)).
 
-| Authentication | Rate Limit | Recommended Delay |
-|----------------|------------|-------------------|
-| None | 1,000 req/hour | 3.6s (`NPM_RATE_LIMIT_DELAY=3.6`) |
-| With token | 5,000 req/hour | 0.72s (default) |
+In practice the Plone-scoped fetch only pulls a few hundred packages per run, far
+below any threshold.
 
-**Default Configuration**: The default delay of `0.72s` is calibrated for authenticated requests (5000 req/hr). If you're fetching without an `NPM_AUTH_TOKEN`, increase the delay to `3.6` to avoid rate limiting.
+**Throughput model**: Speed is driven by **concurrency** — the thread pool runs up
+to `NPM_MAX_WORKERS` (default 16) requests at once. `NPM_MAX_RPS` optionally caps the
+*average* request rate through a token bucket *without* serializing those concurrent
+requests (set to `0`, the default, for no cap — concurrency is then bounded only by
+the worker count). HTTP 429 responses are always honored via the `Retry-After` header.
+
+**Per-version READMEs (jsDelivr)**: The npm registry's JSON API only exposes the
+*latest* version's readme (at the package document root) — each `versions[v]` object has no
+readme. To capture what a user sees on each version's npm page, the fetcher pulls each
+version's README from the [jsDelivr CDN](https://www.jsdelivr.com/) (`cdn.jsdelivr.net/npm/{pkg}@{version}/README.md`,
+falling back to jsDelivr's file-list API for unusual filenames). If a version's readme
+can't be fetched, it falls back to the package document's latest readme. The full package document is
+fetched **once per package** (for the version list, timestamps, and short descriptions);
+only the lightweight per-version README is fetched per version.
 
 **HTTP 429 Handling**: If the npm registry returns a 429 (Too Many Requests), the fetcher automatically reads the `Retry-After` header and waits before retrying.
+
+**User-Agent**: Requests identify themselves with a descriptive `User-Agent` (package name, version, and project URL) so npm can reach the maintainers instead of blocking.
 
 **Getting an npm Token**: Generate a token at [npmjs.com/settings/tokens](https://www.npmjs.com/settings/tokens) with read-only access.
 

@@ -8,8 +8,10 @@ similar to how the PyPI aggregator fetches packages by classifiers.
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from dotenv import load_dotenv
-from itertools import islice
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from pyf.aggregator.logger import logger
+from requests.adapters import HTTPAdapter
 from urllib.parse import quote
 
 import os
@@ -19,18 +21,78 @@ import time
 
 load_dotenv()
 
-# Rate limiting configuration from environment
-# npm registry: 1000 req/hr unauthenticated (~0.28 req/sec = 3.6s delay)
-# With auth token: 5000 req/hr (~1.4 req/sec = 0.72s delay)
-NPM_RATE_LIMIT_DELAY = float(os.getenv("NPM_RATE_LIMIT_DELAY", 0.72))
+# Identify ourselves to the registry. npm's acceptable-use policy asks
+# consumers to be identifiable so they can be contacted instead of blocked.
+try:
+    _VERSION = _pkg_version("pyf.aggregator")
+except PackageNotFoundError:
+    _VERSION = "0.0.0"
+USER_AGENT = (
+    f"pyf.aggregator/{_VERSION} (+https://github.com/collective/pyf.aggregator)"
+)
+
+# Throughput configuration from environment.
+# npm publishes no per-hour request limit. Its acceptable-use policy treats up
+# to ~5M requests/month as reasonable; above that is excessive use. Clients must
+# handle HTTP 429, and authenticated (token) requests get a higher rate than
+# anonymous ones. See:
+#   https://blog.npmjs.org/post/187698412060/acceptible-use.html
+#   https://blog.npmjs.org/post/164799520460/api-rate-limiting-rolling-out.html
+NPM_AUTH_TOKEN = os.getenv("NPM_AUTH_TOKEN", "")
+# Concurrency is the primary throughput control: the thread pool runs up to
+# NPM_MAX_WORKERS requests at once. NPM_MAX_RPS optionally caps the *average*
+# request rate via a token bucket WITHOUT serializing those concurrent requests
+# (a fixed per-request delay would defeat the pool, which is what the previous
+# global lock did). 0 disables the cap, leaving concurrency bounded only by
+# NPM_MAX_WORKERS. 429 responses are always honored via Retry-After.
+NPM_MAX_WORKERS = int(os.getenv("NPM_MAX_WORKERS", 16))
+NPM_MAX_RPS = float(os.getenv("NPM_MAX_RPS", 0))
 NPM_MAX_RETRIES = int(os.getenv("NPM_MAX_RETRIES", 3))
 NPM_RETRY_BACKOFF = float(os.getenv("NPM_RETRY_BACKOFF", 2.0))
-NPM_MAX_WORKERS = int(os.getenv("NPM_MAX_WORKERS", 10))
-NPM_BATCH_SIZE = int(os.getenv("NPM_BATCH_SIZE", 100))
-NPM_AUTH_TOKEN = os.getenv("NPM_AUTH_TOKEN", "")
+
+# jsDelivr CDN — source of per-version READMEs. The npm registry's JSON API only
+# exposes the latest version's readme (the package document root); each version's actual
+# readme lives in its published files. jsDelivr serves individual files per
+# version, so we fetch just the README rather than downloading whole tarballs.
+JSDELIVR_DATA_URL = os.getenv(
+    "JSDELIVR_DATA_URL", "https://data.jsdelivr.com/v1/packages/npm"
+)
+JSDELIVR_CDN_URL = os.getenv("JSDELIVR_CDN_URL", "https://cdn.jsdelivr.net/npm")
 
 # Plugin storage (populated by register_npm_plugins)
 NPM_PLUGINS = []
+
+
+class _TokenBucket:
+    """Thread-safe average-rate limiter that does not serialize concurrency.
+
+    Unlike a fixed inter-request delay, a token bucket lets many requests run
+    at once as long as their average rate stays under ``rate_per_sec``. A rate
+    of 0 (or less) disables limiting entirely.
+    """
+
+    def __init__(self, rate_per_sec):
+        self._rate = float(rate_per_sec)
+        self._capacity = max(1.0, self._rate)
+        self._tokens = self._capacity
+        self._last = time.monotonic()
+        self._lock = threading.Lock()
+
+    def acquire(self):
+        if self._rate <= 0:
+            return
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                self._tokens = min(
+                    self._capacity, self._tokens + (now - self._last) * self._rate
+                )
+                self._last = now
+                if self._tokens >= 1.0:
+                    self._tokens -= 1.0
+                    return
+                wait = (1.0 - self._tokens) / self._rate
+            time.sleep(wait)
 
 
 class NpmAggregator:
@@ -58,15 +120,29 @@ class NpmAggregator:
         self.filter_keywords = filter_keywords or []
         self.filter_scopes = filter_scopes or []
         self.limit = limit
-        self._last_request_time = 0
-        self._rate_limit_lock = threading.Lock()
         self._fetch_counter = 0
         self._fetch_counter_lock = threading.Lock()
         self._total_packages = 0
-        self._session = requests.Session()
-        # Set auth header if token provided
-        if NPM_AUTH_TOKEN:
-            self._session.headers["Authorization"] = f"Bearer {NPM_AUTH_TOKEN}"
+        self._limiter = _TokenBucket(NPM_MAX_RPS)
+        # Registry session carries auth + identifying UA; connection-pooled to the
+        # worker count so concurrent requests reuse connections.
+        self._session = self._build_session(with_auth=True)
+        # Separate CDN session for jsDelivr — never send the npm token to a third
+        # party. Same pooling, identifying UA, no Authorization header.
+        self._cdn_session = self._build_session(with_auth=False)
+
+    def _build_session(self, with_auth):
+        """Build a connection-pooled requests.Session sized to the worker count."""
+        session = requests.Session()
+        adapter = HTTPAdapter(
+            pool_connections=NPM_MAX_WORKERS, pool_maxsize=NPM_MAX_WORKERS
+        )
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        session.headers["User-Agent"] = USER_AGENT
+        if with_auth and NPM_AUTH_TOKEN:
+            session.headers["Authorization"] = f"Bearer {NPM_AUTH_TOKEN}"
+        return session
 
     def __iter__(self):
         """Iterate over all package versions, yielding (identifier, data) tuples."""
@@ -82,33 +158,14 @@ class NpmAggregator:
             raise ValueError(f"Unknown mode: {self.mode}")
 
         count = 0
-        for package_id, release_id, ts, extra_data in iterator:
+        # _all_packages / _incremental_packages now yield fully-built
+        # (identifier, data) records — including each version's own README —
+        # so iteration only has to apply plugins and enforce the limit.
+        for identifier, data in iterator:
             if self.limit and count >= self.limit:
                 return
             count += 1
 
-            # Sanitize package_id for Typesense document ID (replace / with --)
-            safe_package_id = package_id.replace("/", "--")
-            identifier = f"{safe_package_id}-{release_id}"
-            data = self._get_npm_version(package_id, release_id)
-            if not data:
-                continue
-
-            # Add upload timestamp
-            if ts:
-                try:
-                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                    data["upload_timestamp"] = int(dt.timestamp())
-                except (ValueError, TypeError):
-                    data["upload_timestamp"] = 0
-            else:
-                data["upload_timestamp"] = 0
-
-            # Add extra data from search results (scores)
-            if extra_data:
-                data.update(extra_data)
-
-            # Apply plugins
             for plugin in NPM_PLUGINS:
                 plugin(identifier, data)
 
@@ -120,22 +177,13 @@ class NpmAggregator:
         )
 
     def _apply_rate_limit(self):
-        """Apply rate limiting delay between npm API requests (thread-safe)."""
-        with self._rate_limit_lock:
-            elapsed = time.time() - self._last_request_time
-            if elapsed < NPM_RATE_LIMIT_DELAY:
-                sleep_time = NPM_RATE_LIMIT_DELAY - elapsed
-                time.sleep(sleep_time)
-            self._last_request_time = time.time()
+        """Pace requests via a token bucket.
 
-    def _batched(self, iterable, batch_size):
-        """Yield batches from an iterable without loading all into memory."""
-        iterator = iter(iterable)
-        while True:
-            batch = list(islice(iterator, batch_size))
-            if not batch:
-                break
-            yield batch
+        Caps the average request rate (NPM_MAX_RPS) without serializing the
+        concurrent requests, so the worker pool actually runs in parallel.
+        A no-op when NPM_MAX_RPS <= 0.
+        """
+        self._limiter.acquire()
 
     def _is_valid_package(self, pkg):
         """Check if package matches filter criteria (keyword or scope).
@@ -364,33 +412,87 @@ class NpmAggregator:
         logger.error(f"Max retries exceeded for {package_name}")
         return None
 
-    def _get_npm_version(self, package_name, version):
-        """Get metadata for a specific package version.
+    def get_version_readme(self, package_name, version):
+        """Fetch a specific version's README from the jsDelivr CDN.
 
-        Args:
-            package_name: Package name
-            version: Version string
+        The npm registry only serves the latest version's readme; each version's
+        actual readme lives in its published files, which jsDelivr exposes per
+        file. Most packages ship ``README.md``, so we try that directly and only
+        consult the file-listing API (one extra request) when it is missing.
 
         Returns:
-            Transformed package data dict or None if not found
+            The README text, or None if unavailable (callers fall back to the
+            package document's latest readme).
         """
-        package_json = self._get_npm_json(package_name)
-        if not package_json:
+        text = self._jsdelivr_file(package_name, version, "README.md")
+        if text is not None:
+            return text
+        filename = self._jsdelivr_find_readme(package_name, version)
+        if filename and filename != "README.md":
+            return self._jsdelivr_file(package_name, version, filename)
+        return None
+
+    def _jsdelivr_file(self, package_name, version, filename):
+        """GET a single file for a package version from jsDelivr; None if missing."""
+        url = f"{JSDELIVR_CDN_URL}/{package_name}@{version}/{filename.lstrip('/')}"
+        response = self._cdn_get(url)
+        if response is None or response.status_code != 200:
             return None
+        return response.text
 
-        versions = package_json.get("versions", {})
-        version_data = versions.get(version)
-        if not version_data:
-            logger.warning(f"Version {version} not found for {package_name}")
+    def _jsdelivr_find_readme(self, package_name, version):
+        """Resolve the readme filename at the package root via jsDelivr's file API.
+
+        Handles unusual casing/extensions (readme.md, README.markdown, ...).
+        """
+        url = f"{JSDELIVR_DATA_URL}/{package_name}@{version}"
+        response = self._cdn_get(url)
+        if response is None or response.status_code != 200:
             return None
+        try:
+            files = response.json().get("files", [])
+        except ValueError:
+            return None
+        for entry in files:
+            name = entry.get("name", "")
+            if entry.get("type") == "file" and name.lower().startswith("readme"):
+                return name
+        return None
 
-        # Get time information
-        time_info = package_json.get("time", {})
+    def _cdn_get(self, url):
+        """GET a jsDelivr URL with pacing, retries, and 429 handling.
 
-        # Transform to common schema
-        return self._transform_npm_data(
-            package_name, version_data, time_info, package_json
-        )
+        Returns the Response (which may carry a 404 for a missing file) or None
+        after repeated transport/server errors.
+        """
+        retries = 0
+        while retries <= NPM_MAX_RETRIES:
+            self._apply_rate_limit()
+            try:
+                response = self._cdn_session.get(url, timeout=30)
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"Request error fetching {url}: {e}")
+                retries += 1
+                if retries <= NPM_MAX_RETRIES:
+                    time.sleep(NPM_RETRY_BACKOFF**retries)
+                continue
+
+            if response.status_code == 429:
+                retry_after = int(response.headers.get("Retry-After", 60))
+                logger.info(f"Rate limited by CDN. Waiting {retry_after}s")
+                time.sleep(retry_after)
+                retries += 1
+                continue
+            if response.status_code >= 500:
+                logger.warning(f"CDN server error {response.status_code} for {url}")
+                retries += 1
+                if retries <= NPM_MAX_RETRIES:
+                    time.sleep(NPM_RETRY_BACKOFF**retries)
+                continue
+            return response
+
+        logger.error(f"Max retries exceeded for CDN URL: {url}")
+        return None
 
     def _transform_npm_data(self, package_name, version_data, time_info, package_json):
         """Transform npm package data to match Typesense schema.
@@ -555,94 +657,155 @@ class NpmAggregator:
         result.sort(key=lambda x: x[0])
         return result
 
-    def _fetch_package_metadata(self, package_name, search_result):
-        """Fetch metadata for all versions of a package (thread-safe).
+    @staticmethod
+    def _extract_scores(search_result):
+        """Pull npm search scores into the per-document extra fields."""
+        if not search_result:
+            return {}
+        score = search_result.get("score", {})
+        detail = score.get("detail", {})
+        return {
+            "npm_quality_score": detail.get("quality", 0.0),
+            "npm_popularity_score": detail.get("popularity", 0.0),
+            "npm_maintenance_score": detail.get("maintenance", 0.0),
+            "npm_final_score": score.get("final", 0.0),
+        }
 
-        Args:
-            package_name: Package name
-            search_result: Search result data containing scores
+    @staticmethod
+    def _to_unix_ts(iso_ts):
+        """Convert an ISO-8601 timestamp string to a Unix int, or 0 on failure."""
+        if not iso_ts:
+            return 0
+        try:
+            dt = datetime.fromisoformat(iso_ts.replace("Z", "+00:00"))
+            return int(dt.timestamp())
+        except (ValueError, TypeError, AttributeError):
+            return 0
+
+    def _build_version_records(self, package_name, search_result):
+        """Fetch a package's package document once and build a base record per version.
+
+        A single package document request covers *every* version (short description,
+        deps, timestamps, ...), so there is no per-version package document refetch.
+        ``_transform_npm_data`` seeds ``description`` with the package document's latest
+        readme as a fallback; the true per-version README is attached later from
+        jsDelivr in ``_all_packages``.
 
         Returns:
-            List of (package_name, version, timestamp, extra_data) tuples
+            List of {"identifier", "name", "version", "data"} dicts (possibly
+            empty).
         """
         package_json = self._get_npm_json(package_name)
         if not package_json:
-            return None
+            return []
 
-        # Extract scores from search result
-        extra_data = {}
-        if search_result:
-            score = search_result.get("score", {})
-            detail = score.get("detail", {})
-            extra_data = {
-                "npm_quality_score": detail.get("quality", 0.0),
-                "npm_popularity_score": detail.get("popularity", 0.0),
-                "npm_maintenance_score": detail.get("maintenance", 0.0),
-                "npm_final_score": score.get("final", 0.0),
-            }
+        extra_data = self._extract_scores(search_result)
+        time_info = package_json.get("time", {})
+        safe_name = package_name.replace("/", "--")
 
-        results = []
-        for version, ts in self._get_all_versions(package_json):
-            results.append((package_name, version, ts, extra_data))
-
-        return results if results else None
+        records = []
+        for version, version_data in package_json.get("versions", {}).items():
+            data = self._transform_npm_data(
+                package_name, version_data, time_info, package_json
+            )
+            if not data:
+                continue
+            data["upload_timestamp"] = self._to_unix_ts(data.get("upload_time"))
+            if extra_data:
+                data.update(extra_data)
+            records.append(
+                {
+                    "identifier": f"{safe_name}-{version}",
+                    "name": package_name,
+                    "version": version,
+                    "data": data,
+                }
+            )
+        return records
 
     @property
     def _all_packages(self):
-        """Get all package versions using parallel fetching.
+        """Yield (identifier, data) for every version of every matching package.
 
-        Yields:
-            Tuple of (package_name, version, timestamp, extra_data)
+        Two concurrent phases:
+          1. Fetch each package's package document once and expand it into one base
+             record per version (cheap — all versions from a single request).
+          2. Fetch each version's README from jsDelivr in parallel and attach
+             it, so every version carries its *own* readme.
+
+        This replaces the previous design, which refetched the full package document
+        once per version and stamped every version with the latest readme.
         """
-        # First, search for all matching packages
         packages = self._search_packages()
         self._total_packages = len(packages)
-
         if not packages:
             logger.warning("No packages found matching search criteria")
             return
 
-        logger.info(
-            f"Starting parallel fetch for {len(packages)} packages with {NPM_MAX_WORKERS} threads..."
-        )
-
-        completed = 0
         start_time = time.time()
 
+        # Phase 1: package documents -> base version records (concurrent across packages).
+        logger.info(
+            f"Phase 1: fetching {len(packages)} package documents with {NPM_MAX_WORKERS} threads..."
+        )
+        records = []
+        completed = 0
         with ThreadPoolExecutor(max_workers=NPM_MAX_WORKERS) as executor:
-            for batch in self._batched(packages.items(), NPM_BATCH_SIZE):
-                futures = {
-                    executor.submit(
-                        self._fetch_package_metadata, pkg_name, search_result
-                    ): pkg_name
-                    for pkg_name, search_result in batch
-                }
+            futures = {
+                executor.submit(self._build_version_records, name, search_result): name
+                for name, search_result in packages.items()
+            }
+            for future in as_completed(futures):
+                completed += 1
+                if completed % 10 == 0:
+                    logger.info(
+                        f"  package documents: {completed}/{self._total_packages}"
+                    )
+                try:
+                    records.extend(future.result())
+                except Exception as e:
+                    name = futures[future]
+                    logger.error(f"Error fetching package document for {name}: {e}")
 
-                for future in as_completed(futures):
-                    completed += 1
-                    if completed % 10 == 0:
-                        elapsed = time.time() - start_time
-                        rate = completed / elapsed if elapsed > 0 else 0
-                        pct = (
-                            (completed / self._total_packages * 100)
-                            if self._total_packages > 0
-                            else 0
-                        )
-                        logger.info(
-                            f"Progress: {completed}/{self._total_packages} ({pct:.1f}%) packages ({rate:.1f}/sec)"
-                        )
+        # Honor the version limit before the (more expensive) README phase.
+        if self.limit:
+            records = records[: self.limit]
 
-                    try:
-                        results = future.result()
-                        if results:
-                            for item in results:
-                                yield item
-                    except Exception as e:
-                        pkg_name = futures[future]
-                        logger.error(f"Error fetching {pkg_name}: {e}")
+        # Phase 2: per-version READMEs from jsDelivr (concurrent across versions).
+        logger.info(
+            f"Phase 2: fetching READMEs for {len(records)} versions with {NPM_MAX_WORKERS} threads..."
+        )
+        with ThreadPoolExecutor(max_workers=NPM_MAX_WORKERS) as executor:
+            futures = {
+                executor.submit(
+                    self.get_version_readme, rec["name"], rec["version"]
+                ): rec
+                for rec in records
+            }
+            done = 0
+            for future in as_completed(futures):
+                rec = futures[future]
+                done += 1
+                if done % 50 == 0:
+                    elapsed = time.time() - start_time
+                    rate = done / elapsed if elapsed > 0 else 0
+                    logger.info(f"  readmes: {done}/{len(records)} ({rate:.1f}/sec)")
+                try:
+                    readme = future.result()
+                except Exception as e:
+                    readme = None
+                    logger.error(
+                        f"Error fetching readme for {rec['name']}@{rec['version']}: {e}"
+                    )
+                if readme is not None:
+                    rec["data"]["description"] = readme
+                yield rec["identifier"], rec["data"]
 
         elapsed = time.time() - start_time
-        logger.info(f"Completed: {completed} packages in {elapsed:.1f}s")
+        logger.info(
+            f"Completed: {len(records)} versions from {self._total_packages} "
+            f"packages in {elapsed:.1f}s"
+        )
 
     @property
     def _incremental_packages(self):
@@ -652,7 +815,7 @@ class NpmAggregator:
         Currently just returns all packages (npm search doesn't have date filter).
 
         Yields:
-            Tuple of (package_name, version, timestamp, extra_data)
+            Tuple of (identifier, data) for each version.
         """
         # npm search API doesn't support date filtering
         # For now, just do a full fetch but could be optimized with a separate

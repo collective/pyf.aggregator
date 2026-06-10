@@ -1,6 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from dotenv import load_dotenv
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from itertools import islice
 from pathlib import Path
 from pyf.aggregator.logger import logger
@@ -19,6 +21,17 @@ PLUGINS = []
 
 # Classifier constant for Plone framework filtering
 PLONE_CLASSIFIER = "Framework :: Plone"
+
+# Identify ourselves to PyPI. The JSON/Simple APIs have no edge rate limit, but
+# docs.pypi.org asks high-volume consumers to send a descriptive User-Agent with
+# contact info so PyPI can reach out instead of blocking. See docs.pypi.org/api/.
+try:
+    _VERSION = _pkg_version("pyf.aggregator")
+except PackageNotFoundError:
+    _VERSION = "0.0.0"
+USER_AGENT = (
+    f"pyf.aggregator/{_VERSION} (+https://github.com/collective/pyf.aggregator)"
+)
 
 # Rate limiting configuration from environment
 # PyPI JSON API has no formal rate limits due to CDN caching (per docs.pypi.org/api/)
@@ -225,7 +238,10 @@ class Aggregator:
 
         pypi_index_url = self.pypi_base_url + "/simple"
         # Use PyPI Simple API JSON format
-        headers = {"Accept": "application/vnd.pypi.simple.v1+json"}
+        headers = {
+            "Accept": "application/vnd.pypi.simple.v1+json",
+            "User-Agent": USER_AGENT,
+        }
 
         # Fetch with retry/backoff so a transient failure doesn't abort the run.
         request_obj = None
@@ -403,7 +419,9 @@ class Aggregator:
             self._apply_rate_limit()
 
             try:
-                request_obj = requests.get(package_url, timeout=30)
+                request_obj = requests.get(
+                    package_url, headers={"User-Agent": USER_AGENT}, timeout=30
+                )
             except requests.exceptions.Timeout:
                 logger.warning(f'Timeout fetching URL "{package_url}"')
                 retries += 1
