@@ -292,7 +292,7 @@ class TestAllPackageIds:
 
     @responses.activate
     def test_handles_non_200_response(self):
-        """Test that non-200 response raises ValueError."""
+        """Test that a persistent non-200 response raises ValueError after retries."""
         responses.add(
             responses.GET,
             re.compile(r"https://pypi\.org/+simple"),
@@ -300,8 +300,30 @@ class TestAllPackageIds:
         )
 
         aggregator = Aggregator(mode="first")
-        with pytest.raises(ValueError, match="Not 200 OK"):
-            list(aggregator._all_package_ids)
+        with patch("pyf.aggregator.fetcher.time.sleep"):
+            with pytest.raises(ValueError, match="Failed to fetch"):
+                list(aggregator._all_package_ids)
+
+    @responses.activate
+    def test_retries_then_succeeds_on_transient_error(self, sample_simple_api_response):
+        """Test that a transient 503 is retried and the run recovers."""
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+simple"),
+            status=503,
+        )
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+simple"),
+            json=sample_simple_api_response,
+            status=200,
+        )
+
+        aggregator = Aggregator(mode="first", limit=10)
+        with patch("pyf.aggregator.fetcher.time.sleep"):
+            package_ids = list(aggregator._all_package_ids)
+
+        assert "plone.api" in package_ids
 
 
 # ============================================================================
@@ -709,78 +731,6 @@ class TestAllPackages:
 # ============================================================================
 
 
-class TestProjectList:
-    """Test the _project_list property."""
-
-    @responses.activate
-    def test_yields_all_packages_without_filter(self, sample_simple_api_response):
-        """Test that project list yields all packages when no filter."""
-        responses.add(
-            responses.GET,
-            re.compile(r"https://pypi\.org/+simple"),
-            json=sample_simple_api_response,
-            status=200,
-        )
-
-        aggregator = Aggregator(mode="first", limit=10)
-        package_ids = list(aggregator._project_list)
-
-        assert len(package_ids) == 4
-        assert "plone.api" in package_ids
-        assert "requests" in package_ids
-
-    @responses.activate
-    def test_applies_classifier_filter(
-        self, sample_pypi_json_plone, sample_pypi_json_non_plone
-    ):
-        """Test that classifier filter is applied in project list."""
-        # Mock simple API
-        responses.add(
-            responses.GET,
-            re.compile(r"https://pypi\.org/+simple"),
-            json={"projects": [{"name": "plone.api"}, {"name": "requests"}]},
-            status=200,
-        )
-        # Mock JSON API
-        responses.add(
-            responses.GET,
-            re.compile(r"https://pypi\.org/+pypi/plone\.api/json"),
-            json=sample_pypi_json_plone,
-            status=200,
-        )
-        responses.add(
-            responses.GET,
-            re.compile(r"https://pypi\.org/+pypi/requests/json"),
-            json=sample_pypi_json_non_plone,
-            status=200,
-        )
-
-        aggregator = Aggregator(
-            mode="first",
-            filter_troove="Framework :: Plone",
-            limit=10,
-        )
-        package_ids = list(aggregator._project_list)
-
-        assert "plone.api" in package_ids
-        assert "requests" not in package_ids
-
-    @responses.activate
-    def test_respects_limit(self, sample_simple_api_response):
-        """Test that limit is respected in project list."""
-        responses.add(
-            responses.GET,
-            re.compile(r"https://pypi\.org/+simple"),
-            json=sample_simple_api_response,
-            status=200,
-        )
-
-        aggregator = Aggregator(mode="first", limit=2)
-        package_ids = list(aggregator._project_list)
-
-        assert len(package_ids) == 2
-
-
 # ============================================================================
 # PLONE_CLASSIFIER Constant Tests
 # ============================================================================
@@ -848,3 +798,117 @@ class TestAggregatorInit:
         """Test skip_github is set correctly."""
         aggregator = Aggregator(mode="first", skip_github=True)
         assert aggregator.skip_github is True
+
+
+# ============================================================================
+# _get_pypi URL Cleaning Tests
+# ============================================================================
+
+
+class TestGetPypiUrlCleaning:
+    """Test that _get_pypi restructures data and cleans url entries safely."""
+
+    @responses.activate
+    def test_handles_urls_missing_optional_keys(self):
+        """A url entry without 'downloads'/'md5_digest' must not raise KeyError."""
+        package_json = {
+            "info": {"name": "somepkg", "classifiers": ["Framework :: Plone"]},
+            "urls": [
+                {
+                    "filename": "somepkg-1.0.0.tar.gz",
+                    "url": "https://files.pythonhosted.org/somepkg-1.0.0.tar.gz",
+                    # note: 'downloads' and 'md5_digest' intentionally absent
+                }
+            ],
+        }
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+pypi/somepkg/1\.0\.0/json"),
+            json=package_json,
+            status=200,
+        )
+
+        aggregator = Aggregator(mode="first")
+        data = aggregator._get_pypi("somepkg", "1.0.0")
+
+        assert data is not None
+        assert data["name"] == "somepkg"
+        assert "downloads" not in data["urls"][0]
+        assert "md5_digest" not in data["urls"][0]
+
+
+# ============================================================================
+# Incremental Mode Classifier Filtering Tests
+# ============================================================================
+
+
+class TestIncrementalClassifierFilter:
+    """Incremental mode discovers via unfiltered RSS feeds, so __iter__ must
+    apply the classifier filter before yielding (regression test)."""
+
+    @responses.activate
+    def test_incremental_filters_non_matching_packages(
+        self, tmp_path, sample_pypi_json_plone, sample_pypi_json_non_plone
+    ):
+        """Only packages carrying the filter classifier are yielded."""
+        sincefile = tmp_path / ".pyfa"
+        sincefile.write_text("0")
+
+        # Version-specific JSON endpoints hit by _get_pypi
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+pypi/plone\.api/2\.0\.0/json"),
+            json=sample_pypi_json_plone,
+            status=200,
+        )
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+pypi/requests/2\.31\.0/json"),
+            json=sample_pypi_json_non_plone,
+            status=200,
+        )
+
+        aggregator = Aggregator(
+            mode="incremental",
+            sincefile=str(sincefile),
+            filter_troove="Framework :: Plone",
+        )
+
+        updates = [
+            ("plone.api", "2.0.0", None),
+            ("requests", "2.31.0", None),
+        ]
+        with patch.object(aggregator, "_package_updates", return_value=iter(updates)):
+            results = list(aggregator)
+
+        names = [identifier for identifier, _ in results]
+        assert "plone.api-2.0.0" in names
+        assert "requests-2.31.0" not in names
+
+    @responses.activate
+    def test_incremental_without_filter_yields_all(
+        self, tmp_path, sample_pypi_json_non_plone
+    ):
+        """With no filter_troove, incremental mode yields every update."""
+        sincefile = tmp_path / ".pyfa"
+        sincefile.write_text("0")
+
+        responses.add(
+            responses.GET,
+            re.compile(r"https://pypi\.org/+pypi/requests/2\.31\.0/json"),
+            json=sample_pypi_json_non_plone,
+            status=200,
+        )
+
+        aggregator = Aggregator(
+            mode="incremental",
+            sincefile=str(sincefile),
+            filter_troove=None,
+        )
+
+        updates = [("requests", "2.31.0", None)]
+        with patch.object(aggregator, "_package_updates", return_value=iter(updates)):
+            results = list(aggregator)
+
+        names = [identifier for identifier, _ in results]
+        assert "requests-2.31.0" in names

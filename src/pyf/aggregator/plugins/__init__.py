@@ -5,7 +5,7 @@ from . import python_versions
 from . import rst_to_html
 from . import description_splitter
 
-# Note: health_score plugin removed - use `pyfhealth` command instead
+# Note: health_score plugin removed - use `pyfa health` command instead
 # This ensures health scores are calculated after GitHub data is available
 
 

@@ -1,5 +1,5 @@
 """
-Unit tests for DEFAULT_PROFILE environment variable support across CLI commands.
+Unit tests for DEFAULT_PROFILE environment variable support across pyfa subcommands.
 
 This module tests:
 - DEFAULT_PROFILE env var fallback when no -p argument is provided
@@ -8,30 +8,31 @@ This module tests:
 - Error messages mentioning DEFAULT_PROFILE option
 """
 
+import argparse
 import pytest
-import sys
 from unittest.mock import patch, MagicMock
 
 
 # ============================================================================
-# Test pyfdownloads CLI (enrichers/downloads.py)
+# Test pyfa downloads (enrichers/downloads.py)
 # ============================================================================
 
 
 class TestDownloadsDefaultProfile:
-    """Test DEFAULT_PROFILE support in pyfdownloads CLI."""
+    """Test DEFAULT_PROFILE support in pyfa downloads."""
 
     def test_uses_default_profile_from_env_when_no_p_arg(self, monkeypatch):
         """Test that DEFAULT_PROFILE env var is used when -p is not provided."""
         monkeypatch.setenv("DEFAULT_PROFILE", "plone")
 
-        # Reimport to pick up env var
         import importlib
+        import pyf.aggregator.cli_utils as cli_utils_module
         import pyf.aggregator.enrichers.downloads as downloads_module
 
+        importlib.reload(cli_utils_module)
         importlib.reload(downloads_module)
 
-        with patch.object(downloads_module, "ProfileManager") as mock_pm:
+        with patch.object(cli_utils_module, "ProfileManager") as mock_pm:
             mock_profile_manager = MagicMock()
             mock_profile_manager.get_profile.return_value = {
                 "classifiers": ["Framework :: Plone"]
@@ -43,9 +44,8 @@ class TestDownloadsDefaultProfile:
                 mock_enricher_instance = MagicMock()
                 mock_enricher.return_value = mock_enricher_instance
 
-                # Simulate CLI with no args
-                with patch.object(sys, "argv", ["pyfdownloads"]):
-                    downloads_module.main()
+                args = argparse.Namespace(target=None, profile=None, limit=None)
+                downloads_module.run_command(args)
 
                 # Verify profile was loaded from env var
                 mock_profile_manager.get_profile.assert_called_with("plone")
@@ -56,11 +56,13 @@ class TestDownloadsDefaultProfile:
         monkeypatch.setenv("DEFAULT_PROFILE", "plone")
 
         import importlib
+        import pyf.aggregator.cli_utils as cli_utils_module
         import pyf.aggregator.enrichers.downloads as downloads_module
 
+        importlib.reload(cli_utils_module)
         importlib.reload(downloads_module)
 
-        with patch.object(downloads_module, "ProfileManager") as mock_pm:
+        with patch.object(cli_utils_module, "ProfileManager") as mock_pm:
             mock_profile_manager = MagicMock()
             mock_profile_manager.get_profile.return_value = {
                 "classifiers": ["Framework :: Django"]
@@ -72,9 +74,8 @@ class TestDownloadsDefaultProfile:
                 mock_enricher_instance = MagicMock()
                 mock_enricher.return_value = mock_enricher_instance
 
-                # Simulate CLI with -p django
-                with patch.object(sys, "argv", ["pyfdownloads", "-p", "django"]):
-                    downloads_module.main()
+                args = argparse.Namespace(target=None, profile="django", limit=None)
+                downloads_module.run_command(args)
 
                 # Verify django was used, not plone from env
                 mock_profile_manager.get_profile.assert_called_with("django")
@@ -85,18 +86,20 @@ class TestDownloadsDefaultProfile:
         monkeypatch.delenv("DEFAULT_PROFILE", raising=False)
 
         import importlib
+        import pyf.aggregator.cli_utils as cli_utils_module
         import pyf.aggregator.enrichers.downloads as downloads_module
 
+        importlib.reload(cli_utils_module)
         importlib.reload(downloads_module)
 
-        # Ensure DEFAULT_PROFILE is None (in case of caching)
-        downloads_module.DEFAULT_PROFILE = None
+        # Ensure DEFAULT_PROFILE is None
+        cli_utils_module.DEFAULT_PROFILE = None
 
         with patch.object(downloads_module, "Enricher"):
-            with patch.object(downloads_module, "logger") as mock_logger:
-                with patch.object(sys, "argv", ["pyfdownloads"]):
-                    with pytest.raises(SystemExit) as exc_info:
-                        downloads_module.main()
+            with patch.object(cli_utils_module, "logger") as mock_logger:
+                args = argparse.Namespace(target=None, profile=None, limit=None)
+                with pytest.raises(SystemExit) as exc_info:
+                    downloads_module.run_command(args)
 
                 assert exc_info.value.code == 1
                 # Check error message mentions DEFAULT_PROFILE
@@ -105,23 +108,25 @@ class TestDownloadsDefaultProfile:
 
 
 # ============================================================================
-# Test pyfgithub CLI (enrichers/github.py)
+# Test pyfa github (enrichers/github.py)
 # ============================================================================
 
 
 class TestGithubDefaultProfile:
-    """Test DEFAULT_PROFILE support in pyfgithub CLI."""
+    """Test DEFAULT_PROFILE support in pyfa github."""
 
     def test_uses_default_profile_from_env_when_no_p_arg(self, monkeypatch):
         """Test that DEFAULT_PROFILE env var is used when -p is not provided."""
         monkeypatch.setenv("DEFAULT_PROFILE", "plone")
 
         import importlib
+        import pyf.aggregator.cli_utils as cli_utils_module
         import pyf.aggregator.enrichers.github as github_module
 
+        importlib.reload(cli_utils_module)
         importlib.reload(github_module)
 
-        with patch.object(github_module, "ProfileManager") as mock_pm:
+        with patch.object(cli_utils_module, "ProfileManager") as mock_pm:
             mock_profile_manager = MagicMock()
             mock_profile_manager.get_profile.return_value = {
                 "classifiers": ["Framework :: Plone"]
@@ -133,9 +138,10 @@ class TestGithubDefaultProfile:
                 mock_enricher_instance = MagicMock()
                 mock_enricher.return_value = mock_enricher_instance
 
-                # Simulate CLI with no args
-                with patch.object(sys, "argv", ["pyfgithub"]):
-                    github_module.main()
+                args = argparse.Namespace(
+                    target=None, profile=None, name=None, verbose=False
+                )
+                github_module.run_command(args)
 
                 # Verify profile was loaded from env var
                 mock_profile_manager.get_profile.assert_called_with("plone")
@@ -148,11 +154,13 @@ class TestGithubDefaultProfile:
         monkeypatch.setenv("DEFAULT_PROFILE", "plone")
 
         import importlib
+        import pyf.aggregator.cli_utils as cli_utils_module
         import pyf.aggregator.enrichers.github as github_module
 
+        importlib.reload(cli_utils_module)
         importlib.reload(github_module)
 
-        with patch.object(github_module, "ProfileManager") as mock_pm:
+        with patch.object(cli_utils_module, "ProfileManager") as mock_pm:
             mock_profile_manager = MagicMock()
             mock_profile_manager.get_profile.return_value = {
                 "classifiers": ["Framework :: Django"]
@@ -164,9 +172,10 @@ class TestGithubDefaultProfile:
                 mock_enricher_instance = MagicMock()
                 mock_enricher.return_value = mock_enricher_instance
 
-                # Simulate CLI with -p django
-                with patch.object(sys, "argv", ["pyfgithub", "-p", "django"]):
-                    github_module.main()
+                args = argparse.Namespace(
+                    target=None, profile="django", name=None, verbose=False
+                )
+                github_module.run_command(args)
 
                 # Verify django was used, not plone from env
                 mock_profile_manager.get_profile.assert_called_with("django")
@@ -179,18 +188,22 @@ class TestGithubDefaultProfile:
         monkeypatch.delenv("DEFAULT_PROFILE", raising=False)
 
         import importlib
+        import pyf.aggregator.cli_utils as cli_utils_module
         import pyf.aggregator.enrichers.github as github_module
 
+        importlib.reload(cli_utils_module)
         importlib.reload(github_module)
 
-        # Ensure DEFAULT_PROFILE is None (in case of caching)
-        github_module.DEFAULT_PROFILE = None
+        # Ensure DEFAULT_PROFILE is None
+        cli_utils_module.DEFAULT_PROFILE = None
 
         with patch.object(github_module, "Enricher"):
-            with patch.object(github_module, "logger") as mock_logger:
-                with patch.object(sys, "argv", ["pyfgithub"]):
-                    with pytest.raises(SystemExit) as exc_info:
-                        github_module.main()
+            with patch.object(cli_utils_module, "logger") as mock_logger:
+                args = argparse.Namespace(
+                    target=None, profile=None, name=None, verbose=False
+                )
+                with pytest.raises(SystemExit) as exc_info:
+                    github_module.run_command(args)
 
                 assert exc_info.value.code == 1
                 # Check error message mentions DEFAULT_PROFILE
@@ -199,23 +212,51 @@ class TestGithubDefaultProfile:
 
 
 # ============================================================================
-# Test pyfupdater CLI (typesense_util.py)
+# Test pyfa manage (typesense_util.py)
 # ============================================================================
 
 
 class TestTypesenseUtilDefaultProfile:
-    """Test DEFAULT_PROFILE support in pyfupdater CLI."""
+    """Test DEFAULT_PROFILE support in pyfa manage."""
+
+    def _make_manage_args(self, **overrides):
+        """Create default manage args namespace."""
+        defaults = dict(
+            target=None,
+            profile=None,
+            source="",
+            force=False,
+            migrate=False,
+            add_alias=False,
+            list_collections=False,
+            list_collection_names=False,
+            list_aliases=False,
+            list_search_only_apikeys=False,
+            add_search_only_apikey=False,
+            delete_apikey=None,
+            key="gen",
+            purge_queue=False,
+            queue_stats=False,
+            recreate_collection=False,
+            delete_collection=None,
+            show=None,
+            all_versions=False,
+        )
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
 
     def test_uses_default_profile_from_env_when_no_p_arg(self, monkeypatch):
         """Test that DEFAULT_PROFILE env var is used for --recreate-collection."""
         monkeypatch.setenv("DEFAULT_PROFILE", "plone")
 
         import importlib
+        import pyf.aggregator.cli_utils as cli_utils_module
         import pyf.aggregator.typesense_util as typesense_util_module
 
+        importlib.reload(cli_utils_module)
         importlib.reload(typesense_util_module)
 
-        with patch.object(typesense_util_module, "ProfileManager") as mock_pm:
+        with patch.object(cli_utils_module, "ProfileManager") as mock_pm:
             mock_profile_manager = MagicMock()
             mock_profile_manager.get_profile.return_value = {
                 "classifiers": ["Framework :: Plone"]
@@ -225,22 +266,17 @@ class TestTypesenseUtilDefaultProfile:
 
             with patch.object(typesense_util_module, "TypesenceUtil") as mock_util:
                 mock_util_instance = MagicMock()
-                # Return value with old_collection to test deletion flow
                 mock_util_instance.recreate_collection.return_value = {
                     "old_collection": "plone-1",
                     "new_collection": "plone-2",
                 }
                 mock_util.return_value = mock_util_instance
 
-                # Simulate CLI with --recreate-collection but no -p or -t (use --force to skip prompt)
-                with patch.object(
-                    sys, "argv", ["pyfupdater", "--recreate-collection", "--force"]
-                ):
-                    typesense_util_module.main()
+                args = self._make_manage_args(recreate_collection=True, force=True)
+                typesense_util_module.run_command(args)
 
                 # Verify profile was loaded from env var
                 mock_profile_manager.get_profile.assert_called_with("plone")
-                # Now calls with delete_old=False, deletion handled after
                 mock_util_instance.recreate_collection.assert_called_once_with(
                     name="plone", delete_old=False
                 )
@@ -254,11 +290,13 @@ class TestTypesenseUtilDefaultProfile:
         monkeypatch.setenv("DEFAULT_PROFILE", "plone")
 
         import importlib
+        import pyf.aggregator.cli_utils as cli_utils_module
         import pyf.aggregator.typesense_util as typesense_util_module
 
+        importlib.reload(cli_utils_module)
         importlib.reload(typesense_util_module)
 
-        with patch.object(typesense_util_module, "ProfileManager") as mock_pm:
+        with patch.object(cli_utils_module, "ProfileManager") as mock_pm:
             mock_profile_manager = MagicMock()
             mock_profile_manager.get_profile.return_value = {
                 "classifiers": ["Framework :: Django"]
@@ -268,28 +306,22 @@ class TestTypesenseUtilDefaultProfile:
 
             with patch.object(typesense_util_module, "TypesenceUtil") as mock_util:
                 mock_util_instance = MagicMock()
-                # Return value with old_collection to test deletion flow
                 mock_util_instance.recreate_collection.return_value = {
                     "old_collection": "django-1",
                     "new_collection": "django-2",
                 }
                 mock_util.return_value = mock_util_instance
 
-                # Simulate CLI with -p django and --recreate-collection (use --force to skip prompt)
-                with patch.object(
-                    sys,
-                    "argv",
-                    ["pyfupdater", "-p", "django", "--recreate-collection", "--force"],
-                ):
-                    typesense_util_module.main()
+                args = self._make_manage_args(
+                    profile="django", recreate_collection=True, force=True
+                )
+                typesense_util_module.run_command(args)
 
                 # Verify django was used, not plone from env
                 mock_profile_manager.get_profile.assert_called_with("django")
-                # Now calls with delete_old=False, deletion handled after
                 mock_util_instance.recreate_collection.assert_called_once_with(
                     name="django", delete_old=False
                 )
-                # With --force, old collection should be deleted
                 mock_util_instance.delete_collection.assert_called_once_with(
                     name="django-1"
                 )
@@ -299,18 +331,20 @@ class TestTypesenseUtilDefaultProfile:
         monkeypatch.delenv("DEFAULT_PROFILE", raising=False)
 
         import importlib
+        import pyf.aggregator.cli_utils as cli_utils_module
         import pyf.aggregator.typesense_util as typesense_util_module
 
+        importlib.reload(cli_utils_module)
         importlib.reload(typesense_util_module)
 
-        # Ensure DEFAULT_PROFILE is None (in case of caching)
-        typesense_util_module.DEFAULT_PROFILE = None
+        # Ensure DEFAULT_PROFILE is None
+        cli_utils_module.DEFAULT_PROFILE = None
 
         with patch.object(typesense_util_module, "TypesenceUtil"):
             with patch.object(typesense_util_module, "logger") as mock_logger:
-                with patch.object(sys, "argv", ["pyfupdater", "--recreate-collection"]):
-                    with pytest.raises(SystemExit) as exc_info:
-                        typesense_util_module.main()
+                args = self._make_manage_args(recreate_collection=True)
+                with pytest.raises(SystemExit) as exc_info:
+                    typesense_util_module.run_command(args)
 
                 assert exc_info.value.code == 1
                 # Check error message mentions DEFAULT_PROFILE
@@ -331,11 +365,13 @@ class TestProfileSourceLogging:
         monkeypatch.setenv("DEFAULT_PROFILE", "plone")
 
         import importlib
+        import pyf.aggregator.cli_utils as cli_utils_module
         import pyf.aggregator.enrichers.downloads as downloads_module
 
+        importlib.reload(cli_utils_module)
         importlib.reload(downloads_module)
 
-        with patch.object(downloads_module, "ProfileManager") as mock_pm:
+        with patch.object(cli_utils_module, "ProfileManager") as mock_pm:
             mock_profile_manager = MagicMock()
             mock_profile_manager.get_profile.return_value = {
                 "classifiers": ["Framework :: Plone"]
@@ -347,9 +383,9 @@ class TestProfileSourceLogging:
                 mock_enricher_instance = MagicMock()
                 mock_enricher.return_value = mock_enricher_instance
 
-                with patch.object(downloads_module, "logger") as mock_logger:
-                    with patch.object(sys, "argv", ["pyfdownloads"]):
-                        downloads_module.main()
+                with patch.object(cli_utils_module, "logger") as mock_logger:
+                    args = argparse.Namespace(target=None, profile=None, limit=None)
+                    downloads_module.run_command(args)
 
                     # Check log mentions source
                     info_calls = [str(call) for call in mock_logger.info.call_args_list]
@@ -360,11 +396,13 @@ class TestProfileSourceLogging:
         monkeypatch.setenv("DEFAULT_PROFILE", "plone")
 
         import importlib
+        import pyf.aggregator.cli_utils as cli_utils_module
         import pyf.aggregator.enrichers.downloads as downloads_module
 
+        importlib.reload(cli_utils_module)
         importlib.reload(downloads_module)
 
-        with patch.object(downloads_module, "ProfileManager") as mock_pm:
+        with patch.object(cli_utils_module, "ProfileManager") as mock_pm:
             mock_profile_manager = MagicMock()
             mock_profile_manager.get_profile.return_value = {
                 "classifiers": ["Framework :: Django"]
@@ -376,9 +414,9 @@ class TestProfileSourceLogging:
                 mock_enricher_instance = MagicMock()
                 mock_enricher.return_value = mock_enricher_instance
 
-                with patch.object(downloads_module, "logger") as mock_logger:
-                    with patch.object(sys, "argv", ["pyfdownloads", "-p", "django"]):
-                        downloads_module.main()
+                with patch.object(cli_utils_module, "logger") as mock_logger:
+                    args = argparse.Namespace(target=None, profile="django", limit=None)
+                    downloads_module.run_command(args)
 
                     # Check log mentions source
                     info_calls = [str(call) for call in mock_logger.info.call_args_list]
@@ -391,22 +429,50 @@ class TestProfileSourceLogging:
 
 
 class TestRecreateCollectionConfirmationTypesenseUtil:
-    """Test user confirmation prompts for --recreate-collection in pyfupdater.
+    """Test user confirmation prompts for --recreate-collection in pyfa manage.
 
     New behavior: Migration happens first, then user is asked about deleting old collection.
     Default is Yes (delete), 'n' keeps the old collection.
     """
+
+    def _make_manage_args(self, **overrides):
+        """Create default manage args namespace."""
+        defaults = dict(
+            target=None,
+            profile=None,
+            source="",
+            force=False,
+            migrate=False,
+            add_alias=False,
+            list_collections=False,
+            list_collection_names=False,
+            list_aliases=False,
+            list_search_only_apikeys=False,
+            add_search_only_apikey=False,
+            delete_apikey=None,
+            key="gen",
+            purge_queue=False,
+            queue_stats=False,
+            recreate_collection=False,
+            delete_collection=None,
+            show=None,
+            all_versions=False,
+        )
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
 
     def test_confirmation_n_keeps_old_collection(self, monkeypatch):
         """Test that 'n' keeps old collection after migration (doesn't cancel)."""
         monkeypatch.setenv("DEFAULT_PROFILE", "plone")
 
         import importlib
+        import pyf.aggregator.cli_utils as cli_utils_module
         import pyf.aggregator.typesense_util as typesense_util_module
 
+        importlib.reload(cli_utils_module)
         importlib.reload(typesense_util_module)
 
-        with patch.object(typesense_util_module, "ProfileManager") as mock_pm:
+        with patch.object(cli_utils_module, "ProfileManager") as mock_pm:
             mock_profile_manager = MagicMock()
             mock_profile_manager.get_profile.return_value = {
                 "classifiers": ["Framework :: Plone"]
@@ -425,11 +491,8 @@ class TestRecreateCollectionConfirmationTypesenseUtil:
                 with patch.object(typesense_util_module, "logger"):
                     # Mock input to return 'n' (keep old collection)
                     with patch("builtins.input", return_value="n"):
-                        with patch.object(
-                            sys, "argv", ["pyfupdater", "--recreate-collection"]
-                        ):
-                            # Should NOT exit, migration happens
-                            typesense_util_module.main()
+                        args = self._make_manage_args(recreate_collection=True)
+                        typesense_util_module.run_command(args)
 
                 # Verify recreate_collection WAS called (migration happens first)
                 mock_util_instance.recreate_collection.assert_called_once_with(
@@ -443,11 +506,13 @@ class TestRecreateCollectionConfirmationTypesenseUtil:
         monkeypatch.setenv("DEFAULT_PROFILE", "plone")
 
         import importlib
+        import pyf.aggregator.cli_utils as cli_utils_module
         import pyf.aggregator.typesense_util as typesense_util_module
 
+        importlib.reload(cli_utils_module)
         importlib.reload(typesense_util_module)
 
-        with patch.object(typesense_util_module, "ProfileManager") as mock_pm:
+        with patch.object(cli_utils_module, "ProfileManager") as mock_pm:
             mock_profile_manager = MagicMock()
             mock_profile_manager.get_profile.return_value = {
                 "classifiers": ["Framework :: Plone"]
@@ -465,10 +530,8 @@ class TestRecreateCollectionConfirmationTypesenseUtil:
 
                 # Mock input to return 'y' (delete old collection)
                 with patch("builtins.input", return_value="y"):
-                    with patch.object(
-                        sys, "argv", ["pyfupdater", "--recreate-collection"]
-                    ):
-                        typesense_util_module.main()
+                    args = self._make_manage_args(recreate_collection=True)
+                    typesense_util_module.run_command(args)
 
                 # Verify recreate_collection WAS called
                 mock_util_instance.recreate_collection.assert_called_once_with(
@@ -484,11 +547,13 @@ class TestRecreateCollectionConfirmationTypesenseUtil:
         monkeypatch.setenv("DEFAULT_PROFILE", "plone")
 
         import importlib
+        import pyf.aggregator.cli_utils as cli_utils_module
         import pyf.aggregator.typesense_util as typesense_util_module
 
+        importlib.reload(cli_utils_module)
         importlib.reload(typesense_util_module)
 
-        with patch.object(typesense_util_module, "ProfileManager") as mock_pm:
+        with patch.object(cli_utils_module, "ProfileManager") as mock_pm:
             mock_profile_manager = MagicMock()
             mock_profile_manager.get_profile.return_value = {
                 "classifiers": ["Framework :: Plone"]
@@ -506,10 +571,8 @@ class TestRecreateCollectionConfirmationTypesenseUtil:
 
                 # Mock input to return '' (just press Enter - default Yes)
                 with patch("builtins.input", return_value=""):
-                    with patch.object(
-                        sys, "argv", ["pyfupdater", "--recreate-collection"]
-                    ):
-                        typesense_util_module.main()
+                    args = self._make_manage_args(recreate_collection=True)
+                    typesense_util_module.run_command(args)
 
                 # Verify recreate_collection WAS called
                 mock_util_instance.recreate_collection.assert_called_once_with(
@@ -525,11 +588,13 @@ class TestRecreateCollectionConfirmationTypesenseUtil:
         monkeypatch.setenv("DEFAULT_PROFILE", "plone")
 
         import importlib
+        import pyf.aggregator.cli_utils as cli_utils_module
         import pyf.aggregator.typesense_util as typesense_util_module
 
+        importlib.reload(cli_utils_module)
         importlib.reload(typesense_util_module)
 
-        with patch.object(typesense_util_module, "ProfileManager") as mock_pm:
+        with patch.object(cli_utils_module, "ProfileManager") as mock_pm:
             mock_profile_manager = MagicMock()
             mock_profile_manager.get_profile.return_value = {
                 "classifiers": ["Framework :: Plone"]
@@ -547,10 +612,8 @@ class TestRecreateCollectionConfirmationTypesenseUtil:
 
                 # Mock input - should NOT be called
                 with patch("builtins.input") as mock_input:
-                    with patch.object(
-                        sys, "argv", ["pyfupdater", "--recreate-collection", "--force"]
-                    ):
-                        typesense_util_module.main()
+                    args = self._make_manage_args(recreate_collection=True, force=True)
+                    typesense_util_module.run_command(args)
 
                     # Verify input was NOT called (prompt skipped)
                     mock_input.assert_not_called()
@@ -565,12 +628,7 @@ class TestRecreateCollectionConfirmationTypesenseUtil:
                 )
 
 
-# ============================================================================
-# Test --recreate-collection confirmation prompts (main.py)
-# ============================================================================
-
-
 ## TestRecreateCollectionConfirmationMain was removed because
-## --recreate-collection was removed from pyfaggregator CLI.
-## Use pyfupdater --recreate-collection instead.
+## --recreate-collection was removed from pyfa pypi CLI.
+## Use pyfa manage --recreate-collection instead.
 ## See TestRecreateCollectionConfirmationTypesenseUtil for equivalent tests.

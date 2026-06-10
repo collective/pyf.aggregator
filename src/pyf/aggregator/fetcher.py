@@ -1,6 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from dotenv import load_dotenv
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from itertools import islice
 from pathlib import Path
 from pyf.aggregator.logger import logger
@@ -20,6 +22,17 @@ PLUGINS = []
 # Classifier constant for Plone framework filtering
 PLONE_CLASSIFIER = "Framework :: Plone"
 
+# Identify ourselves to PyPI. The JSON/Simple APIs have no edge rate limit, but
+# docs.pypi.org asks high-volume consumers to send a descriptive User-Agent with
+# contact info so PyPI can reach out instead of blocking. See docs.pypi.org/api/.
+try:
+    _VERSION = _pkg_version("pyf.aggregator")
+except PackageNotFoundError:
+    _VERSION = "0.0.0"
+USER_AGENT = (
+    f"pyf.aggregator/{_VERSION} (+https://github.com/collective/pyf.aggregator)"
+)
+
 # Rate limiting configuration from environment
 # PyPI JSON API has no formal rate limits due to CDN caching (per docs.pypi.org/api/)
 # Default 0.001s delay = ~1000 req/s max, the code handles 429 responses gracefully
@@ -36,7 +49,7 @@ class Aggregator:
     def __init__(
         self,
         mode,
-        sincefile=".pyfaggregator",
+        sincefile=".pyfa",
         pypi_base_url="https://pypi.org/",
         filter_name=None,
         filter_troove=None,
@@ -79,6 +92,16 @@ class Aggregator:
             data = self._get_pypi(package_id, release_id)
             if not data:
                 continue
+            # Incremental mode discovers packages via PyPI's global RSS feeds,
+            # which are not classifier-filtered. Full mode already filters in
+            # _fetch_package_metadata, so only re-check here for incremental.
+            if (
+                self.mode == "incremental"
+                and self.filter_troove
+                and not self.has_classifiers({"info": data}, self.filter_troove)
+            ):
+                logger.debug(f"Skipping {package_id} - no matching classifier")
+                continue
             # Convert ISO timestamp to Unix timestamp (int64)
             if ts:
                 try:
@@ -92,36 +115,6 @@ class Aggregator:
             for plugin in PLUGINS:
                 plugin(identifier, data)
             yield identifier, data
-
-    @property
-    def _project_list(self):
-        """Get list of package IDs, optionally filtered by classifier.
-
-        When filter_troove is set (typically to 'Framework :: Plone'), each
-        package's JSON metadata is fetched to check if it has the classifier.
-        This is slower but necessary since XML-RPC browse() is deprecated.
-
-        Yields:
-            package_id: Package name/identifier
-        """
-        count = 0
-        for package_id in self._all_package_ids:
-            # Check limit
-            if self.limit and count >= self.limit:
-                return
-
-            # If classifier filtering is enabled, check each package
-            if self.filter_troove:
-                package_json = self._get_pypi_json(package_id)
-                if not package_json:
-                    continue
-                if not self.has_classifiers(package_json, self.filter_troove):
-                    logger.debug(f"Skipping {package_id} - no matching classifier")
-                    continue
-                logger.info(f"Found matching package: {package_id}")
-
-            count += 1
-            yield package_id
 
     def _fetch_package_metadata(self, package_id):
         """Fetch metadata for a single package (thread-safe).
@@ -236,22 +229,46 @@ class Aggregator:
     def _all_package_ids(self):
         """Get all package ids by pypi simple index.
 
-        Note: filter_troove is deprecated as XML-RPC browse() is no longer available.
-        When filter_troove is set, classifier filtering now happens in _all_packages
-        via has_plone_classifier() check on each package's JSON metadata.
+        There is no server-side classifier filter in the supported PyPI APIs
+        (XML-RPC browse() is deprecated/rate-limited), so this yields every
+        project name. Classifier filtering happens downstream in
+        _fetch_package_metadata via has_classifiers() on each package's JSON.
         """
         logger.info("Fetching package list from PyPI Simple API...")
 
         pypi_index_url = self.pypi_base_url + "/simple"
         # Use PyPI Simple API JSON format
-        headers = {"Accept": "application/vnd.pypi.simple.v1+json"}
+        headers = {
+            "Accept": "application/vnd.pypi.simple.v1+json",
+            "User-Agent": USER_AGENT,
+        }
 
-        # Apply rate limiting
-        self._apply_rate_limit()
+        # Fetch with retry/backoff so a transient failure doesn't abort the run.
+        request_obj = None
+        retries = 0
+        while retries <= PYPI_MAX_RETRIES:
+            self._apply_rate_limit()
+            try:
+                request_obj = requests.get(pypi_index_url, headers=headers, timeout=30)
+            except requests.exceptions.RequestException as e:
+                logger.warning(f'Request error fetching "{pypi_index_url}": {e}')
+                request_obj = None
+            else:
+                if request_obj.status_code == 200:
+                    break
+                logger.warning(f"Status {request_obj.status_code} for {pypi_index_url}")
+                request_obj = None
 
-        request_obj = requests.get(pypi_index_url, headers=headers)
-        if not request_obj.status_code == 200:
-            raise ValueError(f"Not 200 OK for {pypi_index_url}")
+            retries += 1
+            if retries <= PYPI_MAX_RETRIES:
+                backoff = PYPI_RETRY_BACKOFF**retries
+                logger.info(
+                    f"Retrying in {backoff:.1f}s (attempt {retries}/{PYPI_MAX_RETRIES})"
+                )
+                time.sleep(backoff)
+
+        if request_obj is None:
+            raise ValueError(f"Failed to fetch {pypi_index_url} after retries")
 
         try:
             result = request_obj.json()
@@ -321,6 +338,12 @@ class Aggregator:
         # Sort by timestamp descending (newest first) and deduplicate
         all_entries.sort(key=lambda e: e.get("timestamp") or 0, reverse=True)
 
+        # Track entries dropped by the "since" cutoff. If none were dropped, the
+        # RSS window (only ~40 entries per feed) was entirely newer than the last
+        # run, meaning updates between the oldest RSS entry and "since" were likely
+        # missed. Reconcile with a full (-f) or --refresh-from-pypi run if frequent.
+        dropped_by_since = 0
+
         for entry in all_entries:
             package_id = entry.get("package_id")
             release_id = entry.get("release_id")
@@ -337,6 +360,7 @@ class Aggregator:
             # Note: RSS feeds only contain ~40 latest entries, so if timestamp
             # is None we include it to be safe
             if timestamp is not None and timestamp < since:
+                dropped_by_since += 1
                 logger.debug(
                     f"Skipping {package_id} - timestamp {timestamp} is before {since}"
                 )
@@ -352,12 +376,14 @@ class Aggregator:
 
         logger.info(f"Found {len(seen)} package updates from RSS feeds")
 
-    @property
-    def package_ids(self):
-        if self.mode == "first":
-            return self._all_packages
-        elif self.mode == "incremental":
-            return self._package_updates
+        if all_entries and dropped_by_since == 0:
+            logger.warning(
+                "All RSS entries are newer than the last run (since=%s); the RSS "
+                "window may have overflowed and some updates were likely missed. "
+                "Run a full (-f) or --refresh-from-pypi pass to reconcile, or run "
+                "incremental updates more frequently.",
+                since,
+            )
 
     def _apply_rate_limit(self):
         """Apply rate limiting delay between PyPI API requests (thread-safe)."""
@@ -393,7 +419,9 @@ class Aggregator:
             self._apply_rate_limit()
 
             try:
-                request_obj = requests.get(package_url, timeout=30)
+                request_obj = requests.get(
+                    package_url, headers={"User-Agent": USER_AGENT}, timeout=30
+                )
             except requests.exceptions.Timeout:
                 logger.warning(f'Timeout fetching URL "{package_url}"')
                 retries += 1
@@ -470,8 +498,8 @@ class Aggregator:
         if "downloads" in data:
             del data["downloads"]
         for url in data.get("urls"):
-            del url["downloads"]
-            del url["md5_digest"]
+            url.pop("downloads", None)
+            url.pop("md5_digest", None)
         data["name_sortable"] = data.get("name")
         return data
 

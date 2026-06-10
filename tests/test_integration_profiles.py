@@ -9,14 +9,14 @@ This module tests the complete integration of profiles system:
 - Multiple profiles coexisting with separate collections
 """
 
+import argparse
 import pytest
 import responses
 from unittest.mock import patch, MagicMock
-import sys
 import re
 
 from pyf.aggregator.profiles import ProfileManager
-from pyf.aggregator.main import parser, main
+from pyf.aggregator.main import run_command
 from pyf.aggregator.fetcher import Aggregator
 
 
@@ -94,11 +94,14 @@ class TestProfileManagerIntegration:
 
 
 class TestCLIProfileIntegration:
-    """Test CLI integration with --profile flag."""
+    """Test CLI integration with --profile flag via pyfa pypi subcommand."""
 
     def test_cli_parser_accepts_profile_flag(self):
         """Test that CLI parser accepts --profile flag."""
-        args = parser.parse_args(["-f", "-t", "test", "-p", "plone"])
+        from pyf.aggregator.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(["pypi", "-f", "-t", "test", "-p", "plone"])
 
         assert hasattr(args, "profile")
         assert args.profile == "plone"
@@ -107,55 +110,75 @@ class TestCLIProfileIntegration:
 
     def test_cli_parser_profile_flag_short_form(self):
         """Test that CLI parser accepts -p short form."""
-        args = parser.parse_args(["-f", "-p", "django", "-t", "django-packages"])
+        from pyf.aggregator.cli import build_parser
+
+        parser = build_parser()
+        args = parser.parse_args(
+            ["pypi", "-f", "-p", "django", "-t", "django-packages"]
+        )
 
         assert args.profile == "django"
         assert args.target == "django-packages"
 
     def test_cli_with_profile_no_target_auto_sets_collection(self):
         """Test that CLI auto-sets collection name from profile when -t is omitted."""
-        # Mock sys.exit to capture exit without terminating test
         with (
             patch("sys.exit") as mock_exit,
             patch("pyf.aggregator.main.Indexer") as mock_indexer,
             patch("pyf.aggregator.main.Aggregator") as mock_aggregator,
         ):
-            # Mock indexer behavior
             mock_indexer_instance = MagicMock()
             mock_indexer_instance.collection_exists.return_value = True
             mock_indexer.return_value = mock_indexer_instance
 
-            # Mock aggregator
             mock_agg_instance = MagicMock()
             mock_agg_instance.__iter__ = MagicMock(return_value=iter([]))
             mock_aggregator.return_value = mock_agg_instance
 
-            # Simulate command line: -f -p django (no -t flag)
-            test_args = ["-f", "-p", "django"]
-            with patch.object(sys, "argv", ["pyfaggregator"] + test_args):
-                main()
+            args = argparse.Namespace(
+                command="pypi",
+                first=True,
+                incremental=False,
+                refresh_from_pypi=False,
+                profile="django",
+                target=None,
+                limit=0,
+                sincefile=".pyaggregator.since",
+                filter_name="",
+                filter_troove=[],
+                no_plone_filter=False,
+                force=False,
+            )
+            run_command(args)
 
-            # Should not exit with error
             mock_exit.assert_not_called()
 
-            # Verify Aggregator was called with Django classifiers
             call_kwargs = mock_aggregator.call_args[1]
             assert "filter_troove" in call_kwargs
-            # Django classifiers should be in filter_troove
             filter_troove = call_kwargs["filter_troove"]
             assert isinstance(filter_troove, list)
             assert any("Django" in c for c in filter_troove)
 
     def test_cli_with_invalid_profile_exits_with_error(self):
         """Test that CLI exits with error for invalid profile."""
-        # Mock sys.exit to raise SystemExit (actual behavior) so execution stops
         with patch("sys.exit", side_effect=SystemExit) as mock_exit:
-            test_args = ["-f", "-p", "nonexistent", "-t", "test"]
-            with patch.object(sys, "argv", ["pyfaggregator"] + test_args):
-                with pytest.raises(SystemExit):
-                    main()
+            args = argparse.Namespace(
+                command="pypi",
+                first=True,
+                incremental=False,
+                refresh_from_pypi=False,
+                profile="nonexistent",
+                target="test",
+                limit=0,
+                sincefile=".pyaggregator.since",
+                filter_name="",
+                filter_troove=[],
+                no_plone_filter=False,
+                force=False,
+            )
+            with pytest.raises(SystemExit):
+                run_command(args)
 
-            # Should have been called with error code 1
             mock_exit.assert_called_with(1)
 
     def test_cli_with_profile_loads_correct_classifiers(self):
@@ -165,22 +188,30 @@ class TestCLIProfileIntegration:
             patch("pyf.aggregator.main.Aggregator") as mock_aggregator,
             patch("sys.exit"),
         ):
-            # Mock indexer
             mock_indexer_instance = MagicMock()
             mock_indexer_instance.collection_exists.return_value = True
             mock_indexer.return_value = mock_indexer_instance
 
-            # Mock aggregator
             mock_agg_instance = MagicMock()
             mock_agg_instance.__iter__ = MagicMock(return_value=iter([]))
             mock_aggregator.return_value = mock_agg_instance
 
-            # Test with flask profile
-            test_args = ["-f", "-p", "flask", "-t", "flask-test"]
-            with patch.object(sys, "argv", ["pyfaggregator"] + test_args):
-                main()
+            args = argparse.Namespace(
+                command="pypi",
+                first=True,
+                incremental=False,
+                refresh_from_pypi=False,
+                profile="flask",
+                target="flask-test",
+                limit=0,
+                sincefile=".pyaggregator.since",
+                filter_name="",
+                filter_troove=[],
+                no_plone_filter=False,
+                force=False,
+            )
+            run_command(args)
 
-            # Verify Aggregator was initialized with Flask classifiers
             call_kwargs = mock_aggregator.call_args[1]
             filter_troove = call_kwargs["filter_troove"]
             assert "Framework :: Flask" in filter_troove
@@ -401,15 +432,17 @@ class TestProfileWorkflowE2E:
 
     def test_switching_profiles_changes_collection_target(self):
         """Test that switching profiles changes the target collection."""
+        from pyf.aggregator.cli import build_parser
+
+        parser = build_parser()
+
         # Test plone profile -> plone collection
-        args_plone = parser.parse_args(["-f", "-p", "plone"])
+        args_plone = parser.parse_args(["pypi", "-f", "-p", "plone"])
         assert args_plone.profile == "plone"
-        # Collection would be auto-set to "plone" in main()
 
         # Test django profile -> django collection
-        args_django = parser.parse_args(["-f", "-p", "django"])
+        args_django = parser.parse_args(["pypi", "-f", "-p", "django"])
         assert args_django.profile == "django"
-        # Collection would be auto-set to "django" in main()
 
         # Verify they're different
         assert args_plone.profile != args_django.profile

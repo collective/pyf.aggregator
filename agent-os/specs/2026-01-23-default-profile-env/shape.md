@@ -2,7 +2,7 @@
 
 ## Problem
 
-Users running pyfaggregator CLI frequently use the same profile (e.g., "plone") and must repeatedly specify `-p plone` on every invocation.
+Users running `pyfa` CLI subcommands frequently use the same profile (e.g., "plone") and must repeatedly specify `-p plone` on every invocation.
 
 ## Solution
 

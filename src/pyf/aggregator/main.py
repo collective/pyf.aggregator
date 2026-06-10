@@ -3,19 +3,14 @@ from .fetcher import PLUGINS
 from .fetcher import PLONE_CLASSIFIER
 from .indexer import Indexer
 from .plugins import register_plugins
-from .profiles import ProfileManager
 from argparse import ArgumentParser
 from dotenv import load_dotenv
 from pyf.aggregator.logger import logger
 
-import json
 import os
 import sys
 
 load_dotenv()
-
-DEFAULT_PROFILE = os.getenv("DEFAULT_PROFILE")
-
 
 COLLECTION_NAME = "packages1"
 
@@ -30,44 +25,6 @@ GITHUB_FIELDS = [
 ]
 
 
-def show_package(package_name, collection_name, all_versions=False):
-    """Show indexed data for a single package from Typesense (for debugging)."""
-    from .db import TypesenceConnection
-
-    conn = TypesenceConnection()
-
-    if not conn.collection_exists(name=collection_name):
-        logger.error(f"Collection '{collection_name}' does not exist.")
-        sys.exit(1)
-
-    # Search for exact package name, sorted by upload_timestamp descending (newest first)
-    result = conn.client.collections[collection_name].documents.search(
-        {
-            "q": package_name,
-            "query_by": "name",
-            "filter_by": f"name:={package_name}",
-            "sort_by": "upload_timestamp:desc",
-            "per_page": 100,
-        }
-    )
-
-    hits = result.get("hits", [])
-    if not hits:
-        logger.error(
-            f"Package '{package_name}' not found in collection '{collection_name}'."
-        )
-        sys.exit(1)
-
-    documents = [hit["document"] for hit in hits]
-
-    if all_versions:
-        # Output all versions
-        print(json.dumps(documents, indent=2))
-    else:
-        # Output only the newest version (first after sort)
-        print(json.dumps(documents[0], indent=2))
-
-
 def run_refresh_mode(settings):
     """Refresh indexed packages data from PyPi - fetches ALL versions.
 
@@ -78,7 +35,6 @@ def run_refresh_mode(settings):
     from .db import TypesenceConnection, TypesensePackagesCollection
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from datetime import datetime
-    import os
 
     class RefreshHelper(TypesenceConnection, TypesensePackagesCollection):
         pass
@@ -274,114 +230,67 @@ def run_refresh_mode(settings):
     logger.info(f"Refresh complete: {stats}")
 
 
-parser = ArgumentParser(
-    description="Aggregate PyPI packages with Framework :: Plone classifier into Typesense. "
-    "Use -f for full download or -i for incremental updates via RSS feeds."
-)
-parser.add_argument(
-    "-f",
-    "--first",
-    help="Full download: fetch all PyPI packages with Plone classifier",
-    action="store_true",
-)
-parser.add_argument(
-    "-i",
-    "--incremental",
-    help="Incremental update: fetch recent package updates via RSS feeds",
-    action="store_true",
-)
-parser.add_argument(
-    "-s",
-    "--sincefile",
-    help="File with timestamp of last run (for incremental mode)",
-    nargs="?",
-    type=str,
-    default=".pyaggregator.since",
-)
-parser.add_argument(
-    "-l",
-    "--limit",
-    help="Limit the number of packages to process (useful for testing)",
-    nargs="?",
-    type=int,
-    default=0,
-)
-parser.add_argument(
-    "-fn",
-    "--filter-name",
-    help="Filter packages by name substring",
-    nargs="?",
-    type=str,
-    default="",
-)
-parser.add_argument(
-    "-ft",
-    "--filter-troove",
-    help="Filter by classifier (deprecated: Plone filtering is now automatic)",
-    action="append",
-    default=[],
-)
-parser.add_argument(
-    "-t",
-    "--target",
-    help="Target Typesense collection name (required)",
-    nargs="?",
-    type=str,
-)
-parser.add_argument(
-    "--no-plone-filter",
-    help="Disable automatic Plone classifier filtering (process all packages)",
-    action="store_true",
-)
-parser.add_argument(
-    "-p",
-    "--profile",
-    help="Profile name for classifier filtering (overrides DEFAULT_PROFILE env var)",
-    nargs="?",
-    type=str,
-)
-parser.add_argument(
-    "--refresh-from-pypi",
-    help="Refresh indexed packages data from PyPi",
-    action="store_true",
-)
-parser.add_argument(
-    "--show",
-    help="Show indexed data for a package by name (for debugging)",
-    type=str,
-    metavar="PACKAGE_NAME",
-)
-parser.add_argument(
-    "--all-versions",
-    help="Show all versions when using --show (default: only newest)",
-    action="store_true",
-)
-parser.add_argument(
-    "--force",
-    help="Skip confirmation prompts for destructive operations",
-    action="store_true",
-)
+def add_subcommand_args(parser):
+    """Add pypi-specific arguments to a subparser."""
+    from pyf.aggregator.cli_utils import add_common_args, add_limit_arg
+
+    add_common_args(parser)
+    add_limit_arg(parser)
+    parser.add_argument(
+        "-f",
+        "--first",
+        help="Full download: fetch all PyPI packages with Plone classifier",
+        action="store_true",
+    )
+    parser.add_argument(
+        "-i",
+        "--incremental",
+        help="Incremental update: fetch recent package updates via RSS feeds",
+        action="store_true",
+    )
+    parser.add_argument(
+        "-s",
+        "--sincefile",
+        help="File with timestamp of last run (for incremental mode)",
+        nargs="?",
+        type=str,
+        default=".pyaggregator.since",
+    )
+    parser.add_argument(
+        "-fn",
+        "--filter-name",
+        help="Filter packages by name substring",
+        nargs="?",
+        type=str,
+        default="",
+    )
+    parser.add_argument(
+        "-ft",
+        "--filter-troove",
+        help="Filter by classifier (deprecated: Plone filtering is now automatic)",
+        action="append",
+        default=[],
+    )
+    parser.add_argument(
+        "--no-plone-filter",
+        help="Disable automatic Plone classifier filtering (process all packages)",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--refresh-from-pypi",
+        help="Refresh indexed packages data from PyPi",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--force",
+        help="Skip confirmation prompts for destructive operations",
+        action="store_true",
+    )
 
 
-def main():
-    args = parser.parse_args()
-
-    # Handle --show mode separately (for debugging indexed data)
-    if args.show:
-        target = args.target
-        # Auto-set target from profile if not specified
-        effective_profile = args.profile or DEFAULT_PROFILE
-        if not target and effective_profile:
-            profile_manager = ProfileManager()
-            if profile_manager.get_profile(effective_profile):
-                target = effective_profile
-        if not target:
-            logger.error(
-                "Target collection name is required. Use -t <collection_name> or -p <profile>"
-            )
-            sys.exit(1)
-        show_package(args.show, target, all_versions=args.all_versions)
-        return
+def run_command(args):
+    """Run PyPI aggregation with pre-parsed args."""
+    from pyf.aggregator.cli_utils import resolve_profile_and_target
 
     # Validate mode flags - must specify exactly one of -f, -i, or --refresh-from-pypi
     modes = [args.first, args.incremental, args.refresh_from_pypi]
@@ -389,7 +298,6 @@ def main():
         logger.error(
             "Must specify exactly one of -f (full), -i (incremental), or --refresh-from-pypi"
         )
-        parser.print_help()
         sys.exit(1)
 
     # Determine mode
@@ -400,37 +308,17 @@ def main():
     else:
         mode = "first"
 
+    # Resolve profile and target
+    effective_profile, profile_data, profile_manager = resolve_profile_and_target(
+        args, require_target=False
+    )
+
     # Build filter_troove list
-    # If profile is specified (CLI or DEFAULT_PROFILE), load classifiers from profile
-    # Otherwise, use default Plone filtering logic
-    effective_profile = args.profile or DEFAULT_PROFILE
-    profile_source = "from CLI" if args.profile else "from DEFAULT_PROFILE"
-
-    if effective_profile:
-        profile_manager = ProfileManager()
-        profile = profile_manager.get_profile(effective_profile)
-
-        if not profile:
-            available_profiles = profile_manager.list_profiles()
-            logger.error(
-                f"Profile '{effective_profile}' not found. "
-                f"Available profiles: {', '.join(available_profiles)}"
-            )
-            sys.exit(1)
-
-        if not profile_manager.validate_profile(effective_profile):
-            logger.error(f"Profile '{effective_profile}' is invalid")
-            sys.exit(1)
-
-        filter_troove = profile["classifiers"]
+    if effective_profile and profile_data:
+        filter_troove = profile_data["classifiers"]
         logger.info(
-            f"Using profile '{effective_profile}' ({profile_source}) with {len(filter_troove)} classifiers"
+            f"Profile '{effective_profile}' has {len(filter_troove)} classifiers"
         )
-
-        # Auto-set collection name from profile if not specified
-        if not args.target:
-            args.target = effective_profile
-            logger.info(f"Auto-setting target collection from profile: {args.target}")
     else:
         # Default behavior: filter for Plone packages unless --no-plone-filter is specified
         filter_troove = list(args.filter_troove) if args.filter_troove else []
@@ -495,6 +383,16 @@ def main():
     indexer(agg, settings["target"])
 
     logger.info(f"Aggregation complete for collection: {settings['target']}")
+
+
+def main():
+    parser = ArgumentParser(
+        description="Aggregate PyPI packages with Framework :: Plone classifier into Typesense. "
+        "Use -f for full download or -i for incremental updates via RSS feeds."
+    )
+    add_subcommand_args(parser)
+    args = parser.parse_args()
+    run_command(args)
 
 
 if __name__ == "__main__":

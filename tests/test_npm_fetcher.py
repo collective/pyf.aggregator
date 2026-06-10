@@ -766,3 +766,165 @@ class TestPackageFiltering:
         # Should reject svelte-kit (no plone keyword, not in @plone scope)
         assert "svelte-kit" not in packages
         assert len(packages) == 2
+
+
+# ============================================================================
+# Per-version README (jsDelivr) Tests
+# ============================================================================
+
+
+class TestGetVersionReadme:
+    """Per-version README retrieval from the jsDelivr CDN."""
+
+    @responses.activate
+    def test_readme_from_cdn_direct(self):
+        """README.md is served directly with a single request."""
+        responses.add(
+            responses.GET,
+            "https://cdn.jsdelivr.net/npm/is-odd@2.0.0/README.md",
+            body="# is-odd 2.0.0\n",
+            status=200,
+        )
+        agg = NpmAggregator(mode="first")
+        assert agg.get_version_readme("is-odd", "2.0.0") == "# is-odd 2.0.0\n"
+
+    @responses.activate
+    def test_readme_scoped_package(self):
+        """Scoped package names are passed through to jsDelivr unencoded."""
+        responses.add(
+            responses.GET,
+            "https://cdn.jsdelivr.net/npm/@plone/volto@18.0.0/README.md",
+            body="# volto 18\n",
+            status=200,
+        )
+        agg = NpmAggregator(mode="first")
+        assert agg.get_version_readme("@plone/volto", "18.0.0") == "# volto 18\n"
+
+    @responses.activate
+    def test_readme_fallback_to_file_list(self):
+        """When README.md is missing, the file-list API resolves the filename."""
+        responses.add(
+            responses.GET,
+            "https://cdn.jsdelivr.net/npm/pkg@1.0.0/README.md",
+            status=404,
+        )
+        responses.add(
+            responses.GET,
+            "https://data.jsdelivr.com/v1/packages/npm/pkg@1.0.0",
+            json={"files": [{"type": "file", "name": "Readme.markdown"}]},
+            status=200,
+        )
+        responses.add(
+            responses.GET,
+            "https://cdn.jsdelivr.net/npm/pkg@1.0.0/Readme.markdown",
+            body="# pkg\n",
+            status=200,
+        )
+        agg = NpmAggregator(mode="first")
+        assert agg.get_version_readme("pkg", "1.0.0") == "# pkg\n"
+
+    @responses.activate
+    def test_readme_not_found_returns_none(self):
+        """No readme anywhere -> None so callers fall back to the latest readme."""
+        responses.add(
+            responses.GET,
+            "https://cdn.jsdelivr.net/npm/pkg@1.0.0/README.md",
+            status=404,
+        )
+        responses.add(
+            responses.GET,
+            "https://data.jsdelivr.com/v1/packages/npm/pkg@1.0.0",
+            json={"files": [{"type": "file", "name": "index.js"}]},
+            status=200,
+        )
+        agg = NpmAggregator(mode="first")
+        assert agg.get_version_readme("pkg", "1.0.0") is None
+
+
+class TestPerVersionReadmeAttached:
+    """Each version must carry its OWN readme, not the latest one."""
+
+    @responses.activate
+    def test_iter_attaches_per_version_readme(self, monkeypatch):
+        package_json = {
+            "name": "demo",
+            "readme": "LATEST README",
+            "versions": {
+                "1.0.0": {"name": "demo", "version": "1.0.0", "description": "d1"},
+                "2.0.0": {"name": "demo", "version": "2.0.0", "description": "d2"},
+            },
+            "time": {
+                "1.0.0": "2023-01-01T00:00:00.000Z",
+                "2.0.0": "2024-01-01T00:00:00.000Z",
+            },
+        }
+        responses.add(
+            responses.GET,
+            "https://registry.npmjs.org/demo",
+            json=package_json,
+            status=200,
+        )
+        responses.add(
+            responses.GET,
+            "https://cdn.jsdelivr.net/npm/demo@1.0.0/README.md",
+            body="README V1",
+            status=200,
+        )
+        responses.add(
+            responses.GET,
+            "https://cdn.jsdelivr.net/npm/demo@2.0.0/README.md",
+            body="README V2",
+            status=200,
+        )
+
+        agg = NpmAggregator(mode="first")
+        monkeypatch.setattr(agg, "_search_packages", lambda: {"demo": {"score": {}}})
+
+        results = {identifier: data for identifier, data in agg}
+
+        # Each version gets its OWN readme as the long description ...
+        assert results["demo-1.0.0"]["description"] == "README V1"
+        assert results["demo-2.0.0"]["description"] == "README V2"
+        # ... and never the package_json's latest readme.
+        assert "LATEST README" not in (
+            results["demo-1.0.0"]["description"],
+            results["demo-2.0.0"]["description"],
+        )
+        # Short per-version summary still comes from the package_json.
+        assert results["demo-1.0.0"]["summary"] == "d1"
+        assert results["demo-2.0.0"]["summary"] == "d2"
+
+    @responses.activate
+    def test_iter_falls_back_to_latest_readme_when_cdn_missing(self, monkeypatch):
+        package_json = {
+            "name": "demo",
+            "readme": "LATEST README",
+            "versions": {
+                "1.0.0": {"name": "demo", "version": "1.0.0", "description": "d1"},
+            },
+            "time": {"1.0.0": "2023-01-01T00:00:00.000Z"},
+        }
+        responses.add(
+            responses.GET,
+            "https://registry.npmjs.org/demo",
+            json=package_json,
+            status=200,
+        )
+        # CDN file + file-list both miss -> fall back to package_json readme.
+        responses.add(
+            responses.GET,
+            "https://cdn.jsdelivr.net/npm/demo@1.0.0/README.md",
+            status=404,
+        )
+        responses.add(
+            responses.GET,
+            "https://data.jsdelivr.com/v1/packages/npm/demo@1.0.0",
+            json={"files": [{"type": "file", "name": "index.js"}]},
+            status=200,
+        )
+
+        agg = NpmAggregator(mode="first")
+        monkeypatch.setattr(agg, "_search_packages", lambda: {"demo": {"score": {}}})
+
+        results = {identifier: data for identifier, data in agg}
+        assert results["demo-1.0.0"]["description"] == "LATEST README"

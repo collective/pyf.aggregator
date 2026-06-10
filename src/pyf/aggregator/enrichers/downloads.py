@@ -1,43 +1,28 @@
-from dotenv import load_dotenv
 from argparse import ArgumentParser
 from datetime import datetime
+from dotenv import load_dotenv
 from pyf.aggregator.db import TypesenceConnection, TypesensePackagesCollection
 from pyf.aggregator.logger import logger
-from pyf.aggregator.profiles import ProfileManager
 
 import functools
 import requests
-import sys
 import time
 import os
 
 load_dotenv()
-
-DEFAULT_PROFILE = os.getenv("DEFAULT_PROFILE")
 
 # Rate limiting configuration
 PYPISTATS_RATE_LIMIT_DELAY = float(os.getenv("PYPISTATS_RATE_LIMIT_DELAY", 2.0))
 PYPISTATS_MAX_RETRIES = int(os.getenv("PYPISTATS_MAX_RETRIES", 3))
 PYPISTATS_RETRY_BACKOFF = float(os.getenv("PYPISTATS_RETRY_BACKOFF", 2.0))
 
-parser = ArgumentParser(
-    description="Enrich package data with download statistics from pypistats.org"
-)
-parser.add_argument("-t", "--target", nargs="?", type=str)
-parser.add_argument(
-    "-p",
-    "--profile",
-    help="Profile name for classifier filtering (overrides DEFAULT_PROFILE env var)",
-    nargs="?",
-    type=str,
-)
-parser.add_argument(
-    "-l",
-    "--limit",
-    help="Limit number of packages to process (for testing)",
-    nargs="?",
-    type=int,
-)
+
+def add_subcommand_args(parser):
+    """Add downloads-specific arguments to a subparser."""
+    from pyf.aggregator.cli_utils import add_common_args, add_limit_arg
+
+    add_common_args(parser)
+    add_limit_arg(parser)
 
 
 def memoize(obj):
@@ -231,45 +216,23 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
         return {}
 
 
-def main():
-    args = parser.parse_args()
+def run_command(args):
+    """Run the downloads enrichment with pre-parsed args."""
+    from pyf.aggregator.cli_utils import resolve_profile_and_target
 
-    # Handle profile (CLI argument or DEFAULT_PROFILE env var)
-    effective_profile = args.profile or DEFAULT_PROFILE
-    profile_source = "from CLI" if args.profile else "from DEFAULT_PROFILE"
-
-    if effective_profile:
-        profile_manager = ProfileManager()
-        profile = profile_manager.get_profile(effective_profile)
-
-        if not profile:
-            available_profiles = profile_manager.list_profiles()
-            logger.error(
-                f"Profile '{effective_profile}' not found. "
-                f"Available profiles: {', '.join(available_profiles)}"
-            )
-            sys.exit(1)
-
-        if not profile_manager.validate_profile(effective_profile):
-            logger.error(f"Profile '{effective_profile}' is invalid")
-            sys.exit(1)
-
-        # Auto-set collection name from profile if not specified
-        if not args.target:
-            args.target = effective_profile
-            logger.info(f"Auto-setting target collection from profile: {args.target}")
-
-        logger.info(
-            f"Using profile '{effective_profile}' ({profile_source}) for target collection '{args.target}'"
-        )
-
-    # Validate target is specified
-    if not args.target:
-        logger.error(
-            "Target collection name is required. "
-            "Use -t <collection_name>, -p <profile_name>, or set DEFAULT_PROFILE env var"
-        )
-        sys.exit(1)
+    resolve_profile_and_target(args)
 
     enricher = Enricher(limit=args.limit)
     enricher.run(target=args.target)
+
+
+def main():
+    from pyf.aggregator.cli_utils import add_common_args, add_limit_arg
+
+    parser = ArgumentParser(
+        description="Enrich package data with download statistics from pypistats.org"
+    )
+    add_common_args(parser)
+    add_limit_arg(parser)
+    args = parser.parse_args()
+    run_command(args)

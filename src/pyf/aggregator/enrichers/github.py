@@ -1,9 +1,8 @@
-from dotenv import load_dotenv
 from argparse import ArgumentParser
 from datetime import datetime
+from dotenv import load_dotenv
 from pyf.aggregator.db import TypesenceConnection, TypesensePackagesCollection
 from pyf.aggregator.logger import logger
-from pyf.aggregator.profiles import ProfileManager
 from pprint import pprint
 from github import Github
 from github import RateLimitExceededException
@@ -11,7 +10,6 @@ from github import UnknownObjectException
 
 import functools
 import re
-import sys
 import time
 import os
 
@@ -20,34 +18,29 @@ import typesense.exceptions
 load_dotenv()
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-DEFAULT_PROFILE = os.getenv("DEFAULT_PROFILE")
 # GitHub API rate limits: 5000 req/hour authenticated (~1.4/sec), 60/hour unauthenticated
 # Default 0.75s delay = ~1.3 req/sec, staying just under the authenticated limit
 GITHUB_REQUEST_DELAY = float(os.getenv("GITHUB_REQUEST_DELAY", 0.75))
 
-parser = ArgumentParser(
-    description="updates/migrates typesense collections and export/import documents"
-)
-parser.add_argument("-t", "--target", nargs="?", type=str)
-parser.add_argument(
-    "-p",
-    "--profile",
-    help="Profile name for classifier filtering (overrides DEFAULT_PROFILE env var)",
-    nargs="?",
-    type=str,
-)
-parser.add_argument(
-    "-n",
-    "--name",
-    help="Single package name to enrich (enriches only this package)",
-    type=str,
-)
-parser.add_argument(
-    "-v",
-    "--verbose",
-    help="Show raw data from Typesense (PyPI) and GitHub API",
-    action="store_true",
-)
+
+def add_subcommand_args(parser):
+    """Add github-specific arguments to a subparser."""
+    from pyf.aggregator.cli_utils import add_common_args
+
+    add_common_args(parser)
+    parser.add_argument(
+        "-n",
+        "--name",
+        help="Single package name to enrich (enriches only this package)",
+        type=str,
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        help="Show raw data from Typesense (PyPI) and GitHub API",
+        action="store_true",
+    )
+
 
 # Regex patterns for extracting GitHub repository from various URL formats
 # Standard HTTPS/HTTP URLs
@@ -339,45 +332,34 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
                 return data
 
 
-def main():
-    args = parser.parse_args()
+def run_command(args):
+    """Run the GitHub enrichment with pre-parsed args."""
+    from pyf.aggregator.cli_utils import resolve_profile_and_target
 
-    # Handle profile (CLI argument or DEFAULT_PROFILE env var)
-    effective_profile = args.profile or DEFAULT_PROFILE
-    profile_source = "from CLI" if args.profile else "from DEFAULT_PROFILE"
-
-    if effective_profile:
-        profile_manager = ProfileManager()
-        profile = profile_manager.get_profile(effective_profile)
-
-        if not profile:
-            available_profiles = profile_manager.list_profiles()
-            logger.error(
-                f"Profile '{effective_profile}' not found. "
-                f"Available profiles: {', '.join(available_profiles)}"
-            )
-            sys.exit(1)
-
-        if not profile_manager.validate_profile(effective_profile):
-            logger.error(f"Profile '{effective_profile}' is invalid")
-            sys.exit(1)
-
-        # Auto-set collection name from profile if not specified
-        if not args.target:
-            args.target = effective_profile
-            logger.info(f"Auto-setting target collection from profile: {args.target}")
-
-        logger.info(
-            f"Using profile '{effective_profile}' ({profile_source}) for target collection '{args.target}'"
-        )
-
-    # Validate target is specified
-    if not args.target:
-        logger.error(
-            "Target collection name is required. "
-            "Use -t <collection_name>, -p <profile_name>, or set DEFAULT_PROFILE env var"
-        )
-        sys.exit(1)
+    resolve_profile_and_target(args)
 
     enricher = Enricher()
     enricher.run(target=args.target, package_name=args.name, verbose=args.verbose)
+
+
+def main():
+    from pyf.aggregator.cli_utils import add_common_args
+
+    parser = ArgumentParser(
+        description="Enrich indexed packages with GitHub data (stars, watchers, issues, contributors)"
+    )
+    add_common_args(parser)
+    parser.add_argument(
+        "-n",
+        "--name",
+        help="Single package name to enrich (enriches only this package)",
+        type=str,
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        help="Show raw data from Typesense (PyPI) and GitHub API",
+        action="store_true",
+    )
+    args = parser.parse_args()
+    run_command(args)

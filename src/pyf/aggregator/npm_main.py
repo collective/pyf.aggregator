@@ -2,15 +2,14 @@
 CLI entry point for npm package aggregation.
 
 Usage:
-    pyfnpm -f -p plone                    # Full download using plone profile
-    pyfnpm -f -p plone -l 10              # Full download, limit to 10 packages
-    pyfnpm -i -p plone                    # Incremental update
-    pyfnpm --show @plone/volto -t plone   # Show indexed data for a package
+    pyfa npm -f -p plone                    # Full download using plone profile
+    pyfa npm -f -p plone -l 10              # Full download, limit to 10 packages
+    pyfa npm -i -p plone                    # Incremental update
 
     # Refresh mode - re-fetch indexed packages from npm, removing non-matching ones
-    pyfnpm --refresh-from-npm -p plone              # Refresh all npm packages
-    pyfnpm --refresh-from-npm -p plone -l 10        # Refresh with limit
-    pyfnpm --refresh-from-npm -p plone -fn volto    # Refresh packages matching 'volto'
+    pyfa npm --refresh-from-npm -p plone              # Refresh all npm packages
+    pyfa npm --refresh-from-npm -p plone -l 10        # Refresh with limit
+    pyfa npm --refresh-from-npm -p plone -fn volto    # Refresh packages matching 'volto'
 
 Refresh mode:
     The --refresh-from-npm option iterates over all indexed npm packages and:
@@ -26,15 +25,10 @@ from dotenv import load_dotenv
 from pyf.aggregator.logger import logger
 from pyf.aggregator.npm_fetcher import NpmAggregator, NPM_PLUGINS
 from pyf.aggregator.npm_indexer import NpmIndexer
-from pyf.aggregator.profiles import ProfileManager
 
-import json
-import os
 import sys
 
 load_dotenv()
-
-DEFAULT_PROFILE = os.getenv("DEFAULT_PROFILE")
 
 GITHUB_FIELDS = [
     "github_stars",
@@ -44,55 +38,6 @@ GITHUB_FIELDS = [
     "github_url",
     "contributors",
 ]
-
-
-def show_package(package_name, collection_name, all_versions=False):
-    """Show indexed data for a single npm package from Typesense (for debugging)."""
-    from pyf.aggregator.db import TypesenceConnection
-
-    conn = TypesenceConnection()
-
-    if not conn.collection_exists(name=collection_name):
-        logger.error(f"Collection '{collection_name}' does not exist.")
-        sys.exit(1)
-
-    # Search for exact package name with npm registry filter
-    result = conn.client.collections[collection_name].documents.search(
-        {
-            "q": package_name,
-            "query_by": "name",
-            "filter_by": f"name:={package_name} && registry:=npm",
-            "sort_by": "upload_timestamp:desc",
-            "per_page": 100,
-        }
-    )
-
-    hits = result.get("hits", [])
-    if not hits:
-        # Try without registry filter in case it wasn't set
-        result = conn.client.collections[collection_name].documents.search(
-            {
-                "q": package_name,
-                "query_by": "name",
-                "filter_by": f"name:={package_name}",
-                "sort_by": "upload_timestamp:desc",
-                "per_page": 100,
-            }
-        )
-        hits = result.get("hits", [])
-
-    if not hits:
-        logger.error(
-            f"Package '{package_name}' not found in collection '{collection_name}'."
-        )
-        sys.exit(1)
-
-    documents = [hit["document"] for hit in hits]
-
-    if all_versions:
-        print(json.dumps(documents, indent=2))
-    else:
-        print(json.dumps(documents[0], indent=2))
 
 
 def register_npm_plugins(settings):
@@ -114,78 +59,37 @@ def register_npm_plugins(settings):
     NPM_PLUGINS.append(description_splitter.load(settings))
 
 
-parser = ArgumentParser(
-    description="Aggregate npm packages into Typesense. "
-    "Use -f for full download or -i for incremental updates."
-)
-parser.add_argument(
-    "-f",
-    "--first",
-    help="Full download: fetch all npm packages matching profile",
-    action="store_true",
-)
-parser.add_argument(
-    "-i",
-    "--incremental",
-    help="Incremental update: fetch recent package updates",
-    action="store_true",
-)
-parser.add_argument(
-    "-l",
-    "--limit",
-    help="Limit the number of packages to process (useful for testing)",
-    nargs="?",
-    type=int,
-    default=0,
-)
-parser.add_argument(
-    "-t",
-    "--target",
-    help="Target Typesense collection name (required)",
-    nargs="?",
-    type=str,
-)
-parser.add_argument(
-    "-p",
-    "--profile",
-    help="Profile name for npm filtering (overrides DEFAULT_PROFILE env var)",
-    nargs="?",
-    type=str,
-)
-parser.add_argument(
-    "--show",
-    help="Show indexed data for a package by name (for debugging)",
-    type=str,
-    metavar="PACKAGE_NAME",
-)
-parser.add_argument(
-    "--all-versions",
-    help="Show all versions when using --show (default: only newest)",
-    action="store_true",
-)
-parser.add_argument(
-    "--recreate-collection",
-    help="Delete and recreate the target collection with current schema (use with -f)",
-    action="store_true",
-)
-parser.add_argument(
-    "--force",
-    help="Skip confirmation prompts for destructive operations",
-    action="store_true",
-)
-parser.add_argument(
-    "--refresh-from-npm",
-    help="Refresh indexed npm packages from npm registry, removing non-matching packages",
-    action="store_true",
-)
-parser.add_argument(
-    "-fn",
-    "--filter-name",
-    help="Filter packages by name substring",
-    nargs="?",
-    type=str,
-    default="",
-)
+def add_subcommand_args(parser):
+    """Add npm-specific arguments to a subparser."""
+    from pyf.aggregator.cli_utils import add_common_args, add_limit_arg
+
+    add_common_args(parser)
+    add_limit_arg(parser)
+    parser.add_argument(
+        "-f",
+        "--first",
+        help="Full download: fetch all npm packages matching profile",
+        action="store_true",
+    )
+    parser.add_argument(
+        "-i",
+        "--incremental",
+        help="Incremental update: fetch recent package updates",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--refresh-from-npm",
+        help="Refresh indexed npm packages from npm registry, removing non-matching packages",
+        action="store_true",
+    )
+    parser.add_argument(
+        "-fn",
+        "--filter-name",
+        help="Filter packages by name substring",
+        nargs="?",
+        type=str,
+        default="",
+    )
 
 
 def get_npm_package_names(helper, collection_name):
@@ -307,7 +211,15 @@ def run_npm_refresh_mode(settings):
                 if github_data:
                     break  # Got data from first doc with GitHub fields
 
-            return ("update", package_name, package_json, github_data)
+            # Fetch each version's own README (the registry only serves the
+            # latest version's readme). Done here in the parallel worker so the
+            # CDN fetches run concurrently across packages.
+            readmes = {
+                version: agg.get_version_readme(package_name, version)
+                for version in package_json.get("versions", {})
+            }
+
+            return ("update", package_name, package_json, github_data, readmes)
 
         except Exception as e:
             return ("error", package_name, str(e))
@@ -334,7 +246,10 @@ def run_npm_refresh_mode(settings):
             elif action == "update":
                 package_json = result[2]
                 github_data = result[3]
-                packages_to_update.append((pkg_name, package_json, github_data))
+                readmes = result[4]
+                packages_to_update.append(
+                    (pkg_name, package_json, github_data, readmes)
+                )
             elif action == "error":
                 error = result[2]
                 stats["failed"] += 1
@@ -354,7 +269,7 @@ def run_npm_refresh_mode(settings):
             logger.error(f"Error deleting {pkg_name}: {e}")
 
     # Update packages with fresh data
-    for pkg_name, package_json, github_data in packages_to_update:
+    for pkg_name, package_json, github_data, readmes in packages_to_update:
         try:
             # Process all versions using aggregator's logic
             versions = package_json.get("versions", {})
@@ -368,6 +283,11 @@ def run_npm_refresh_mode(settings):
                 )
                 if not transformed:
                     continue
+
+                # Override the (latest) package document readme with this version's own
+                readme = readmes.get(version)
+                if readme is not None:
+                    transformed["description"] = readme
 
                 # Add GitHub fields from existing data
                 for field, value in github_data.items():
@@ -406,24 +326,9 @@ def run_npm_refresh_mode(settings):
     logger.info("=" * 50)
 
 
-def main():
-    args = parser.parse_args()
-
-    # Handle --show mode separately (for debugging indexed data)
-    if args.show:
-        target = args.target
-        effective_profile = args.profile or DEFAULT_PROFILE
-        if not target and effective_profile:
-            profile_manager = ProfileManager()
-            if profile_manager.get_profile(effective_profile):
-                target = effective_profile
-        if not target:
-            logger.error(
-                "Target collection name is required. Use -t <collection_name> or -p <profile>"
-            )
-            sys.exit(1)
-        show_package(args.show, target, all_versions=args.all_versions)
-        return
+def run_command(args):
+    """Run npm aggregation with pre-parsed args."""
+    from pyf.aggregator.cli_utils import resolve_profile_and_target
 
     # Validate mode flags
     modes = [args.first, args.incremental, args.refresh_from_npm]
@@ -431,7 +336,6 @@ def main():
         logger.error(
             "Must specify exactly one of -f (full), -i (incremental), or --refresh-from-npm"
         )
-        parser.print_help()
         sys.exit(1)
 
     if args.refresh_from_npm:
@@ -441,9 +345,10 @@ def main():
     else:
         mode = "first"
 
-    # Handle profile
-    effective_profile = args.profile or DEFAULT_PROFILE
-    profile_source = "from CLI" if args.profile else "from DEFAULT_PROFILE"
+    # Resolve profile with npm validation
+    effective_profile, profile_data, profile_manager = resolve_profile_and_target(
+        args, validate_npm=True
+    )
 
     if not effective_profile:
         logger.error(
@@ -452,37 +357,11 @@ def main():
         )
         sys.exit(1)
 
-    profile_manager = ProfileManager()
-    profile = profile_manager.get_profile(effective_profile)
-
-    if not profile:
-        available_profiles = profile_manager.list_profiles()
-        logger.error(
-            f"Profile '{effective_profile}' not found. "
-            f"Available profiles: {', '.join(available_profiles)}"
-        )
-        sys.exit(1)
-
     # Get npm configuration
     npm_config = profile_manager.get_npm_config(effective_profile)
-    if not npm_config:
-        logger.error(
-            f"Profile '{effective_profile}' has no npm configuration. "
-            f"Add 'npm:' section with 'keywords:' and/or 'scopes:' to the profile."
-        )
-        sys.exit(1)
-
-    if not profile_manager.validate_npm_profile(effective_profile):
-        logger.error(f"Profile '{effective_profile}' has invalid npm configuration")
-        sys.exit(1)
-
-    # Auto-set collection name from profile if not specified
-    if not args.target:
-        args.target = effective_profile
-        logger.info(f"Auto-setting target collection from profile: {args.target}")
 
     logger.info(
-        f"Using profile '{effective_profile}' ({profile_source}) with "
+        f"npm profile has "
         f"{len(npm_config['keywords'])} keywords and {len(npm_config['scopes'])} scopes"
     )
 
@@ -518,30 +397,10 @@ def main():
 
     indexer = NpmIndexer()
 
-    # Handle --recreate-collection
-    if args.recreate_collection:
-        from pyf.aggregator.typesense_util import TypesenceUtil
-
-        ts_util = TypesenceUtil()
-        result = ts_util.recreate_collection(name=settings["target"], delete_old=False)
-
-        if result.get("old_collection"):
-            if args.force:
-                ts_util.delete_collection(name=result["old_collection"])
-                logger.info(f"Deleted old collection '{result['old_collection']}'")
-            else:
-                confirm = input(
-                    f"Delete old collection '{result['old_collection']}'? (Y/n): "
-                )
-                if confirm.lower() != "n":
-                    ts_util.delete_collection(name=result["old_collection"])
-                    logger.info(f"Deleted old collection '{result['old_collection']}'")
-                else:
-                    logger.info(f"Kept old collection '{result['old_collection']}'")
-    elif not indexer.collection_exists(
-        name=settings["target"]
-    ) and not indexer.get_alias(settings["target"]):
-        # Create versioned collection with alias for fresh start
+    # Auto-create versioned collection with alias for fresh start
+    if not indexer.collection_exists(name=settings["target"]) and not indexer.get_alias(
+        settings["target"]
+    ):
         from pyf.aggregator.typesense_util import TypesenceUtil
 
         ts_util = TypesenceUtil()
@@ -551,6 +410,16 @@ def main():
     indexer(agg, settings["target"])
 
     logger.info(f"npm aggregation complete for collection: {settings['target']}")
+
+
+def main():
+    parser = ArgumentParser(
+        description="Aggregate npm packages into Typesense. "
+        "Use -f for full download or -i for incremental updates."
+    )
+    add_subcommand_args(parser)
+    args = parser.parse_args()
+    run_command(args)
 
 
 if __name__ == "__main__":
