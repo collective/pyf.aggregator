@@ -44,6 +44,11 @@ test = [
 typecheck = [
     "pytest-stub",
 ]
+# Server-side classifier discovery via the public BigQuery PyPI dataset
+# (pyfa pypi -f --discovery bigquery / PYPI_DISCOVERY=bigquery).
+bigquery = [
+    "google-cloud-bigquery",
+]
 
 [project.scripts]
 pyfa = "pyf.aggregator.cli:main"
