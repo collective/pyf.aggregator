@@ -960,3 +960,78 @@ class TestProblemReport:
         assert enricher.problems == []
         assert not (tmp_path / "github_problems.json").exists()
         assert not (tmp_path / "github_problems.md").exists()
+
+    def test_report_flushed_when_run_interrupted(self, enricher, tmp_path):
+        """Problems recorded before an interruption are still written to disk.
+
+        A long server run can be killed or raise mid-loop after warnings have
+        already been logged. The report must survive that so the already-found
+        problems are not lost.
+        """
+        doc_recorded = {
+            "id": "a-1.0.0",
+            "name": "a",
+            "home_page": "https://readthedocs.io/a",
+        }
+        doc_boom = {
+            "id": "b-1.0.0",
+            "name": "b",
+            "home_page": "https://readthedocs.io/b",
+        }
+        results = {
+            "found": 2,
+            "request_params": {"per_page": 50},
+            "grouped_hits": [
+                {"hits": [{"document": doc_recorded}, {"document": doc_boom}]}
+            ],
+        }
+        enricher.ts_search = MagicMock(return_value=results)
+        enricher.update_doc = MagicMock()
+
+        def side_effect(data):
+            if data["name"] == "b":
+                raise RuntimeError("boom")
+            return None  # no repo url -> recorded as a problem
+
+        enricher.get_package_repo_identifier = MagicMock(side_effect=side_effect)
+
+        with pytest.raises(RuntimeError):
+            enricher.run("test_collection", report_dir=str(tmp_path))
+
+        json_path = tmp_path / "github_problems.json"
+        md_path = tmp_path / "github_problems.md"
+        assert json_path.exists()
+        assert md_path.exists()
+
+        payload = json.loads(json_path.read_text())
+        assert payload["count"] == 1
+        assert payload["problems"][0]["name"] == "a"
+
+    def test_report_flushed_incrementally_on_each_problem(self, enricher, tmp_path):
+        """The report file is (re)written as soon as a problem is recorded.
+
+        This makes the report visible on disk right after the first warning,
+        not only once the whole run completes.
+        """
+        document = {
+            "id": "some-package-1.0.0",
+            "name": "some-package",
+            "home_page": "https://readthedocs.io/some-package",
+        }
+        enricher.ts_search = MagicMock(return_value=self._search_results(document))
+        enricher.update_doc = MagicMock()
+
+        written = []
+        original = enricher._write_problem_report
+
+        def spy(report_dir="."):
+            written.append(len(enricher.problems))
+            return original(report_dir)
+
+        enricher._write_problem_report = MagicMock(side_effect=spy)
+
+        enricher.run("test_collection", report_dir=str(tmp_path))
+
+        # written at least once while a problem was already present
+        assert any(count >= 1 for count in written)
+        assert (tmp_path / "github_problems.json").exists()

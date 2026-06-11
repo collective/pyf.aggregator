@@ -523,12 +523,19 @@ This adds the following fields to each package (if a GitHub repository is found)
 
 #### Problematic repository reports
 
-Packages whose GitHub repository cannot be enriched are collected and, at the end
-of a run, written to two report files (only when there is at least one problem):
+Packages whose GitHub repository cannot be enriched are collected and written to
+two report files (only when there is at least one problem):
 
 - `github_problems.json` — structured data (package name, resolved repo identifier,
   candidate URLs, and reason) for programmatic analysis.
 - `github_problems.md` — a human-readable table grouped by reason.
+
+The reports are flushed **incrementally** — they are (re)written to disk as soon
+as each problem is recorded, so the files appear right after the first warning
+rather than only when the (potentially long) run finishes. A final flush also runs
+in a `finally` block, so the collected problems survive an interrupted run
+(exception, `KeyboardInterrupt`, or the process being killed mid-run). When the run
+ends, an `INFO` log line reports the absolute paths of both files.
 
 Use `--report-dir` to control where these files are written (defaults to the
 current directory).

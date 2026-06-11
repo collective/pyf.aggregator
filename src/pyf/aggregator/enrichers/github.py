@@ -156,6 +156,7 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
 
     def run(self, target=None, package_name=None, verbose=False, report_dir="."):
         self.problems = []
+        self._report_dir = report_dir
         search_parameters = {
             "q": "*",
             "query_by": "name",
@@ -182,73 +183,95 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
         )
         enrich_counter = 0
         page = 0
-        for p in range(0, found, per_page):
-            page += 1
-            results = self.ts_search(target, search_parameters, page)
-            for group in results["grouped_hits"]:
-                for item in group["hits"]:
-                    data = item["document"]
+        try:
+            for p in range(0, found, per_page):
+                page += 1
+                results = self.ts_search(target, search_parameters, page)
+                for group in results["grouped_hits"]:
+                    for item in group["hits"]:
+                        data = item["document"]
 
-                    if verbose:
-                        print(f"\n{'=' * 60}")
-                        print(f"=== Processing package: {data.get('name')} ===")
-                        print(f"{'=' * 60}")
-                        print("\n--- Typesense Document (PyPI data) ---")
-                        pprint(data)
-
-                    package_repo_identifier = self.get_package_repo_identifier(data)
-                    if not package_repo_identifier:
-                        self._record_problem(data, None, "no_repo_url")
                         if verbose:
-                            print("\n--- No GitHub repository found ---")
-                        continue
+                            print(f"\n{'=' * 60}")
+                            print(f"=== Processing package: {data.get('name')} ===")
+                            print(f"{'=' * 60}")
+                            print("\n--- Typesense Document (PyPI data) ---")
+                            pprint(data)
 
-                    if not is_valid_repo_identifier(package_repo_identifier):
-                        self._record_problem(
-                            data, package_repo_identifier, "malformed_identifier"
-                        )
-                        logger.warning(
-                            f"Malformed GitHub identifier for package "
-                            f"'{data.get('name')}': {package_repo_identifier}"
-                        )
+                        package_repo_identifier = self.get_package_repo_identifier(data)
+                        if not package_repo_identifier:
+                            self._record_problem(data, None, "no_repo_url")
+                            if verbose:
+                                print("\n--- No GitHub repository found ---")
+                            continue
+
+                        if not is_valid_repo_identifier(package_repo_identifier):
+                            self._record_problem(
+                                data, package_repo_identifier, "malformed_identifier"
+                            )
+                            logger.warning(
+                                f"Malformed GitHub identifier for package "
+                                f"'{data.get('name')}': {package_repo_identifier}"
+                            )
+                            if verbose:
+                                print(
+                                    f"\n--- Malformed GitHub identifier: "
+                                    f"{package_repo_identifier} ---"
+                                )
+                            continue
+
                         if verbose:
                             print(
-                                f"\n--- Malformed GitHub identifier: "
+                                f"\n--- GitHub Repository: "
                                 f"{package_repo_identifier} ---"
                             )
-                        continue
 
-                    if verbose:
-                        print(f"\n--- GitHub Repository: {package_repo_identifier} ---")
-
-                    gh_data = self._get_github_data(
-                        package_repo_identifier, verbose=verbose
-                    )
-                    if not gh_data:
-                        self._record_problem(data, package_repo_identifier, "not_found")
-                        logger.warning(
-                            f"GitHub repository not found for package '{data.get('name')}': "
-                            f"{package_repo_identifier}"
+                        gh_data = self._get_github_data(
+                            package_repo_identifier, verbose=verbose
                         )
+                        if not gh_data:
+                            self._record_problem(
+                                data, package_repo_identifier, "not_found"
+                            )
+                            logger.warning(
+                                f"GitHub repository not found for package "
+                                f"'{data.get('name')}': {package_repo_identifier}"
+                            )
+                            if verbose:
+                                print("--- No GitHub data available ---")
+                            continue
+
                         if verbose:
-                            print("--- No GitHub data available ---")
-                        continue
+                            print("\n--- Enrichment Result ---")
+                            pprint(
+                                {
+                                    "github_stars": gh_data["github"]["stars"],
+                                    "github_watchers": gh_data["github"]["watchers"],
+                                    "github_updated": gh_data["github"]["updated"],
+                                    "github_open_issues": gh_data["github"][
+                                        "open_issues"
+                                    ],
+                                    "github_url": gh_data["github"]["gh_url"],
+                                }
+                            )
 
-                    if verbose:
-                        print("\n--- Enrichment Result ---")
-                        pprint(
-                            {
-                                "github_stars": gh_data["github"]["stars"],
-                                "github_watchers": gh_data["github"]["watchers"],
-                                "github_updated": gh_data["github"]["updated"],
-                                "github_open_issues": gh_data["github"]["open_issues"],
-                                "github_url": gh_data["github"]["gh_url"],
-                            }
+                        enrich_counter += 1
+                        self.update_doc(
+                            target, data["id"], gh_data, page, enrich_counter
                         )
-
-                    enrich_counter += 1
-                    self.update_doc(target, data["id"], gh_data, page, enrich_counter)
-        self._write_problem_report(report_dir)
+        finally:
+            # Always flush whatever problems were collected, even if the run is
+            # interrupted (exception, KeyboardInterrupt) part-way through. The
+            # report is also written incrementally as each problem is recorded,
+            # so it survives a hard kill of the process.
+            self._write_problem_report(report_dir)
+            if self.problems:
+                logger.info(
+                    f"Wrote {len(self.problems)} problematic repositories to "
+                    f"{os.path.abspath(os.path.join(report_dir, 'github_problems.json'))}"
+                    f" and "
+                    f"{os.path.abspath(os.path.join(report_dir, 'github_problems.md'))}"
+                )
         logger.info(f"[{datetime.now()}] done")
 
     @staticmethod
@@ -265,7 +288,12 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
         return {key: value for key, value in urls.items() if value}
 
     def _record_problem(self, data, repo_identifier, reason):
-        """Collect a package whose GitHub repo could not be enriched."""
+        """Collect a package whose GitHub repo could not be enriched.
+
+        The report is flushed to disk immediately so it becomes visible right
+        after the first problem is found, rather than only when the (long) run
+        completes.
+        """
         self.problems.append(
             {
                 "name": data.get("name"),
@@ -274,6 +302,7 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
                 "urls": self._candidate_urls(data),
             }
         )
+        self._write_problem_report(getattr(self, "_report_dir", "."))
 
     def _write_problem_report(self, report_dir="."):
         """Write the collected problems to JSON and Markdown report files."""
@@ -293,11 +322,6 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
 
         with open(md_path, "w") as fh:
             fh.write(self._render_problem_markdown())
-
-        logger.info(
-            f"Wrote {len(self.problems)} problematic repositories to "
-            f"{json_path} and {md_path}"
-        )
 
     def _render_problem_markdown(self):
         """Render the collected problems as a Markdown report grouped by reason."""
