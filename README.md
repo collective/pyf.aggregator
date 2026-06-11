@@ -140,6 +140,44 @@ paying a fresh TCP+TLS handshake per request. `PYPI_MAX_RPS` optionally caps the
 requests (set to `0`, the default, for no cap — concurrency is then bounded only by the
 worker count). HTTP 429 responses are always honored via the `Retry-After` header.
 
+#### Discovery backends (`--discovery` / `PYPI_DISCOVERY`)
+
+How the full (`-f`) fetch finds *which* packages to fetch:
+
+- **`simple`** (default) — brute-force the entire PyPI Simple index (~650k projects)
+  and download each project's JSON to check its classifier. No extra dependencies or
+  credentials, but it touches all of PyPI on every full run.
+- **`bigquery`** — filter by classifier **server-side** against the public
+  [`bigquery-public-data.pypi.distribution_metadata`](https://console.cloud.google.com/marketplace/product/gcp-public-data-pypi/pypi)
+  dataset, which exposes each distribution's `classifiers`. One query returns just the
+  matching project names (a few thousand for Plone); the metadata fetch then runs over
+  *those* names only — orders of magnitude fewer HTTP requests for a full run.
+
+```bash
+# brute-force (default)
+uv run pyfa pypi -f -t plone
+
+# server-side classifier discovery via BigQuery
+uv run pyfa pypi -f -t plone --discovery bigquery
+```
+
+The `bigquery` backend is optional. Install the extra and configure Google Cloud
+credentials (Application Default Credentials):
+
+```bash
+uv pip install 'pyf.aggregator[bigquery]'
+gcloud auth application-default login        # or set GOOGLE_APPLICATION_CREDENTIALS
+export BIGQUERY_PROJECT=my-gcp-project       # billing project for the query
+```
+
+Reading the public dataset is free, but BigQuery bills the **bytes scanned** to your
+billing project (a classifier-filtered scan is small and typically well within the
+free tier). The dataset is a periodic snapshot, so a freshly published package may lag
+by a short window — the incremental RSS path (`-i`) covers the gap, and the downstream
+`has_classifiers` re-check still drops anything that dropped the classifier since the
+snapshot. The `bigquery` backend only affects full-mode discovery; incremental updates
+always use the PyPI RSS feeds.
+
 ### npm Registry Rate Limits
 
 The npm registry does **not** publish a per-hour request limit. Its [acceptable-use

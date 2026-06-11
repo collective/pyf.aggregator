@@ -277,6 +277,15 @@ def add_subcommand_args(parser):
         action="store_true",
     )
     parser.add_argument(
+        "--discovery",
+        help="Package discovery backend for full (-f) mode: 'simple' brute-forces "
+        "the PyPI index (default); 'bigquery' filters by classifier server-side via "
+        "the public BigQuery dataset (needs the 'bigquery' extra + Google Cloud "
+        "credentials). Overrides the PYPI_DISCOVERY env var.",
+        choices=["simple", "bigquery"],
+        default=None,
+    )
+    parser.add_argument(
         "--refresh-from-pypi",
         help="Refresh indexed packages data from PyPi",
         action="store_true",
@@ -343,6 +352,7 @@ def run_command(args):
         "filter_troove": filter_troove,
         "limit": args.limit,
         "target": args.target,
+        "discovery": args.discovery,
     }
 
     logger.info(f"Starting PyPI aggregation in '{mode}' mode")
@@ -365,6 +375,7 @@ def run_command(args):
         filter_name=settings["filter_name"],
         filter_troove=settings["filter_troove"],
         limit=settings["limit"],
+        discovery=settings["discovery"],
     )
 
     indexer = Indexer()

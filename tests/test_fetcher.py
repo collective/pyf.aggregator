@@ -752,6 +752,67 @@ class TestAllPackages:
 # ============================================================================
 
 
+class TestBigQueryDiscovery:
+    """Full-mode package-id discovery can route through BigQuery instead of
+    brute-forcing the PyPI Simple index."""
+
+    def test_default_discovery_is_simple(self):
+        assert Aggregator(mode="first").discovery == "simple"
+
+    def test_discovery_arg_overrides(self):
+        assert Aggregator(mode="first", discovery="bigquery").discovery == "bigquery"
+
+    def test_bigquery_routes_through_discover(self, monkeypatch):
+        """discovery='bigquery' yields names from discover_package_names,
+        applying the name filter, and passes the classifier filter through."""
+        captured = {}
+
+        def fake_discover(classifiers, **kwargs):
+            captured["classifiers"] = classifiers
+            return ["plone.api", "collective.foo", "requests"]
+
+        monkeypatch.setattr(
+            "pyf.aggregator.bigquery_discovery.discover_package_names",
+            fake_discover,
+        )
+
+        aggregator = Aggregator(
+            mode="first",
+            discovery="bigquery",
+            filter_troove=["Framework :: Plone"],
+            filter_name="plone",
+        )
+        ids = list(aggregator._all_package_ids)
+
+        assert captured["classifiers"] == ["Framework :: Plone"]
+        # Only names containing the filter substring are yielded.
+        assert ids == ["plone.api"]
+
+    def test_bigquery_respects_limit(self, monkeypatch):
+        monkeypatch.setattr(
+            "pyf.aggregator.bigquery_discovery.discover_package_names",
+            lambda classifiers, **kw: ["a", "b", "c", "d"],
+        )
+        aggregator = Aggregator(mode="first", discovery="bigquery", limit=2)
+        assert list(aggregator._all_package_ids) == ["a", "b"]
+
+    def test_bigquery_defaults_classifier_to_plone(self, monkeypatch):
+        """Without an explicit filter_troove, discovery falls back to Plone."""
+        captured = {}
+
+        def fake_discover(classifiers, **kwargs):
+            captured["classifiers"] = classifiers
+            return ["plone.api"]
+
+        monkeypatch.setattr(
+            "pyf.aggregator.bigquery_discovery.discover_package_names",
+            fake_discover,
+        )
+        aggregator = Aggregator(mode="first", discovery="bigquery")
+        list(aggregator._all_package_ids)
+        assert captured["classifiers"] == [PLONE_CLASSIFIER]
+
+
 class TestPloneClassifierConstant:
     """Test the PLONE_CLASSIFIER constant."""
 

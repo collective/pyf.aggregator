@@ -51,6 +51,13 @@ PYPI_RETRY_BACKOFF = float(os.getenv("PYPI_RETRY_BACKOFF", 2.0))
 PYPI_MAX_WORKERS = int(os.getenv("PYPI_MAX_WORKERS", 50))
 # Batch size for memory-efficient parallel fetching (default 500)
 PYPI_BATCH_SIZE = int(os.getenv("PYPI_BATCH_SIZE", 500))
+# Discovery backend for the full ("first") fetch:
+#   "simple"   - brute-force the entire PyPI Simple index (default, no extra deps)
+#   "bigquery" - server-side classifier filter via the public BigQuery dataset,
+#                then fetch JSON only for the matching names (needs the
+#                'bigquery' extra + Google Cloud credentials). Orders of
+#                magnitude fewer requests for a full run.
+PYPI_DISCOVERY = os.getenv("PYPI_DISCOVERY", "simple")
 
 
 class Aggregator:
@@ -63,6 +70,7 @@ class Aggregator:
         filter_troove=None,
         skip_github=False,
         limit=None,
+        discovery=None,
     ):
         self.mode = mode
         self.sincefile = sincefile
@@ -71,6 +79,9 @@ class Aggregator:
         self.filter_troove = filter_troove
         self.skip_github = skip_github
         self.limit = limit
+        # Package-id discovery backend for full mode: "simple" | "bigquery".
+        # Falls back to the PYPI_DISCOVERY env var when not passed explicitly.
+        self.discovery = (discovery or PYPI_DISCOVERY).lower()
         self._fetch_counter = 0
         self._fetch_counter_lock = threading.Lock()
         self._total_packages = 0
@@ -249,6 +260,59 @@ class Aggregator:
 
     @property
     def _all_package_ids(self):
+        """Yield candidate package ids for the full fetch.
+
+        Dispatches on ``self.discovery``:
+          * "bigquery" - server-side classifier filter via the public BigQuery
+            dataset, yielding only matching project names.
+          * "simple" (default) - every project name from the PyPI Simple index;
+            classifier filtering then happens downstream in
+            ``_fetch_package_metadata`` on each package's JSON.
+        """
+        if self.discovery == "bigquery":
+            return self._all_package_ids_bigquery()
+        return self._all_package_ids_simple()
+
+    def _all_package_ids_bigquery(self):
+        """Yield package names discovered server-side via BigQuery.
+
+        These names already carry the classifier, so the downstream
+        ``has_classifiers`` re-check is a cheap defensive guard (it also drops
+        any package that removed the classifier since the dataset snapshot).
+        """
+        from pyf.aggregator.bigquery_discovery import discover_package_names
+
+        classifiers = self.filter_troove or [PLONE_CLASSIFIER]
+        if not self.filter_troove:
+            logger.warning(
+                "BigQuery discovery needs a classifier; defaulting to %s",
+                PLONE_CLASSIFIER,
+            )
+
+        names = discover_package_names(classifiers)
+
+        filtered_packages = [
+            name for name in names if not self.filter_name or self.filter_name in name
+        ]
+
+        if self.limit:
+            self._total_packages = min(len(filtered_packages), self.limit)
+        else:
+            self._total_packages = len(filtered_packages)
+
+        logger.info(
+            f"BigQuery discovery: {len(names)} matched classifier, "
+            f"{self._total_packages} to process."
+        )
+
+        count = 0
+        for package_id in filtered_packages:
+            if self.limit and count >= self.limit:
+                return
+            count += 1
+            yield package_id
+
+    def _all_package_ids_simple(self):
         """Get all package ids by pypi simple index.
 
         There is no server-side classifier filter in the supported PyPI APIs

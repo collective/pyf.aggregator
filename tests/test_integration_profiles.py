@@ -148,6 +148,7 @@ class TestCLIProfileIntegration:
                 filter_troove=[],
                 no_plone_filter=False,
                 force=False,
+                discovery=None,
             )
             run_command(args)
 
@@ -175,6 +176,7 @@ class TestCLIProfileIntegration:
                 filter_troove=[],
                 no_plone_filter=False,
                 force=False,
+                discovery=None,
             )
             with pytest.raises(SystemExit):
                 run_command(args)
@@ -209,6 +211,7 @@ class TestCLIProfileIntegration:
                 filter_troove=[],
                 no_plone_filter=False,
                 force=False,
+                discovery=None,
             )
             run_command(args)
 
