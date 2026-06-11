@@ -10,12 +10,17 @@ This module tests:
 - Full enrichment flow
 """
 
+import json
 import time
 import pytest
 from unittest.mock import patch, MagicMock
 from datetime import datetime
 
-from pyf.aggregator.enrichers.github import Enricher, memoize
+from pyf.aggregator.enrichers.github import (
+    Enricher,
+    memoize,
+    is_valid_repo_identifier,
+)
 
 
 # ============================================================================
@@ -168,11 +173,64 @@ class TestGetPackageRepoIdentifier:
         result = enricher.get_package_repo_identifier(data)
         assert result == "plone/plone.api"
 
+    def test_strips_url_fragment(self, enricher):
+        """Test that a #fragment anchor is stripped from the identifier.
+
+        Regression test for: 'collective/collective-rercaptcha#readme' being
+        used as a repo identifier, producing a bogus GitHub 404.
+        """
+        data = {
+            "home_page": "https://github.com/collective/collective-rercaptcha#readme"
+        }
+        result = enricher.get_package_repo_identifier(data)
+        assert result == "collective/collective-rercaptcha"
+
+    def test_strips_query_string(self, enricher):
+        """Test that a ?query string is stripped from the identifier."""
+        data = {"home_page": "https://github.com/plone/plone.api?tab=readme"}
+        result = enricher.get_package_repo_identifier(data)
+        assert result == "plone/plone.api"
+
     def test_returns_none_for_non_github_url(self, enricher):
         """Test that None is returned for non-GitHub URLs."""
         data = {"home_page": "https://readthedocs.io/plone.api"}
         result = enricher.get_package_repo_identifier(data)
         assert result is None
+
+
+# ============================================================================
+# Repository Identifier Validation Tests
+# ============================================================================
+
+
+class TestIsValidRepoIdentifier:
+    """Test the is_valid_repo_identifier helper."""
+
+    def test_accepts_valid_identifier(self):
+        assert is_valid_repo_identifier("plone/plone.api") is True
+
+    def test_accepts_identifier_with_dashes_and_underscores(self):
+        assert is_valid_repo_identifier("collective/collective-recaptcha") is True
+        assert is_valid_repo_identifier("some_org/some_repo") is True
+
+    def test_rejects_none(self):
+        assert is_valid_repo_identifier(None) is False
+
+    def test_rejects_single_segment(self):
+        assert is_valid_repo_identifier("plone") is False
+
+    def test_rejects_empty_segment(self):
+        assert is_valid_repo_identifier("plone/") is False
+        assert is_valid_repo_identifier("/plone.api") is False
+
+    def test_rejects_fragment_or_query_chars(self):
+        assert is_valid_repo_identifier("collective/repo#readme") is False
+        assert is_valid_repo_identifier("plone/plone.api?tab=x") is False
+
+    def test_rejects_reserved_owners(self):
+        assert is_valid_repo_identifier("sponsors/someone") is False
+        assert is_valid_repo_identifier("orgs/plone") is False
+        assert is_valid_repo_identifier("marketplace/actions") is False
 
     def test_returns_none_for_empty_data(self, enricher):
         """Test that None is returned for empty data."""
@@ -695,7 +753,7 @@ class TestRun:
         # Should have updated both packages
         assert enricher.update_doc.call_count == 2
 
-    def test_skips_packages_without_github_url(self, enricher):
+    def test_skips_packages_without_github_url(self, enricher, tmp_path):
         """Test that packages without GitHub URL are skipped."""
         search_results = {
             "found": 1,
@@ -718,7 +776,7 @@ class TestRun:
         enricher.ts_search = MagicMock(return_value=search_results)
         enricher.update_doc = MagicMock()
 
-        enricher.run("test_collection")
+        enricher.run("test_collection", report_dir=str(tmp_path))
 
         # Should not have updated any packages
         assert enricher.update_doc.call_count == 0
@@ -762,3 +820,143 @@ class TestRun:
 
         captured = capsys.readouterr()
         assert "plone.api" in captured.out
+
+
+# ============================================================================
+# Problematic Repository Reporting Tests
+# ============================================================================
+
+
+class TestProblemReport:
+    """Test collection and reporting of problematic repositories."""
+
+    def _search_results(self, document):
+        return {
+            "found": 1,
+            "request_params": {"per_page": 50},
+            "grouped_hits": [{"hits": [{"document": document}]}],
+        }
+
+    def test_records_no_repo_url_problem(self, enricher, tmp_path):
+        """A package without any GitHub URL is recorded as 'no_repo_url'."""
+        document = {
+            "id": "some-package-1.0.0",
+            "name": "some-package",
+            "home_page": "https://readthedocs.io/some-package",
+        }
+        enricher.ts_search = MagicMock(return_value=self._search_results(document))
+        enricher.update_doc = MagicMock()
+
+        enricher.run("test_collection", report_dir=str(tmp_path))
+
+        assert len(enricher.problems) == 1
+        problem = enricher.problems[0]
+        assert problem["name"] == "some-package"
+        assert problem["reason"] == "no_repo_url"
+        assert problem["repo_identifier"] is None
+
+    def test_records_malformed_identifier_problem(self, enricher, tmp_path):
+        """A GitHub URL resolving to a non-repo path is 'malformed_identifier'."""
+        document = {
+            "id": "weird-1.0.0",
+            "name": "weird",
+            "home_page": "https://github.com/sponsors/someone",
+        }
+        enricher.ts_search = MagicMock(return_value=self._search_results(document))
+        enricher.update_doc = MagicMock()
+
+        enricher.run("test_collection", report_dir=str(tmp_path))
+
+        assert len(enricher.problems) == 1
+        problem = enricher.problems[0]
+        assert problem["reason"] == "malformed_identifier"
+        assert problem["repo_identifier"] == "sponsors/someone"
+
+    def test_records_not_found_problem(self, enricher, tmp_path):
+        """A valid identifier that 404s is recorded as 'not_found'."""
+        if hasattr(enricher._get_github_data, "cache"):
+            enricher._get_github_data.cache.clear()
+
+        document = {
+            "id": "collective.rercaptcha-1.0.0",
+            "name": "collective.rercaptcha",
+            "home_page": "https://github.com/collective/collective-rercaptcha#readme",
+        }
+        enricher.ts_search = MagicMock(return_value=self._search_results(document))
+        enricher.update_doc = MagicMock()
+
+        from github import UnknownObjectException
+
+        with patch("pyf.aggregator.enrichers.github.Github") as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.get_repo.side_effect = UnknownObjectException(
+                404, "Not Found", {}
+            )
+            mock_github_class.return_value = mock_github
+
+            enricher.run("test_collection", report_dir=str(tmp_path))
+
+        # The fragment must be stripped before querying GitHub
+        mock_github.get_repo.assert_called_with("collective/collective-rercaptcha")
+
+        assert len(enricher.problems) == 1
+        problem = enricher.problems[0]
+        assert problem["reason"] == "not_found"
+        assert problem["repo_identifier"] == "collective/collective-rercaptcha"
+
+    def test_writes_json_and_markdown_reports(self, enricher, tmp_path):
+        """Both JSON and Markdown report files are written when problems exist."""
+        document = {
+            "id": "some-package-1.0.0",
+            "name": "some-package",
+            "home_page": "https://readthedocs.io/some-package",
+        }
+        enricher.ts_search = MagicMock(return_value=self._search_results(document))
+        enricher.update_doc = MagicMock()
+
+        enricher.run("test_collection", report_dir=str(tmp_path))
+
+        json_path = tmp_path / "github_problems.json"
+        md_path = tmp_path / "github_problems.md"
+        assert json_path.exists()
+        assert md_path.exists()
+
+        payload = json.loads(json_path.read_text())
+        assert payload["count"] == 1
+        assert payload["problems"][0]["name"] == "some-package"
+
+        md = md_path.read_text()
+        assert "some-package" in md
+        assert "No GitHub URL" in md
+
+    def test_no_report_written_when_no_problems(
+        self,
+        enricher,
+        sample_github_repo,
+        sample_github_contributors,
+        tmp_path,
+    ):
+        """No report files are written when every package enriches cleanly."""
+        if hasattr(enricher._get_github_data, "cache"):
+            enricher._get_github_data.cache.clear()
+
+        sample_github_repo.get_contributors.return_value = sample_github_contributors
+        document = {
+            "id": "plone.api-2.0.0",
+            "name": "plone.api",
+            "home_page": "https://github.com/plone/plone.api",
+        }
+
+        with patch("pyf.aggregator.enrichers.github.Github") as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.get_repo.return_value = sample_github_repo
+            mock_github_class.return_value = mock_github
+
+            enricher.ts_search = MagicMock(return_value=self._search_results(document))
+            enricher.update_doc = MagicMock()
+
+            enricher.run("test_collection", report_dir=str(tmp_path))
+
+        assert enricher.problems == []
+        assert not (tmp_path / "github_problems.json").exists()
+        assert not (tmp_path / "github_problems.md").exists()

@@ -9,6 +9,7 @@ from github import RateLimitExceededException
 from github import UnknownObjectException
 
 import functools
+import json
 import re
 import time
 import os
@@ -40,6 +41,12 @@ def add_subcommand_args(parser):
         help="Show raw data from Typesense (PyPI) and GitHub API",
         action="store_true",
     )
+    parser.add_argument(
+        "--report-dir",
+        help="Directory for the github_problems.{json,md} reports (default: current directory)",
+        type=str,
+        default=".",
+    )
 
 
 # Regex patterns for extracting GitHub repository from various URL formats
@@ -57,6 +64,54 @@ github_git_ssh_regex = re.compile(
 )
 # SSH URLs (git@github.com:owner/repo.git)
 github_ssh_regex = re.compile(r"^git@github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$")
+
+# GitHub paths that look like "owner/repo" but are not real repositories.
+GITHUB_RESERVED_OWNERS = {
+    "about",
+    "apps",
+    "collections",
+    "marketplace",
+    "orgs",
+    "settings",
+    "sponsors",
+    "topics",
+}
+
+# A valid GitHub owner or repository name (GitHub allows letters, digits, ".", "_", "-").
+_repo_name_part = re.compile(r"^[A-Za-z0-9._-]+$")
+
+# Human-readable labels for the reasons a repository could not be enriched.
+PROBLEM_REASON_LABELS = {
+    "no_repo_url": "No GitHub URL in package metadata",
+    "malformed_identifier": "Malformed repository identifier",
+    "not_found": "Repository not found (404)",
+}
+
+
+def clean_repo_identifier(repo_identifier):
+    """Strip URL fragments/query strings captured into a repo identifier.
+
+    e.g. "collective/collective-rercaptcha#readme" -> "collective/collective-rercaptcha"
+    """
+    if not repo_identifier:
+        return repo_identifier
+    return repo_identifier.split("#")[0].split("?")[0]
+
+
+def is_valid_repo_identifier(repo_identifier):
+    """Return True if ``repo_identifier`` looks like a real "owner/repo"."""
+    if not repo_identifier:
+        return False
+    parts = repo_identifier.split("/")
+    if len(parts) != 2:
+        return False
+    owner, repo = parts
+    if not owner or not repo:
+        return False
+    if owner.lower() in GITHUB_RESERVED_OWNERS:
+        return False
+    return bool(_repo_name_part.match(owner) and _repo_name_part.match(repo))
+
 
 GH_KEYS_MAP = {
     "stars": "stargazers_count",
@@ -99,7 +154,8 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
             time.sleep(sleep_time)
         self._last_github_request = time.time()
 
-    def run(self, target=None, package_name=None, verbose=False):
+    def run(self, target=None, package_name=None, verbose=False, report_dir="."):
+        self.problems = []
         search_parameters = {
             "q": "*",
             "query_by": "name",
@@ -142,8 +198,24 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
 
                     package_repo_identifier = self.get_package_repo_identifier(data)
                     if not package_repo_identifier:
+                        self._record_problem(data, None, "no_repo_url")
                         if verbose:
                             print("\n--- No GitHub repository found ---")
+                        continue
+
+                    if not is_valid_repo_identifier(package_repo_identifier):
+                        self._record_problem(
+                            data, package_repo_identifier, "malformed_identifier"
+                        )
+                        logger.warning(
+                            f"Malformed GitHub identifier for package "
+                            f"'{data.get('name')}': {package_repo_identifier}"
+                        )
+                        if verbose:
+                            print(
+                                f"\n--- Malformed GitHub identifier: "
+                                f"{package_repo_identifier} ---"
+                            )
                         continue
 
                     if verbose:
@@ -153,6 +225,7 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
                         package_repo_identifier, verbose=verbose
                     )
                     if not gh_data:
+                        self._record_problem(data, package_repo_identifier, "not_found")
                         logger.warning(
                             f"GitHub repository not found for package '{data.get('name')}': "
                             f"{package_repo_identifier}"
@@ -175,7 +248,86 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
 
                     enrich_counter += 1
                     self.update_doc(target, data["id"], gh_data, page, enrich_counter)
+        self._write_problem_report(report_dir)
         logger.info(f"[{datetime.now()}] done")
+
+    @staticmethod
+    def _candidate_urls(data):
+        """Return the non-empty URLs considered when looking for a GitHub repo."""
+        urls = {
+            "home_page": data.get("home_page"),
+            "project_url": data.get("project_url"),
+            "url": data.get("url"),
+            "repository_url": data.get("repository_url"),
+        }
+        for key, value in (data.get("project_urls") or {}).items():
+            urls[f"project_urls.{key}"] = value
+        return {key: value for key, value in urls.items() if value}
+
+    def _record_problem(self, data, repo_identifier, reason):
+        """Collect a package whose GitHub repo could not be enriched."""
+        self.problems.append(
+            {
+                "name": data.get("name"),
+                "repo_identifier": repo_identifier,
+                "reason": reason,
+                "urls": self._candidate_urls(data),
+            }
+        )
+
+    def _write_problem_report(self, report_dir="."):
+        """Write the collected problems to JSON and Markdown report files."""
+        if not self.problems:
+            return
+
+        json_path = os.path.join(report_dir, "github_problems.json")
+        md_path = os.path.join(report_dir, "github_problems.md")
+
+        with open(json_path, "w") as fh:
+            json.dump(
+                {"count": len(self.problems), "problems": self.problems},
+                fh,
+                indent=2,
+                sort_keys=True,
+            )
+
+        with open(md_path, "w") as fh:
+            fh.write(self._render_problem_markdown())
+
+        logger.info(
+            f"Wrote {len(self.problems)} problematic repositories to "
+            f"{json_path} and {md_path}"
+        )
+
+    def _render_problem_markdown(self):
+        """Render the collected problems as a Markdown report grouped by reason."""
+        grouped = {}
+        for problem in self.problems:
+            grouped.setdefault(problem["reason"], []).append(problem)
+
+        lines = [
+            "# Problematic GitHub Repositories",
+            "",
+            f"Total: {len(self.problems)}",
+            "",
+        ]
+        for reason in PROBLEM_REASON_LABELS:
+            entries = grouped.get(reason)
+            if not entries:
+                continue
+            lines.append(f"## {PROBLEM_REASON_LABELS[reason]} ({len(entries)})")
+            lines.append("")
+            lines.append("| Package | Repo identifier | URLs |")
+            lines.append("| --- | --- | --- |")
+            for entry in sorted(entries, key=lambda e: e["name"] or ""):
+                urls = "<br>".join(
+                    f"{key}: {value}" for key, value in entry["urls"].items()
+                )
+                lines.append(
+                    f"| {entry['name']} | {entry['repo_identifier'] or ''} | {urls} |"
+                )
+            lines.append("")
+        return "\n".join(lines)
 
     def update_doc(self, target, id, data, page, enrich_counter):
         document = {
@@ -220,27 +372,27 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
             if match:
                 repo_identifier_parts = match.groups()[-1].split("/")
                 repo_identifier = "/".join(repo_identifier_parts[0:2])
-                return repo_identifier
+                return clean_repo_identifier(repo_identifier)
 
             # Try git:// URL (common in npm packages)
             match = github_git_regex.match(url)
             if match:
-                return match.group(1)
+                return clean_repo_identifier(match.group(1))
 
             # Try git+https:// URL (common in npm packages)
             match = github_git_https_regex.match(url)
             if match:
-                return match.group(1)
+                return clean_repo_identifier(match.group(1))
 
             # Try git+ssh:// URL
             match = github_git_ssh_regex.match(url)
             if match:
-                return match.group(1)
+                return clean_repo_identifier(match.group(1))
 
             # Try git@github.com: URL (SSH format)
             match = github_ssh_regex.match(url)
             if match:
-                return match.group(1)
+                return clean_repo_identifier(match.group(1))
 
         logger.info(f"no github url repository found for {data.get('name')}")
         return None
@@ -339,7 +491,12 @@ def run_command(args):
     resolve_profile_and_target(args)
 
     enricher = Enricher()
-    enricher.run(target=args.target, package_name=args.name, verbose=args.verbose)
+    enricher.run(
+        target=args.target,
+        package_name=args.name,
+        verbose=args.verbose,
+        report_dir=getattr(args, "report_dir", "."),
+    )
 
 
 def main():
@@ -360,6 +517,12 @@ def main():
         "--verbose",
         help="Show raw data from Typesense (PyPI) and GitHub API",
         action="store_true",
+    )
+    parser.add_argument(
+        "--report-dir",
+        help="Directory for the github_problems.{json,md} reports (default: current directory)",
+        type=str,
+        default=".",
     )
     args = parser.parse_args()
     run_command(args)

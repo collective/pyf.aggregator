@@ -431,6 +431,7 @@ uv run pyfa github -t <collection_name>
 | `-t`, `--target` | Target Typesense collection name (auto-set from profile if not specified) |
 | `-n`, `--name` | Single package name to enrich (enriches only this package) |
 | `-v`, `--verbose` | Show raw data from Typesense (PyPI) and GitHub API |
+| `--report-dir` | Directory for the problematic-repositories reports (default: current directory) |
 
 **Examples:**
 
@@ -463,6 +464,29 @@ This adds the following fields to each package (if a GitHub repository is found)
 - `contributors` - Array of top 5 contributors with `username`, `avatar_url`, and `contributions` count
 
 **Note:** GitHub enrichment cache is shared across all profiles to minimize API calls.
+
+#### Problematic repository reports
+
+Packages whose GitHub repository cannot be enriched are collected and, at the end
+of a run, written to two report files (only when there is at least one problem):
+
+- `github_problems.json` — structured data (package name, resolved repo identifier,
+  candidate URLs, and reason) for programmatic analysis.
+- `github_problems.md` — a human-readable table grouped by reason.
+
+Use `--report-dir` to control where these files are written (defaults to the
+current directory).
+
+Each problem is categorized by **reason**:
+
+| Reason | Meaning | Typical fix |
+|--------|---------|-------------|
+| `no_repo_url` | No GitHub URL found in the package metadata (`home_page`, `project_url`, `project_urls`, ...) | Add a repository URL to the package's metadata on PyPI/npm |
+| `malformed_identifier` | A GitHub URL was found but it does not resolve to a real `owner/repo` (e.g. `github.com/sponsors/...`, a single path segment, or a reserved path) | Correct the repository URL in the package metadata |
+| `not_found` | A valid `owner/repo` identifier was resolved but GitHub returned 404 (repo deleted, renamed, or a typo) | Verify/rename the repository or fix the typo in the metadata |
+
+URL fragments (e.g. `#readme`) and query strings (e.g. `?tab=readme`) are
+automatically stripped from extracted identifiers before querying GitHub.
 
 ### pyfa manage
 

@@ -146,7 +146,7 @@ class TestGithubDefaultProfile:
                 # Verify profile was loaded from env var
                 mock_profile_manager.get_profile.assert_called_with("plone")
                 mock_enricher_instance.run.assert_called_once_with(
-                    target="plone", package_name=None, verbose=False
+                    target="plone", package_name=None, verbose=False, report_dir="."
                 )
 
     def test_cli_p_arg_overrides_default_profile_env(self, monkeypatch):
@@ -180,7 +180,7 @@ class TestGithubDefaultProfile:
                 # Verify django was used, not plone from env
                 mock_profile_manager.get_profile.assert_called_with("django")
                 mock_enricher_instance.run.assert_called_once_with(
-                    target="django", package_name=None, verbose=False
+                    target="django", package_name=None, verbose=False, report_dir="."
                 )
 
     def test_error_message_mentions_default_profile(self, monkeypatch):
