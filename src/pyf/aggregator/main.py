@@ -78,7 +78,7 @@ def run_refresh_mode(settings):
     stats = {"updated": 0, "deleted": 0, "failed": 0, "skipped": 0}
     packages_to_delete = []
 
-    max_workers = int(os.getenv("PYPI_MAX_WORKERS", 20))
+    max_workers = int(os.getenv("PYPI_MAX_WORKERS", 50))
 
     def process_package(package_name):
         """Process a single package - fetch ALL versions from PyPI."""

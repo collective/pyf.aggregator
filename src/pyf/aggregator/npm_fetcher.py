@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pyf.aggregator.logger import logger
+from pyf.aggregator.ratelimit import TokenBucket
 from requests.adapters import HTTPAdapter
 from urllib.parse import quote
 
@@ -63,38 +64,6 @@ JSDELIVR_CDN_URL = os.getenv("JSDELIVR_CDN_URL", "https://cdn.jsdelivr.net/npm")
 NPM_PLUGINS = []
 
 
-class _TokenBucket:
-    """Thread-safe average-rate limiter that does not serialize concurrency.
-
-    Unlike a fixed inter-request delay, a token bucket lets many requests run
-    at once as long as their average rate stays under ``rate_per_sec``. A rate
-    of 0 (or less) disables limiting entirely.
-    """
-
-    def __init__(self, rate_per_sec):
-        self._rate = float(rate_per_sec)
-        self._capacity = max(1.0, self._rate)
-        self._tokens = self._capacity
-        self._last = time.monotonic()
-        self._lock = threading.Lock()
-
-    def acquire(self):
-        if self._rate <= 0:
-            return
-        while True:
-            with self._lock:
-                now = time.monotonic()
-                self._tokens = min(
-                    self._capacity, self._tokens + (now - self._last) * self._rate
-                )
-                self._last = now
-                if self._tokens >= 1.0:
-                    self._tokens -= 1.0
-                    return
-                wait = (1.0 - self._tokens) / self._rate
-            time.sleep(wait)
-
-
 class NpmAggregator:
     """Fetches package metadata from npm registry."""
 
@@ -123,7 +92,7 @@ class NpmAggregator:
         self._fetch_counter = 0
         self._fetch_counter_lock = threading.Lock()
         self._total_packages = 0
-        self._limiter = _TokenBucket(NPM_MAX_RPS)
+        self._limiter = TokenBucket(NPM_MAX_RPS)
         # Registry session carries auth + identifying UA; connection-pooled to the
         # worker count so concurrent requests reuse connections.
         self._session = self._build_session(with_auth=True)

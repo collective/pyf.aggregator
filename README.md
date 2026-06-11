@@ -59,12 +59,15 @@ GITHUB_TOKEN=<your_secret_github_apikey>
 GITHUB_REQUEST_DELAY=0.75
 
 # PyPI Configuration
-# PyPI JSON API has no formal rate limit (CDN cached), default 0.001s = ~1000 req/s
-PYPI_RATE_LIMIT_DELAY=0.001
+# PyPI JSON/Simple APIs are CDN-backed with no formal per-IP rate limit. Throughput
+# is driven by concurrency (PYPI_MAX_WORKERS) over a connection-pooled session;
+# PYPI_MAX_RPS optionally caps the average request rate via a token bucket WITHOUT
+# serializing the concurrent requests (0 = no cap). HTTP 429 is honored.
+PYPI_MAX_RPS=0                         # Average req/sec cap; 0 = unlimited (bounded by workers)
 PYPI_MAX_RETRIES=3
 PYPI_RETRY_BACKOFF=2.0
-# Number of parallel threads for fetching (default 20, increase for faster fetching)
-PYPI_MAX_WORKERS=20
+# Number of parallel threads for fetching (default 50, increase for faster fetching)
+PYPI_MAX_WORKERS=50
 # Batch size for memory-efficient fetching (default 500)
 PYPI_BATCH_SIZE=500
 
@@ -121,6 +124,21 @@ CELERY_TASK_TIME_LIMIT=600             # Hard time limit in seconds (10 min)
 # CLI -p argument always takes precedence over this setting
 # DEFAULT_PROFILE=plone
 ```
+
+### PyPI Throughput
+
+The PyPI JSON/Simple APIs are Fastly-CDN-backed and impose **no formal per-IP rate
+limit** (see [docs.pypi.org/api](https://docs.pypi.org/api/)). A full index fetch must
+read every project's metadata to check the `Framework :: Plone` classifier, so speed
+matters.
+
+**Throughput model**: Speed is driven by **concurrency** — the thread pool runs up to
+`PYPI_MAX_WORKERS` (default 50) requests at once over a **connection-pooled
+`requests.Session`**, so concurrent requests reuse keep-alive connections instead of
+paying a fresh TCP+TLS handshake per request. `PYPI_MAX_RPS` optionally caps the
+*average* request rate through a token bucket *without* serializing those concurrent
+requests (set to `0`, the default, for no cap — concurrency is then bounded only by the
+worker count). HTTP 429 responses are always honored via the `Retry-After` header.
 
 ### npm Registry Rate Limits
 

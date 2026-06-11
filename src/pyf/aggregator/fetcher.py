@@ -6,6 +6,8 @@ from importlib.metadata import version as _pkg_version
 from itertools import islice
 from pathlib import Path
 from pyf.aggregator.logger import logger
+from pyf.aggregator.ratelimit import TokenBucket
+from requests.adapters import HTTPAdapter
 
 import feedparser
 import os
@@ -33,14 +35,20 @@ USER_AGENT = (
     f"pyf.aggregator/{_VERSION} (+https://github.com/collective/pyf.aggregator)"
 )
 
-# Rate limiting configuration from environment
-# PyPI JSON API has no formal rate limits due to CDN caching (per docs.pypi.org/api/)
-# Default 0.001s delay = ~1000 req/s max, the code handles 429 responses gracefully
-PYPI_RATE_LIMIT_DELAY = float(os.getenv("PYPI_RATE_LIMIT_DELAY", 0.001))
+# Throughput configuration from environment.
+# The PyPI JSON/Simple APIs are Fastly-CDN-backed and have no formal per-IP rate
+# limit (per docs.pypi.org/api/). Speed is driven by concurrency: the thread
+# pool runs up to PYPI_MAX_WORKERS requests at once over a connection-pooled
+# session (keep-alive avoids a fresh TLS handshake per request). PYPI_MAX_RPS
+# optionally caps the *average* request rate via a token bucket WITHOUT
+# serializing those concurrent requests; 0 (the default) disables the cap,
+# leaving concurrency bounded only by PYPI_MAX_WORKERS. 429 responses are always
+# honored via Retry-After.
+PYPI_MAX_RPS = float(os.getenv("PYPI_MAX_RPS", 0))
 PYPI_MAX_RETRIES = int(os.getenv("PYPI_MAX_RETRIES", 3))
 PYPI_RETRY_BACKOFF = float(os.getenv("PYPI_RETRY_BACKOFF", 2.0))
-# Number of parallel threads for fetching package metadata (default 20)
-PYPI_MAX_WORKERS = int(os.getenv("PYPI_MAX_WORKERS", 20))
+# Number of parallel threads for fetching package metadata (default 50)
+PYPI_MAX_WORKERS = int(os.getenv("PYPI_MAX_WORKERS", 50))
 # Batch size for memory-efficient parallel fetching (default 500)
 PYPI_BATCH_SIZE = int(os.getenv("PYPI_BATCH_SIZE", 500))
 
@@ -63,11 +71,25 @@ class Aggregator:
         self.filter_troove = filter_troove
         self.skip_github = skip_github
         self.limit = limit
-        self._last_request_time = 0
-        self._rate_limit_lock = threading.Lock()
         self._fetch_counter = 0
         self._fetch_counter_lock = threading.Lock()
         self._total_packages = 0
+        self._limiter = TokenBucket(PYPI_MAX_RPS)
+        # Connection-pooled session sized to the worker count so concurrent
+        # requests reuse keep-alive connections instead of doing a fresh
+        # TCP+TLS handshake each time. UA identifies us per docs.pypi.org/api/.
+        self._session = self._build_session()
+
+    def _build_session(self):
+        """Build a connection-pooled requests.Session sized to the worker count."""
+        session = requests.Session()
+        adapter = HTTPAdapter(
+            pool_connections=PYPI_MAX_WORKERS, pool_maxsize=PYPI_MAX_WORKERS
+        )
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        session.headers["User-Agent"] = USER_AGENT
+        return session
 
     def __iter__(self):
         """create all json for every package release"""
@@ -237,19 +259,18 @@ class Aggregator:
         logger.info("Fetching package list from PyPI Simple API...")
 
         pypi_index_url = self.pypi_base_url + "/simple"
-        # Use PyPI Simple API JSON format
-        headers = {
-            "Accept": "application/vnd.pypi.simple.v1+json",
-            "User-Agent": USER_AGENT,
-        }
+        # Use PyPI Simple API JSON format (UA is set on the session)
+        headers = {"Accept": "application/vnd.pypi.simple.v1+json"}
 
         # Fetch with retry/backoff so a transient failure doesn't abort the run.
         request_obj = None
         retries = 0
         while retries <= PYPI_MAX_RETRIES:
-            self._apply_rate_limit()
+            self._limiter.acquire()
             try:
-                request_obj = requests.get(pypi_index_url, headers=headers, timeout=30)
+                request_obj = self._session.get(
+                    pypi_index_url, headers=headers, timeout=30
+                )
             except requests.exceptions.RequestException as e:
                 logger.warning(f'Request error fetching "{pypi_index_url}": {e}')
                 request_obj = None
@@ -385,15 +406,6 @@ class Aggregator:
                 since,
             )
 
-    def _apply_rate_limit(self):
-        """Apply rate limiting delay between PyPI API requests (thread-safe)."""
-        with self._rate_limit_lock:
-            elapsed = time.time() - self._last_request_time
-            if elapsed < PYPI_RATE_LIMIT_DELAY:
-                sleep_time = PYPI_RATE_LIMIT_DELAY - elapsed
-                time.sleep(sleep_time)
-            self._last_request_time = time.time()
-
     def _get_pypi_json(self, package_id, release_id=""):
         """Get JSON for a package release with rate limiting and error handling.
 
@@ -407,7 +419,9 @@ class Aggregator:
         with self._fetch_counter_lock:
             self._fetch_counter += 1
             counter = self._fetch_counter
-        logger.info(f"[{counter}] fetch data from pypi for: {package_id}")
+        # Per-request line is debug: a full run issues hundreds of thousands of
+        # these. Aggregate progress is logged every 100 packages in _all_packages.
+        logger.debug(f"[{counter}] fetch data from pypi for: {package_id}")
         package_url = self.pypi_base_url + "/pypi/" + package_id
         if release_id:
             package_url += "/" + release_id
@@ -415,13 +429,11 @@ class Aggregator:
 
         retries = 0
         while retries <= PYPI_MAX_RETRIES:
-            # Apply rate limiting
-            self._apply_rate_limit()
+            # Pace via the token bucket (no-op when PYPI_MAX_RPS <= 0)
+            self._limiter.acquire()
 
             try:
-                request_obj = requests.get(
-                    package_url, headers={"User-Agent": USER_AGENT}, timeout=30
-                )
+                request_obj = self._session.get(package_url, timeout=30)
             except requests.exceptions.Timeout:
                 logger.warning(f'Timeout fetching URL "{package_url}"')
                 retries += 1
@@ -550,8 +562,8 @@ class Aggregator:
         """
         logger.info(f"Fetching RSS feed: {feed_url}")
 
-        # Apply rate limiting
-        self._apply_rate_limit()
+        # Pace via the token bucket (no-op when PYPI_MAX_RPS <= 0)
+        self._limiter.acquire()
 
         retries = 0
         while retries <= PYPI_MAX_RETRIES:

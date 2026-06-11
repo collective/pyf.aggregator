@@ -829,7 +829,7 @@ def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
         stats = {"total": total, "updated": 0, "deleted": 0, "failed": 0, "skipped": 0}
         packages_to_delete = []
 
-        max_workers = int(os.getenv("PYPI_MAX_WORKERS", 20))
+        max_workers = int(os.getenv("PYPI_MAX_WORKERS", 50))
 
         def process_package(package_name):
             """Process a single package - fetch from PyPI and return result."""

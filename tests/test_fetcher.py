@@ -11,11 +11,13 @@ This module tests:
 
 import time
 import pytest
+import requests
 import responses
 from unittest.mock import patch, MagicMock
 import re
 
-from pyf.aggregator.fetcher import Aggregator, PLONE_CLASSIFIER
+from pyf.aggregator.fetcher import Aggregator, PLONE_CLASSIFIER, PYPI_MAX_WORKERS
+from pyf.aggregator.ratelimit import TokenBucket
 
 
 class FeedParserEntry:
@@ -617,40 +619,54 @@ class TestPackageUpdates:
 
 
 class TestRateLimiting:
-    """Test the rate limiting functionality."""
+    """Test the rate limiting functionality (token-bucket based)."""
 
     @responses.activate
-    def test_applies_rate_limit_delay(
-        self, sample_pypi_json_plone, sample_pypi_json_non_plone, monkeypatch
-    ):
-        """Test that rate limiting delay is applied between requests."""
-        # Patch the rate limit delay to a testable value
-        monkeypatch.setattr("pyf.aggregator.fetcher.PYPI_RATE_LIMIT_DELAY", 0.1)
-
+    def test_disabled_by_default_no_throttle(self, sample_pypi_json_plone):
+        """With PYPI_MAX_RPS unset (0), requests are not paced."""
         responses.add(
             responses.GET,
             re.compile(r"https://pypi\.org/+pypi/plone\.api/json"),
             json=sample_pypi_json_plone,
             status=200,
         )
+
+        aggregator = Aggregator(mode="first")
+        assert aggregator._limiter._rate == 0
+        start_time = time.time()
+        for _ in range(5):
+            aggregator._get_pypi_json("plone.api")
+        assert time.time() - start_time < 0.5
+
+    @responses.activate
+    def test_token_bucket_paces_requests_beyond_capacity(self, sample_pypi_json_plone):
+        """A low PYPI_MAX_RPS throttles requests past the initial burst."""
         responses.add(
             responses.GET,
-            re.compile(r"https://pypi\.org/+pypi/requests/json"),
-            json=sample_pypi_json_non_plone,
+            re.compile(r"https://pypi\.org/+pypi/plone\.api/json"),
+            json=sample_pypi_json_plone,
             status=200,
         )
 
+        rate = 20
         aggregator = Aggregator(mode="first")
-        # Make two requests quickly
+        aggregator._limiter = TokenBucket(rate)
+        # Drain the full bucket (capacity == rate), then time the throttled tail.
+        for _ in range(rate):
+            aggregator._get_pypi_json("plone.api")
+        extra = 10
         start_time = time.time()
+        for _ in range(extra):
+            aggregator._get_pypi_json("plone.api")
+        assert time.time() - start_time >= extra / rate * 0.8
 
-        aggregator._get_pypi_json("plone.api")
-        aggregator._get_pypi_json("requests")
-
-        elapsed = time.time() - start_time
-
-        # Should have waited at least the rate limit delay between requests
-        assert elapsed >= 0.1
+    def test_uses_pooled_session_with_identifying_user_agent(self):
+        """The aggregator fetches over a pooled session that sets the UA header."""
+        aggregator = Aggregator(mode="first")
+        assert isinstance(aggregator._session, requests.Session)
+        assert "pyf.aggregator/" in aggregator._session.headers["User-Agent"]
+        adapter = aggregator._session.get_adapter("https://pypi.org/")
+        assert adapter._pool_maxsize == PYPI_MAX_WORKERS
 
 
 # ============================================================================
