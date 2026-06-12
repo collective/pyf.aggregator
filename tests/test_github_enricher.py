@@ -720,6 +720,118 @@ class TestSearchParameters:
 
 
 # ============================================================================
+# Not-found fallback to another version Tests
+# ============================================================================
+
+
+class TestNotFoundFallback:
+    """When the chosen version's repo 404s, fall back to a working link from
+    another version of the same package (newest working link first)."""
+
+    def _grouped(self, document):
+        return {
+            "found": 1,
+            "request_params": {"per_page": 50},
+            "grouped_hits": [{"hits": [{"document": document}]}],
+        }
+
+    def _versions(self, documents):
+        return {
+            "found": len(documents),
+            "request_params": {"per_page": 100},
+            "hits": [{"document": d} for d in documents],
+        }
+
+    def test_falls_back_to_working_repo_from_other_version(
+        self, enricher, sample_github_repo, sample_github_contributors, tmp_path
+    ):
+        """The newest version 404s but an older version has a working link."""
+        if hasattr(enricher._get_github_data, "cache"):
+            enricher._get_github_data.cache.clear()
+        sample_github_repo.get_contributors.return_value = sample_github_contributors
+
+        newest = {
+            "id": "my.pkg-2.0.0",
+            "name": "my.pkg",
+            "home_page": "https://github.com/old-org/my.pkg",  # 404
+        }
+        older = {
+            "id": "my.pkg-1.0.0",
+            "name": "my.pkg",
+            "home_page": "https://github.com/new-org/my.pkg",  # works
+        }
+
+        def mock_ts_search(target, search_parameters, page=1):
+            if "group_by" in search_parameters:
+                return self._grouped(newest)
+            return self._versions([newest, older])
+
+        from github import UnknownObjectException
+
+        def get_repo(identifier):
+            if identifier == "new-org/my.pkg":
+                return sample_github_repo
+            raise UnknownObjectException(404, "Not Found", {})
+
+        with patch("pyf.aggregator.enrichers.github.Github") as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.get_repo.side_effect = get_repo
+            mock_github_class.return_value = mock_github
+
+            enricher.ts_search = mock_ts_search
+            enricher.update_doc = MagicMock()
+
+            enricher.run("test_collection", report_dir=str(tmp_path))
+
+        # The working fallback link was used and the document was updated.
+        assert enricher.update_doc.call_count == 1
+        assert enricher.problems == []
+        mock_github.get_repo.assert_any_call("new-org/my.pkg")
+
+    def test_records_not_found_when_no_version_resolves(self, enricher, tmp_path):
+        """When every version's link 404s, the original problem is recorded."""
+        if hasattr(enricher._get_github_data, "cache"):
+            enricher._get_github_data.cache.clear()
+
+        newest = {
+            "id": "my.pkg-2.0.0",
+            "name": "my.pkg",
+            "home_page": "https://github.com/old-org/my.pkg",
+        }
+        older = {
+            "id": "my.pkg-1.0.0",
+            "name": "my.pkg",
+            "home_page": "https://github.com/other-org/my.pkg",
+        }
+
+        def mock_ts_search(target, search_parameters, page=1):
+            if "group_by" in search_parameters:
+                return self._grouped(newest)
+            return self._versions([newest, older])
+
+        from github import UnknownObjectException
+
+        with patch("pyf.aggregator.enrichers.github.Github") as mock_github_class:
+            mock_github = MagicMock()
+            mock_github.get_repo.side_effect = UnknownObjectException(
+                404, "Not Found", {}
+            )
+            mock_github_class.return_value = mock_github
+
+            enricher.ts_search = mock_ts_search
+            enricher.update_doc = MagicMock()
+
+            enricher.run("test_collection", report_dir=str(tmp_path))
+
+        assert enricher.update_doc.call_count == 0
+        assert len(enricher.problems) == 1
+        problem = enricher.problems[0]
+        assert problem["reason"] == "not_found"
+        # The originally-resolved identifier is the one reported.
+        assert problem["repo_identifier"] == "old-org/my.pkg"
+
+
+# ============================================================================
 # Full Enrichment Flow Tests
 # ============================================================================
 
