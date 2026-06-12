@@ -230,16 +230,38 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
                             package_repo_identifier, verbose=verbose
                         )
                         if not gh_data:
-                            self._record_problem(
-                                data, package_repo_identifier, "not_found"
+                            # The chosen version's repo URL 404s. Other versions
+                            # of the same package may carry a different, still
+                            # working link (e.g. the repo was renamed or moved
+                            # between releases). Fall back to the newest version
+                            # whose link actually resolves.
+                            fallback_identifier, gh_data = (
+                                self._find_working_repo_in_versions(
+                                    target,
+                                    data.get("name"),
+                                    tried={package_repo_identifier},
+                                    verbose=verbose,
+                                )
                             )
-                            logger.warning(
-                                f"GitHub repository not found for package "
-                                f"'{data.get('name')}': {package_repo_identifier}"
-                            )
-                            if verbose:
-                                print("--- No GitHub data available ---")
-                            continue
+                            if gh_data:
+                                logger.info(
+                                    f"GitHub repository '{package_repo_identifier}' "
+                                    f"not found for package '{data.get('name')}'; "
+                                    f"falling back to '{fallback_identifier}' from "
+                                    f"another version"
+                                )
+                                package_repo_identifier = fallback_identifier
+                            else:
+                                self._record_problem(
+                                    data, package_repo_identifier, "not_found"
+                                )
+                                logger.warning(
+                                    f"GitHub repository not found for package "
+                                    f"'{data.get('name')}': {package_repo_identifier}"
+                                )
+                                if verbose:
+                                    print("--- No GitHub data available ---")
+                                continue
 
                         if verbose:
                             print("\n--- Enrichment Result ---")
@@ -377,6 +399,60 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
     def ts_search(self, target, search_parameters, page=1):
         search_parameters["page"] = page
         return self.client.collections[target].documents.search(search_parameters)
+
+    def _version_repo_identifiers(self, target, package_name):
+        """Yield distinct, valid GitHub identifiers across all versions of a
+        package, newest version first.
+
+        Different releases of the same package may point at different repository
+        URLs (e.g. the repo was renamed or moved between releases). Walking every
+        version lets a release with a still-working link serve as a fallback.
+        """
+        seen = set()
+        search_parameters = {
+            "q": "*",
+            "query_by": "name",
+            "filter_by": f"name:={package_name}",
+            "sort_by": "upload_timestamp:desc",
+            "per_page": 100,
+        }
+        page = 1
+        while True:
+            results = self.ts_search(target, search_parameters, page)
+            hits = results.get("hits") or []
+            if not hits:
+                break
+            for hit in hits:
+                identifier = self.get_package_repo_identifier(hit["document"])
+                if (
+                    identifier
+                    and is_valid_repo_identifier(identifier)
+                    and identifier not in seen
+                ):
+                    seen.add(identifier)
+                    yield identifier
+            if len(hits) < search_parameters["per_page"]:
+                break
+            page += 1
+
+    def _find_working_repo_in_versions(
+        self, target, package_name, tried, verbose=False
+    ):
+        """Return ``(identifier, github_data)`` for the newest version whose
+        GitHub repository resolves, skipping identifiers already in ``tried``.
+
+        Returns ``(None, {})`` when no other version points at a resolvable repo.
+        """
+        if not package_name:
+            return None, {}
+        for identifier in self._version_repo_identifiers(target, package_name):
+            if identifier in tried:
+                continue
+            tried.add(identifier)
+            gh_data = self._get_github_data(identifier, verbose=verbose)
+            if gh_data:
+                return identifier, gh_data
+        return None, {}
 
     def get_package_repo_identifier(self, data):
         # Collect all potential URLs including npm-specific repository_url

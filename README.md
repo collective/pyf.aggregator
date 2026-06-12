@@ -546,10 +546,17 @@ Each problem is categorized by **reason**:
 |--------|---------|-------------|
 | `no_repo_url` | No GitHub URL found in the package metadata (`home_page`, `project_url`, `project_urls`, ...) | Add a repository URL to the package's metadata on PyPI/npm |
 | `malformed_identifier` | A GitHub URL was found but it does not resolve to a real `owner/repo` (e.g. `github.com/sponsors/...`, a single path segment, or a reserved path) | Correct the repository URL in the package metadata |
-| `not_found` | A valid `owner/repo` identifier was resolved but GitHub returned 404 (repo deleted, renamed, or a typo) | Verify/rename the repository or fix the typo in the metadata |
+| `not_found` | A valid `owner/repo` identifier was resolved but GitHub returned 404 for **every** version's link (repo deleted, renamed, or a typo) | Verify/rename the repository or fix the typo in the metadata |
 
 URL fragments (e.g. `#readme`) and query strings (e.g. `?tab=readme`) are
 automatically stripped from extracted identifiers before querying GitHub.
+
+**Fallback across versions:** enrichment uses the newest version of each
+package, but different releases can point at different repository URLs (e.g. the
+repo was renamed or moved between releases). When the newest version's link
+returns a 404, the enricher walks the package's other versions — newest first —
+and uses the first link that actually resolves. A package is only reported as
+`not_found` when **no** version has a working GitHub link.
 
 ### pyfa manage
 
