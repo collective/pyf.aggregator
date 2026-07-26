@@ -450,8 +450,19 @@ The `--refresh-from-npm` option iterates over all indexed npm packages and:
 2. Validates packages still match profile keywords/scopes
 3. Removes packages that return 404 or no longer match filters
 4. Preserves GitHub enrichment fields (stars, watchers, etc.) during refresh
+5. Removes stale npm documents of a refreshed package - versions that were
+   unpublished, and documents written under an older document-id scheme
+6. Runs the same plugin chain as a full fetch (version slicing, markdown
+   rendering, description splitting), so refreshed documents keep the required
+   `version_*` fields and the weighted search fields
 
 This is useful for keeping indexed data up-to-date and cleaning up packages that have been removed from npm or renamed.
+
+Refresh writes the same document ids as a full fetch (`@plone--volto-18.0.0`),
+so refreshing updates the existing documents instead of adding a second copy of
+every version. An index that was refreshed by an older release still holds
+duplicates under the previous `npm:<name>:<version>` ids; one
+`pyfa npm --refresh-from-npm -p <profile>` run removes them.
 
 **npm Search Criteria:**
 
@@ -894,6 +905,36 @@ Or get all packages regardless of registry:
 }
 ```
 
+**Registry Isolation:**
+
+npm and PyPI packages share one collection, so every maintenance job is scoped
+to its own registry:
+
+- `pyfa pypi --refresh-from-pypi` and the weekly Celery refresh skip npm-only
+  packages (they are not on PyPI and would otherwise be treated as deleted) and
+  never delete npm documents - not even for a name published in both registries.
+- `pyfa npm --refresh-from-npm` only deletes documents with `registry:=npm`.
+- `pyfa downloads` skips npm packages, because pypistats.org only tracks PyPI.
+- Every indexed document carries a `registry` field (`pypi` or `npm`), including
+  the ones written by the RSS-driven Celery tasks.
+
+Package names are backtick-quoted in `filter_by` expressions so scoped npm names
+(`@plone/volto`) are matched literally.
+
+**Recovering npm packages from an older index:**
+
+An index maintained by an earlier release can have lost its npm packages to a
+PyPI refresh run. Check what is left and re-fetch them:
+
+```shell
+# How many npm documents are in the collection?
+curl "$TYPESENSE_HOST/collections/plone/documents/search?q=*&query_by=name&filter_by=registry:=npm&per_page=0" \
+  -H "X-TYPESENSE-API-KEY: $TYPESENSE_API_KEY"
+
+# Re-fetch every npm package of the profile
+uv run pyfa npm -f -p plone
+```
+
 **List all profile collections:**
 
 ```shell
@@ -1131,9 +1172,14 @@ The project uses a queue-based architecture with Celery for improved scalability
 | `update_github` | Fetch GitHub repository data and update package in Typesense |
 | `read_rss_new_projects_and_queue` | Monitor RSS for new projects and queue inspection |
 | `read_rss_new_releases_and_queue` | Monitor RSS for new releases and queue inspection |
-| `refresh_all_indexed_packages` | Refresh all indexed packages from PyPI, remove packages returning 404 |
+| `refresh_all_indexed_packages` | Refresh all indexed packages from PyPI (npm packages are skipped), remove packages returning 404 |
 | `full_fetch_all_packages` | Full fetch of all packages (equivalent to `pyfa pypi -f -p <profile>`) |
-| `enrich_downloads_all_packages` | Enrich all packages with download stats from pypistats.org |
+| `enrich_downloads_all_packages` | Enrich all PyPI packages with download stats from pypistats.org |
+
+All tasks that write documents run the same plugin chain as a full fetch
+(version slicing, framework/Python versions, markdown rendering, description
+splitting). Those plugins fill fields the collection schema declares as
+required - a document indexed without them is rejected by Typesense.
 
 **Periodic Task Schedules:**
 

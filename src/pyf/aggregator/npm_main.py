@@ -15,15 +15,22 @@ Refresh mode:
     The --refresh-from-npm option iterates over all indexed npm packages and:
     1. Fetches fresh metadata from npm registry
     2. Validates packages still match profile keywords/scopes
-    3. Removes packages that return 404 or no longer match filters
-    4. Preserves GitHub enrichment fields (stars, watchers, etc.) during refresh
+    3. Removes packages that return 404 or no longer match filters (npm
+       documents only - a PyPI package of the same name is left alone)
+    4. Preserves the enrichment fields (GitHub stats, npm scores) during refresh
+    5. Writes the same document ids as a full fetch and drops the package's
+       stale npm documents, so a refresh never duplicates versions
 """
 
 from argparse import ArgumentParser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 from pyf.aggregator.logger import logger
-from pyf.aggregator.npm_fetcher import NpmAggregator, NPM_PLUGINS
+from pyf.aggregator.npm_fetcher import (
+    NpmAggregator,
+    NPM_PLUGINS,
+    npm_identifier,
+)
 from pyf.aggregator.npm_indexer import NpmIndexer
 
 import sys
@@ -39,24 +46,41 @@ GITHUB_FIELDS = [
     "contributors",
 ]
 
+# npm scores are only available from the search API, which the refresh does not
+# call. Together with the GitHub fields they would be lost on every refresh,
+# because an upsert replaces the whole document.
+NPM_SCORE_FIELDS = [
+    "npm_quality_score",
+    "npm_popularity_score",
+    "npm_maintenance_score",
+    "npm_final_score",
+]
+
+PRESERVED_FIELDS = GITHUB_FIELDS + NPM_SCORE_FIELDS
+
 
 def register_npm_plugins(settings):
     """Register plugins for npm package processing.
 
-    Uses the same plugins as PyPI where applicable.
+    Uses the same plugins as PyPI where applicable. The plugins are not
+    cosmetic: version_slicer fills the version_* fields, which the collection
+    schema declares as required. Documents built without them are rejected by
+    Typesense, so every mode that writes npm documents has to register them.
     """
     from pyf.aggregator.plugins import version_slicer
     from pyf.aggregator.plugins import rst_to_html
     from pyf.aggregator.plugins import description_splitter
 
-    # Version slicer works for npm versions too
-    NPM_PLUGINS.append(version_slicer.load(settings))
-
-    # RST to HTML handles markdown descriptions
-    NPM_PLUGINS.append(rst_to_html.load(settings))
-
-    # Description splitter extracts title, first_chapter, etc.
-    NPM_PLUGINS.append(description_splitter.load(settings))
+    # Swapped in as a whole so registering twice cannot stack the chain up and
+    # a concurrent reader never sees a half-built chain.
+    NPM_PLUGINS[:] = [
+        # Version slicer works for npm versions too
+        version_slicer.load(settings),
+        # RST to HTML handles markdown descriptions
+        rst_to_html.load(settings),
+        # Description splitter extracts title, first_chapter, etc.
+        description_splitter.load(settings),
+    ]
 
 
 def add_subcommand_args(parser):
@@ -94,31 +118,78 @@ def add_subcommand_args(parser):
 
 def get_npm_package_names(helper, collection_name):
     """Get unique npm package names from collection (registry=npm only)."""
-    unique_names = set()
-    page = 1
-    per_page = 250
-    while True:
-        result = helper.client.collections[collection_name].documents.search(
-            {
-                "q": "*",
-                "query_by": "name",
-                "filter_by": "registry:=npm",
-                "include_fields": "name",
-                "per_page": per_page,
-                "page": page,
-                "group_by": "name",
-                "group_limit": 1,
-            }
+    return helper.get_unique_package_names(collection_name, registry="npm")
+
+
+def collect_preserved_fields(helper, collection_name, package_name):
+    """Collect the enrichment-only fields of an indexed npm package.
+
+    Returns:
+        Dict of field values found on the package's npm documents.
+    """
+    preserved = {}
+    for doc in helper.get_documents_by_name(
+        collection_name, package_name, registry="npm"
+    ):
+        for field in PRESERVED_FIELDS:
+            if field not in preserved and doc.get(field):
+                preserved[field] = doc[field]
+    return preserved
+
+
+def build_refresh_batch(
+    agg, indexer, package_name, package_json, preserved_fields, readmes
+):
+    """Build the Typesense documents for every version of a refreshed package.
+
+    Args:
+        agg: NpmAggregator used to transform the registry payload.
+        indexer: NpmIndexer used to clean the documents.
+        package_name: npm package name.
+        package_json: Fresh package document from the npm registry.
+        preserved_fields: Enrichment fields carried over from the indexed
+            documents (GitHub stats, npm scores).
+        readmes: Mapping of version to its own README (from the CDN).
+
+    Returns:
+        List of cleaned documents, keyed by the same ids a full fetch writes.
+    """
+    versions = package_json.get("versions", {})
+    time_info = package_json.get("time", {})
+
+    batch = []
+    for version, version_data in versions.items():
+        transformed = agg._transform_npm_data(
+            package_name, version_data, time_info, package_json
         )
-        for group in result.get("grouped_hits", []):
-            for hit in group.get("hits", []):
-                name = hit.get("document", {}).get("name")
-                if name:
-                    unique_names.add(name)
-        if len(result.get("grouped_hits", [])) < per_page:
-            break
-        page += 1
-    return unique_names
+        if not transformed:
+            continue
+
+        transformed["upload_timestamp"] = agg._to_unix_ts(
+            transformed.get("upload_time")
+        )
+
+        # Override the (latest) package document readme with this version's own
+        readme = readmes.get(version)
+        if readme is not None:
+            transformed["description"] = readme
+
+        # Add GitHub fields from existing data
+        for field, value in preserved_fields.items():
+            transformed[field] = value
+
+        identifier = npm_identifier(package_name, version)
+        transformed["id"] = identifier
+        transformed["identifier"] = identifier
+
+        # Same plugin chain a full fetch runs - it fills the required
+        # version_* fields and the weighted description fields.
+        for plugin in NPM_PLUGINS:
+            plugin(identifier, transformed)
+
+        batch.append(indexer.clean_data(transformed))
+
+    return batch
 
 
 def run_npm_refresh_mode(settings):
@@ -128,12 +199,15 @@ def run_npm_refresh_mode(settings):
     - Gets all indexed npm package names from Typesense
     - Fetches fresh data from npm for each package
     - Validates packages still match profile keywords/scopes
-    - Deletes packages that return 404 or no longer match filters
-    - Preserves GitHub enrichment fields during refresh
+    - Deletes the npm documents of packages that return 404 or no longer match
+    - Preserves the enrichment fields (GitHub stats, npm scores) during refresh
     """
-    from pyf.aggregator.db import TypesenceConnection
+    from pyf.aggregator.db import TypesenceConnection, TypesensePackagesCollection
 
-    helper = TypesenceConnection()
+    class RefreshHelper(TypesenceConnection, TypesensePackagesCollection):
+        """Connection plus the registry-aware collection operations."""
+
+    helper = RefreshHelper()
     collection_name = settings["target"]
     limit = settings.get("limit", 0)
     filter_name = settings.get("filter_name", "")
@@ -191,25 +265,11 @@ def run_npm_refresh_mode(settings):
                 # Package no longer matches profile filters
                 return ("delete", package_name, "no longer matches profile filters")
 
-            # Get existing document to preserve GitHub fields
-            existing_docs = helper.client.collections[collection_name].documents.search(
-                {
-                    "q": package_name,
-                    "query_by": "name",
-                    "filter_by": f"name:={package_name} && registry:=npm",
-                    "per_page": 100,
-                }
+            # Carry the enrichment-only fields (GitHub stats, npm scores) over
+            # from the indexed documents - the upsert would drop them otherwise.
+            preserved_fields = collect_preserved_fields(
+                helper, collection_name, package_name
             )
-
-            # Collect GitHub field values from existing docs
-            github_data = {}
-            for hit in existing_docs.get("hits", []):
-                doc = hit.get("document", {})
-                for field in GITHUB_FIELDS:
-                    if field in doc and doc[field]:
-                        github_data[field] = doc[field]
-                if github_data:
-                    break  # Got data from first doc with GitHub fields
 
             # Fetch each version's own README (the registry only serves the
             # latest version's readme). Done here in the parallel worker so the
@@ -219,7 +279,7 @@ def run_npm_refresh_mode(settings):
                 for version in package_json.get("versions", {})
             }
 
-            return ("update", package_name, package_json, github_data, readmes)
+            return ("update", package_name, package_json, preserved_fields, readmes)
 
         except Exception as e:
             return ("error", package_name, str(e))
@@ -245,23 +305,21 @@ def run_npm_refresh_mode(settings):
                 logger.info(f"Will delete {pkg_name}: {reason}")
             elif action == "update":
                 package_json = result[2]
-                github_data = result[3]
+                preserved_fields = result[3]
                 readmes = result[4]
                 packages_to_update.append(
-                    (pkg_name, package_json, github_data, readmes)
+                    (pkg_name, package_json, preserved_fields, readmes)
                 )
             elif action == "error":
                 error = result[2]
                 stats["failed"] += 1
                 logger.error(f"Error processing {pkg_name}: {error}")
 
-    # Delete packages that no longer match
+    # Delete packages that no longer match. Only npm documents are removed -
+    # a PyPI package published under the same name has to survive.
     for pkg_name in packages_to_delete:
         try:
-            # Delete all versions of this package
-            helper.client.collections[collection_name].documents.delete(
-                {"filter_by": f"name:={pkg_name} && registry:=npm"}
-            )
+            helper.delete_package_by_name(collection_name, pkg_name, registry="npm")
             stats["deleted"] += 1
             logger.info(f"Deleted package: {pkg_name}")
         except Exception as e:
@@ -269,42 +327,26 @@ def run_npm_refresh_mode(settings):
             logger.error(f"Error deleting {pkg_name}: {e}")
 
     # Update packages with fresh data
-    for pkg_name, package_json, github_data, readmes in packages_to_update:
+    for pkg_name, package_json, preserved_fields, readmes in packages_to_update:
         try:
-            # Process all versions using aggregator's logic
-            versions = package_json.get("versions", {})
-            time_info = package_json.get("time", {})
-
-            batch = []
-            for version, version_data in versions.items():
-                # Transform to our schema
-                transformed = agg._transform_npm_data(
-                    pkg_name, version_data, time_info, package_json
-                )
-                if not transformed:
-                    continue
-
-                # Override the (latest) package document readme with this version's own
-                readme = readmes.get(version)
-                if readme is not None:
-                    transformed["description"] = readme
-
-                # Add GitHub fields from existing data
-                for field, value in github_data.items():
-                    transformed[field] = value
-
-                # Create identifier
-                # Sanitize package name for Typesense document ID (replace / with --)
-                safe_pkg_name = pkg_name.replace("/", "--")
-                identifier = f"npm:{safe_pkg_name}:{version}"
-                transformed["id"] = identifier
-                transformed["identifier"] = identifier
-
-                # Clean and add to batch
-                transformed = indexer.clean_data(transformed)
-                batch.append(transformed)
+            batch = build_refresh_batch(
+                agg, indexer, pkg_name, package_json, preserved_fields, readmes
+            )
 
             if batch:
+                # Drop the package's npm documents that are not part of this
+                # batch: unpublished versions and documents written under an
+                # older id scheme would otherwise linger as duplicates.
+                fresh_ids = {doc["id"] for doc in batch}
+                for stale_id in helper.get_package_document_ids(
+                    collection_name, pkg_name, registry="npm"
+                ):
+                    if stale_id not in fresh_ids:
+                        helper.client.collections[collection_name].documents[
+                            stale_id
+                        ].delete()
+                        logger.info(f"Removed stale document: {stale_id}")
+
                 indexer.index_data(batch, len(batch), collection_name)
                 stats["updated"] += 1
                 logger.info(f"Updated package: {pkg_name} ({len(batch)} versions)")
@@ -379,13 +421,14 @@ def run_command(args):
     if settings["limit"]:
         logger.info(f"Limiting to {settings['limit']} packages")
 
+    # Register plugins. Refresh mode needs them too: without version_slicer the
+    # documents lack the required version_* fields and Typesense rejects them.
+    register_npm_plugins(settings)
+
     # Handle refresh mode separately
     if mode == "refresh":
         run_npm_refresh_mode(settings)
         return
-
-    # Register plugins
-    register_npm_plugins(settings)
 
     # Create aggregator
     agg = NpmAggregator(

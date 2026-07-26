@@ -64,6 +64,16 @@ JSDELIVR_CDN_URL = os.getenv("JSDELIVR_CDN_URL", "https://cdn.jsdelivr.net/npm")
 NPM_PLUGINS = []
 
 
+def npm_identifier(package_name, version):
+    """Build the Typesense document id for an npm package version.
+
+    Scoped names carry a ``/`` which is not allowed in a document id, so it is
+    replaced by ``--``. Every writer (full fetch, refresh) must use this so a
+    refresh updates the documents a full fetch wrote instead of duplicating them.
+    """
+    return f"{package_name.replace('/', '--')}-{version}"
+
+
 class NpmAggregator:
     """Fetches package metadata from npm registry."""
 
@@ -670,7 +680,6 @@ class NpmAggregator:
 
         extra_data = self._extract_scores(search_result)
         time_info = package_json.get("time", {})
-        safe_name = package_name.replace("/", "--")
 
         records = []
         for version, version_data in package_json.get("versions", {}).items():
@@ -684,7 +693,7 @@ class NpmAggregator:
                 data.update(extra_data)
             records.append(
                 {
-                    "identifier": f"{safe_name}-{version}",
+                    "identifier": npm_identifier(package_name, version),
                     "name": package_name,
                     "version": version,
                     "data": data,

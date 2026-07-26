@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 from github import Github
 from github import RateLimitExceededException
 from github import UnknownObjectException
-from pyf.aggregator.db import TypesenceConnection, TypesensePackagesCollection
 from pyf.aggregator.fetcher import Aggregator
+from pyf.aggregator.indexer import Indexer
 from pyf.aggregator.logger import logger
 
 import os
@@ -101,27 +101,29 @@ app.conf.update(
 #### Celery tasks
 
 
-class PackageIndexer(TypesenceConnection, TypesensePackagesCollection):
-    """Helper class for indexing packages to Typesense within Celery tasks."""
+def apply_plugins(identifier, data):
+    """Run the plugin chain a full fetch runs over a single document.
 
-    def clean_data(self, data):
-        """Clean data for Typesense indexing - ensure no None values.
+    The plugins fill fields the collection schema declares as required
+    (``version_*``, ``framework_versions``, ``python_versions``), so a document
+    built without them is rejected by Typesense.
+    """
+    from pyf.aggregator.fetcher import PLUGINS
+    from pyf.aggregator.plugins import register_plugins
 
-        Based on Indexer.clean_data() pattern from indexer.py.
-        """
-        list_fields = ["requires_dist", "classifiers"]
-        for key, value in data.items():
-            if key in list_fields and value is None:
-                data[key] = []
-                continue
-            if key == "upload_timestamp":
-                # Use 0 for missing timestamps (sorts to bottom in desc order)
-                if value is None or value == "":
-                    data[key] = 0
-                continue
-            if value is None:
-                data[key] = ""
-        return data
+    if not PLUGINS:
+        register_plugins(PLUGINS, {})
+    for plugin in PLUGINS:
+        plugin(identifier, data)
+
+
+class PackageIndexer(Indexer):
+    """Helper class for indexing packages to Typesense within Celery tasks.
+
+    Cleaning is inherited from ``Indexer`` so the documents written here are
+    identical to the ones a full fetch writes - the two used to drift apart,
+    which produced documents Typesense rejects.
+    """
 
     def index_single(self, data, target):
         """Index a single document to Typesense.
@@ -225,6 +227,7 @@ def inspect_project(self, package_data):
 
         # Index to Typesense
         indexer = PackageIndexer()
+        apply_plugins(identifier, data)
         data = indexer.clean_data(data)
         indexer.index_single(data, TYPESENSE_COLLECTION)
 
@@ -306,6 +309,7 @@ def update_project(self, package_id):
 
         # Index to Typesense
         indexer = PackageIndexer()
+        apply_plugins(identifier, data)
         data = indexer.clean_data(data)
         indexer.index_single(data, TYPESENSE_COLLECTION)
 
@@ -443,9 +447,12 @@ def _get_package_repo_identifier(data):
     Returns:
         str: GitHub repo identifier (e.g., "plone/plone.api") or None if not found.
     """
-    urls = [data.get("home_page"), data.get("project_url"), data.get("url")] + list(
-        (data.get("project_urls") or {}).values()
-    )
+    urls = [
+        data.get("home_page"),
+        data.get("project_url"),
+        data.get("url"),
+        data.get("repository_url"),  # npm packages carry their repo here
+    ] + list((data.get("project_urls") or {}).values())
     for url in urls:
         if not url:
             continue
@@ -820,9 +827,12 @@ def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
         indexer = PackageIndexer()
         aggregator = Aggregator(mode="first", filter_troove=filter_troove)
 
-        # Get all unique package names
+        # Get all unique package names. npm-only packages are skipped: they are
+        # not on PyPI, so refreshing them would only ever mark them for deletion.
         logger.info(f"Fetching unique package names from collection '{collection}'...")
-        package_names = indexer.get_unique_package_names(collection)
+        package_names = indexer.get_unique_package_names(
+            collection, exclude_registry="npm"
+        )
         total = len(package_names)
         logger.info(f"Found {total} unique packages to refresh")
 
@@ -886,7 +896,7 @@ def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
                 # Preserve existing GitHub fields
                 try:
                     existing_docs = indexer.get_documents_by_name(
-                        collection, package_name
+                        collection, package_name, exclude_registry="npm"
                     )
                     if existing_docs:
                         newest_doc = existing_docs[0]
@@ -956,7 +966,9 @@ def refresh_all_indexed_packages(self, collection_name=None, profile_name=None):
             logger.info(f"Deleting {len(packages_to_delete)} packages from index...")
             for package_name in packages_to_delete:
                 try:
-                    indexer.delete_package_by_name(collection, package_name)
+                    indexer.delete_package_by_name(
+                        collection, package_name, exclude_registry="npm"
+                    )
                     stats["deleted"] += 1
                 except Exception as e:
                     stats["failed"] += 1

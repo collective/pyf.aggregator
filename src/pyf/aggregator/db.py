@@ -13,6 +13,15 @@ TYPESENSE_API_KEY = os.getenv("TYPESENSE_API_KEY")
 TYPESENSE_TIMEOUT = os.getenv("TYPESENSE_TIMEOUT")
 
 
+def filter_value(value):
+    """Quote a value for use in a Typesense ``filter_by`` expression.
+
+    npm package names carry characters that are meaningful to the filter
+    parser (``@plone/volto``), so values are always backtick-quoted.
+    """
+    return "`{}`".format(str(value).replace("`", ""))
+
+
 def parse_versioned_name(collection_name):
     """Parse 'name-N' into ('name', N). Returns (name, None) if no version suffix."""
     if "-" in collection_name:
@@ -238,23 +247,36 @@ class TypesensePackagesCollection:
         """Delete a collection by name."""
         return self.client.collections[name].delete()
 
-    def get_unique_package_names(self, collection_name):
-        """Get all unique package names from a collection using grouped search."""
+    def get_unique_package_names(
+        self, collection_name, registry=None, exclude_registry=None
+    ):
+        """Get all unique package names from a collection using grouped search.
+
+        Args:
+            collection_name: Collection to list.
+            registry: Only names that have documents in this registry.
+            exclude_registry: Drop names whose documents *all* belong to this
+                registry. A name indexed from both registries is kept, because
+                its documents from the other registry still need maintenance.
+        """
         unique_names = set()
         page = 1
         per_page = 250
 
         while True:
+            search_parameters = {
+                "q": "*",
+                "query_by": "name",
+                "include_fields": "name",
+                "per_page": per_page,
+                "page": page,
+                "group_by": "name",
+                "group_limit": 1,
+            }
+            if registry:
+                search_parameters["filter_by"] = f"registry:={filter_value(registry)}"
             result = self.client.collections[collection_name].documents.search(
-                {
-                    "q": "*",
-                    "query_by": "name",
-                    "include_fields": "name",
-                    "per_page": per_page,
-                    "page": page,
-                    "group_by": "name",
-                    "group_limit": 1,
-                }
+                search_parameters
             )
 
             for group in result.get("grouped_hits", []):
@@ -267,13 +289,90 @@ class TypesensePackagesCollection:
                 break
             page += 1
 
+        if exclude_registry:
+            excluded = self.get_unique_package_names(
+                collection_name, registry=exclude_registry
+            )
+            unique_names = {
+                name
+                for name in unique_names
+                if name not in excluded
+                or self.get_package_document_ids(
+                    collection_name, name, exclude_registry=exclude_registry
+                )
+            }
+
         return unique_names
 
-    def delete_package_by_name(self, collection_name, package_name):
-        """Delete all versions of a package by name."""
-        return self.client.collections[collection_name].documents.delete(
-            {"filter_by": f"name:={package_name}"}
-        )
+    def get_package_document_ids(
+        self, collection_name, package_name, registry=None, exclude_registry=None
+    ):
+        """Get the document ids of a package, optionally restricted by registry.
+
+        ``exclude_registry`` is applied on the documents themselves rather than
+        as a ``!=`` filter, so legacy documents without a ``registry`` field are
+        treated as belonging to every other registry instead of being skipped.
+        """
+        filter_by = f"name:={filter_value(package_name)}"
+        if registry:
+            filter_by += f" && registry:={filter_value(registry)}"
+
+        ids = []
+        page = 1
+        per_page = 250
+        while True:
+            result = self.client.collections[collection_name].documents.search(
+                {
+                    "q": "*",
+                    "query_by": "name",
+                    "filter_by": filter_by,
+                    "include_fields": "id,registry",
+                    "per_page": per_page,
+                    "page": page,
+                }
+            )
+            hits = result.get("hits", [])
+            if not hits:
+                break
+            for hit in hits:
+                document = hit.get("document", {})
+                if exclude_registry and document.get("registry") == exclude_registry:
+                    continue
+                if document.get("id"):
+                    ids.append(document["id"])
+            if len(hits) < per_page:
+                break
+            page += 1
+
+        return ids
+
+    def delete_package_by_name(
+        self, collection_name, package_name, registry=None, exclude_registry=None
+    ):
+        """Delete versions of a package by name.
+
+        Args:
+            collection_name: Collection to delete from.
+            package_name: Package to delete.
+            registry: Only delete documents of this registry.
+            exclude_registry: Keep this registry's documents and delete the
+                rest. npm and PyPI share one collection, so a maintenance job
+                for one registry must never delete the other one's documents.
+        """
+        collection = self.client.collections[collection_name]
+
+        if exclude_registry:
+            ids = self.get_package_document_ids(
+                collection_name, package_name, exclude_registry=exclude_registry
+            )
+            for document_id in ids:
+                collection.documents[document_id].delete()
+            return {"num_deleted": len(ids)}
+
+        filter_by = f"name:={filter_value(package_name)}"
+        if registry:
+            filter_by += f" && registry:={filter_value(registry)}"
+        return collection.documents.delete({"filter_by": filter_by})
 
     def get_all_document_ids(self, collection_name):
         """Get all document IDs from a collection."""
@@ -301,15 +400,27 @@ class TypesensePackagesCollection:
 
         return ids
 
-    def get_documents_by_name(self, collection_name, package_name):
-        """Get all documents for a package by name, sorted by upload_timestamp desc."""
+    def get_documents_by_name(
+        self, collection_name, package_name, registry=None, exclude_registry=None
+    ):
+        """Get all documents for a package by name, sorted by upload_timestamp desc.
+
+        ``registry``/``exclude_registry`` narrow the result to one registry, so
+        callers do not read npm values off a PyPI package of the same name.
+        """
+        filter_by = f"name:={filter_value(package_name)}"
+        if registry:
+            filter_by += f" && registry:={filter_value(registry)}"
         result = self.client.collections[collection_name].documents.search(
             {
                 "q": package_name,
                 "query_by": "name",
-                "filter_by": f"name:={package_name}",
+                "filter_by": filter_by,
                 "sort_by": "upload_timestamp:desc",
                 "per_page": 100,
             }
         )
-        return [hit["document"] for hit in result.get("hits", [])]
+        documents = [hit["document"] for hit in result.get("hits", [])]
+        if exclude_registry:
+            documents = [d for d in documents if d.get("registry") != exclude_registry]
+        return documents

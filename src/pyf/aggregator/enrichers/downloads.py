@@ -75,6 +75,13 @@ class Enricher(TypesenceConnection, TypesensePackagesCollection):
                     if not package_name:
                         continue
 
+                    # pypistats only knows PyPI packages. Querying it for an npm
+                    # package either 404s or - when the name exists on PyPI too -
+                    # writes the wrong download numbers onto the npm document.
+                    if data.get("registry") == "npm":
+                        logger.debug(f"Skipping npm package: {package_name}")
+                        continue
+
                     # Check limit if set
                     if self.limit and enrich_counter >= self.limit:
                         logger.info(f"Reached limit of {self.limit} packages")
