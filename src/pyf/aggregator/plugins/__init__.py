@@ -10,9 +10,18 @@ from . import description_splitter
 
 
 def register_plugins(PLUGINS, settings):
-    # PLUGINS.append(load_curated(settings))
-    PLUGINS.append(version_slicer.load(settings))
-    PLUGINS.append(framwork_versions.load(settings))
-    PLUGINS.append(python_versions.load(settings))
-    PLUGINS.append(rst_to_html.load(settings))
-    PLUGINS.append(description_splitter.load(settings))
+    """Install the plugin chain into ``PLUGINS`` (in place).
+
+    Registering is idempotent: Celery workers are long-lived and register once
+    per task run, which would otherwise stack the chain up over time. The chain
+    is swapped in with a single slice assignment so a worker thread iterating
+    the list never observes a half-built chain.
+    """
+    PLUGINS[:] = [
+        # load_curated(settings),
+        version_slicer.load(settings),
+        framwork_versions.load(settings),
+        python_versions.load(settings),
+        rst_to_html.load(settings),
+        description_splitter.load(settings),
+    ]

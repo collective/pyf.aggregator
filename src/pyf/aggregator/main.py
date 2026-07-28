@@ -49,11 +49,14 @@ def run_refresh_mode(settings):
         )
         sys.exit(1)
 
-    # Get all unique package names
+    # Get all unique package names. npm-only packages are skipped: they are not
+    # on PyPI, so refreshing them would only ever mark them for deletion.
     logger.info(
         f"Fetching unique package names from collection '{settings['target']}'..."
     )
-    package_names = helper.get_unique_package_names(settings["target"])
+    package_names = helper.get_unique_package_names(
+        settings["target"], exclude_registry="npm"
+    )
     total = len(package_names)
     logger.info(f"Found {total} unique packages to refresh")
 
@@ -111,7 +114,7 @@ def run_refresh_mode(settings):
 
             # Fetch existing docs to preserve GitHub data
             existing_docs = helper.get_documents_by_name(
-                settings["target"], package_name
+                settings["target"], package_name, exclude_registry="npm"
             )
             preserved_fields = {}
             if existing_docs:
@@ -179,8 +182,12 @@ def run_refresh_mode(settings):
                 versions = result.get("versions", [])
                 if versions:
                     try:
-                        # Delete existing versions first (clean slate)
-                        helper.delete_package_by_name(settings["target"], package_name)
+                        # Delete existing versions first (clean slate), but keep
+                        # the npm documents of a package published under the
+                        # same name in both registries.
+                        helper.delete_package_by_name(
+                            settings["target"], package_name, exclude_registry="npm"
+                        )
 
                         # Batch upsert all versions
                         cleaned_versions = [indexer.clean_data(v) for v in versions]
@@ -220,7 +227,9 @@ def run_refresh_mode(settings):
         logger.info(f"Deleting {len(packages_to_delete)} packages from index...")
         for package_name in packages_to_delete:
             try:
-                helper.delete_package_by_name(settings["target"], package_name)
+                helper.delete_package_by_name(
+                    settings["target"], package_name, exclude_registry="npm"
+                )
                 stats["deleted"] += 1
                 logger.info(f"Deleted: {package_name}")
             except Exception as e:

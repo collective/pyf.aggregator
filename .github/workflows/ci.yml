@@ -12,8 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv tool run ruff check src tests
-      - run: uv tool run ruff format --check src tests
+      # Use the project's locked ruff, not `uv tool run` (which resolves to the
+      # latest release and drifts out from under CI).
+      - run: uv run --extra test ruff check src tests
+      - run: uv run --extra test ruff format --check src tests
 
   test:
     runs-on: ubuntu-latest

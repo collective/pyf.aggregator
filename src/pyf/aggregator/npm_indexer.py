@@ -71,10 +71,14 @@ class NpmIndexer(TypesenceConnection, TypesensePackagesCollection):
         res = self.client.collections[target].documents.import_(
             data, {"action": "upsert"}
         )
-        # Log any errors
+        # Log any errors. The count matters: a schema mismatch fails *every*
+        # document of the batch, which otherwise looks like a successful run.
         if isinstance(res, list):
             errors = [r for r in res if not r.get("success", True)]
             if errors:
+                logger.warning(
+                    f"{len(errors)}/{len(res)} documents rejected by Typesense"
+                )
                 for err in errors[:5]:
                     logger.warning(f"Index error: {err}")
 
