@@ -1290,14 +1290,20 @@ The project uses GitHub Actions for CI, running on every push and pull request t
 
 ```shell
 # Lint check
-uv tool run ruff check src tests
+uv run --extra test ruff check src tests
 
 # Format check
-uv tool run ruff format --check src tests
+uv run --extra test ruff format --check src tests
 
 # Run tests
 uv run --extra test pytest
 ```
+
+Lint runs through `uv run --extra test` rather than `uv tool run` so it uses the
+ruff version pinned in `uv.lock`. The enabled rules are set explicitly in
+`[tool.ruff.lint]` in `pyproject.toml` (`E4`, `E7`, `E9`, `F`); without that,
+ruff falls back to its built-in defaults, which grow with each release and would
+fail CI on code nobody touched.
 
 
 ## GUI

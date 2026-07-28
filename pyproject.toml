@@ -70,6 +70,16 @@ markers = [
     "integration: mark test as integration test requiring Typesense",
 ]
 
+[tool.ruff]
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# Pin the rule set explicitly. Without this, ruff falls back to its built-in
+# defaults, which widen from release to release -- CI runs an unpinned ruff, so
+# a new release would otherwise fail lint on untouched code.
+select = ["E4", "E7", "E9", "F"]
+
 [tool.isort]
 profile = "plone"
 src_paths = ["src", "tests"]
